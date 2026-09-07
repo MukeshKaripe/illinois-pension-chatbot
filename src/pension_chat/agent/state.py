@@ -85,6 +85,9 @@ class PensionAgentState(TypedDict, total=False):
     execution_blocked: str | None
 
     calculation_result: dict | None
+    # Comparisons the member asked for that could not be resolved to a
+    # retirement age — reported in the answer rather than dropped
+    unresolved_scenarios: list[dict]
 
     # ── Final Output ──────────────────────────────────────────────
     # Assembled by prepare_answer; the streaming layer sends these to the model.
@@ -144,6 +147,7 @@ def initial_state(
         "can_execute": False,
         "execution_blocked": None,
         "calculation_result": None,
+        "unresolved_scenarios": [],
         "answer_messages": [],
         "final_answer": None,
         "citations": [],

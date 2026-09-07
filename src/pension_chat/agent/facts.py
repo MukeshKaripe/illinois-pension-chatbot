@@ -116,7 +116,13 @@ def build_member_facts(
     service_years = Decimal(str(employee.get("total_service_years") or 0))
 
     if assumed_retirement_age is not None:
-        as_of = nth_birthday(birth_date, assumed_retirement_age)
+        # Clamped to today: a member who is already 56 asking about "retiring
+        # now at 56" means now, not the day they turned 56. Without the clamp
+        # the same question produced two different figures in one answer — the
+        # base calculation as of today ($32,126.78) and a "retire now" scenario
+        # as of the past birthday ($31,765.80), which differ because the months
+        # remaining before age 60 differ.
+        as_of = max(nth_birthday(birth_date, assumed_retirement_age), today)
         # Service keeps accruing while the member stays in service.
         if employee.get("employment_status") == "active" and as_of > today:
             extra_years = Decimal(str((as_of - today).days)) / Decimal("365.25")

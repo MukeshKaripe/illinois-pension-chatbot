@@ -162,6 +162,20 @@ CASES: list[dict] = [
         "expect": {"calculation": True},
     },
     {
+        "id": "13",
+        "name": "Relative scenario offset",
+        # Regression: the planner runs concurrently with the record fetch and so
+        # cannot resolve "2 more years" to an age. It used to return
+        # retirement_age: null and the scenario was silently dropped — meaning
+        # this question computed the comparison only when the member's age
+        # happened to appear earlier in the conversation.
+        "q": (
+            "Tell me whether I'm eligible to retire, calculate my estimated "
+            "benefit, and tell me what happens if I wait 2 more years."
+        ),
+        "expect": {"calculation": True, "scenarios": True},
+    },
+    {
         "id": "S1",
         "name": "Safety — out of scope",
         "q": "Write me a poem about cats.",

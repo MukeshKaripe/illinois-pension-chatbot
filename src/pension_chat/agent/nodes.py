@@ -85,15 +85,21 @@ Decide three things about the user's message:
    annual salary", "years of service" — not the user's paraphrase. Name the
    section number when the user gave one.
 
-Also extract any retirement-age scenarios the user asks you to compare
-("if I retire now, at 57, and at 60").
+Also extract any retirement-timing scenarios the user asks you to compare
+("if I retire now, at 57, and at 60", "what if I wait two more years").
+
+Scenarios take one of two forms, and you must not guess between them:
+  {"label": "at age 60", "retirement_age": 60}     when the user names an age
+  {"label": "in 2 years", "years_from_now": 2}     when the user names an offset
+You are NOT given the member's age, so never convert an offset into an age —
+emit "years_from_now" and it will be resolved against their record.
 
 Respond with JSON only:
 {
   "requires_calculation": true|false,
   "formula_types_needed": ["..."],
   "search_queries": ["...", "..."],
-  "scenarios": [{"label": "at age 60", "retirement_age": 60}]
+  "scenarios": [{"label": "...", "retirement_age": null, "years_from_now": null}]
 }
 Use an empty scenarios list when the user asks about a single point in time."""
 
@@ -105,6 +111,102 @@ _CALCULATION_SIGNALS = re.compile(
     r"benefit|annuity|my pension|per month|monthly|annual|compare|scenario)\b",
     re.IGNORECASE,
 )
+
+
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_COUNT = r"(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")"
+
+# Relative offsets: "wait 2 more years", "in three years", "5 years from now".
+_OFFSET_PATTERNS = [
+    re.compile(rf"\b(?:wait(?:ing)?|after|in)\s+(?:another\s+)?{_COUNT}\s+(?:more\s+)?years?\b", re.I),
+    re.compile(rf"\b{_COUNT}\s+(?:more\s+)?years?\s+from\s+now\b", re.I),
+]
+# Absolute ages: "at age 60", "when I reach 62", "at 57, at 59 and at 60".
+_AGE_PATTERNS = [
+    re.compile(r"\b(?:at|until|to|reach(?:ing|es)?|turn(?:ing|s)?)\s+age\s+(\d{2})\b", re.I),
+    re.compile(r"\b(?:reach(?:ing|es)?|turn(?:ing|s)?)\s+(\d{2})\b", re.I),
+    re.compile(r"\bat\s+(\d{2})\b", re.I),
+]
+_RETIRE_NOW = re.compile(r"\b(?:retire\s+now|right\s+now|retire\s+today|if\s+i\s+retire\s+now)\b", re.I)
+
+# Ages outside this band are not retirement ages — the guard stops "at 21.5
+# years of service" or a dollar figure being read as one.
+_PLAUSIBLE_AGE = range(45, 76)
+
+
+def _as_count(token: str) -> int | None:
+    token = token.strip().lower()
+    if token.isdigit():
+        return int(token)
+    return _NUMBER_WORDS.get(token)
+
+
+def extract_scenarios(question: str) -> list[dict]:
+    """Find retirement-timing scenarios in the question, without a model call.
+
+    The planner can also emit scenarios, but it runs concurrently with the
+    record fetch and therefore does not know the member's age — so it cannot
+    turn "wait 2 more years" into an absolute retirement age and returns null.
+    Detecting the offset here, and resolving it against the real age at
+    execution time, removes the model from a step it has no data for.
+    """
+    text = question or ""
+    scenarios: list[dict] = []
+    seen: set[tuple] = set()
+
+    def add(entry: dict, key: tuple):
+        if key not in seen:
+            seen.add(key)
+            scenarios.append(entry)
+
+    if _RETIRE_NOW.search(text):
+        add({"label": "retire now", "years_from_now": 0}, ("offset", 0))
+
+    for pattern in _OFFSET_PATTERNS:
+        for match in pattern.finditer(text):
+            count = _as_count(match.group(1))
+            if count is not None and 0 < count <= 40:
+                label = "in 1 year" if count == 1 else f"in {count} years"
+                add({"label": label, "years_from_now": count}, ("offset", count))
+
+    for pattern in _AGE_PATTERNS:
+        for match in pattern.finditer(text):
+            age = int(match.group(1))
+            if age in _PLAUSIBLE_AGE:
+                add({"label": f"at age {age}", "retirement_age": age}, ("age", age))
+
+    return scenarios
+
+
+def _merge_scenarios(deterministic: list[dict], planned: list[dict]) -> list[dict]:
+    """Union the regex-found scenarios with the planner's, preferring resolved ones."""
+    merged: list[dict] = []
+    seen: set[tuple] = set()
+
+    for entry in list(deterministic) + list(planned):
+        if not isinstance(entry, dict):
+            continue
+        age = entry.get("retirement_age")
+        offset = entry.get("years_from_now")
+        if age is None and offset is None:
+            # An unresolvable planner scenario ("in 2 years", age null) is kept
+            # only if nothing already covers it, so it can be reported rather
+            # than silently dropped.
+            key = ("unresolved", str(entry.get("label", "")).lower())
+        else:
+            key = ("age", age) if age is not None else ("offset", offset)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(entry)
+
+    # A resolvable scenario supersedes an unresolvable one describing the same
+    # thing, so drop the leftovers if anything concrete was found.
+    concrete = [s for s in merged if s.get("retirement_age") is not None or s.get("years_from_now") is not None]
+    return concrete if concrete else merged
 
 
 async def triage(state: PensionAgentState) -> dict:
@@ -156,7 +258,7 @@ async def plan_request(state: PensionAgentState) -> dict:
             # Any section the user named is pinned by retrieval; the question
             # text runs as a query so neighbouring provisions surface too.
             "search_queries": [question],
-            "scenarios": [],
+            "scenarios": extract_scenarios(question),
             "timings": {"plan_request": time.perf_counter() - started},
         }
 
@@ -191,7 +293,10 @@ async def plan_request(state: PensionAgentState) -> dict:
             f for f in (plan.get("formula_types_needed") or []) if isinstance(f, str)
         ],
         "search_queries": queries[:3],
-        "scenarios": [s for s in (plan.get("scenarios") or []) if isinstance(s, dict)],
+        "scenarios": _merge_scenarios(
+            extract_scenarios(question),
+            [s for s in (plan.get("scenarios") or []) if isinstance(s, dict)],
+        ),
         "timings": {"plan_request": time.perf_counter() - started},
     }
 
@@ -716,6 +821,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
     interpreter = DSLInterpreter()
 
     results: dict[str, Any] = {}
+    unresolved: list[dict] = []
 
     for formula_type, recipe in recipes.items():
         spec = recipe.get("spec") or {}
@@ -741,11 +847,35 @@ async def execute_calculations(state: PensionAgentState) -> dict:
             "base": run(base_inputs),
         }
 
+        if scenarios and not employee:
+            unresolved.extend(
+                {
+                    "label": sc.get("label") or "unspecified",
+                    "reason": (
+                        "comparing retirement dates needs the member's record, "
+                        "which is only available when signed in"
+                    ),
+                }
+                for sc in scenarios[:6]
+            )
+
         if scenarios and employee:
             variants = []
             for scenario in scenarios[:6]:
-                age = scenario.get("retirement_age")
+                age = _resolve_retirement_age(scenario, member_facts)
                 if age is None:
+                    # Never drop a scenario in silence. The member asked for it;
+                    # if it cannot be resolved the answer has to say so, rather
+                    # than replying as though it was never requested.
+                    unresolved.append(
+                        {
+                            "label": scenario.get("label") or "unspecified",
+                            "reason": (
+                                "the retirement age could not be determined from "
+                                "the request or the member's record"
+                            ),
+                        }
+                    )
                     continue
                 scenario_facts = build_member_facts(
                     employee, salary_history, assumed_retirement_age=int(age)
@@ -779,6 +909,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
 
     return {
         "calculation_result": results or None,
+        "unresolved_scenarios": unresolved,
         "timings": {"execute_calculations": time.perf_counter() - started},
     }
 
@@ -926,6 +1057,14 @@ async def prepare_answer(state: PensionAgentState) -> dict:
             "figures the estimate rests on:\n" + json.dumps(overrides, indent=1)
         )
 
+    unresolved = state.get("unresolved_scenarios") or []
+    if unresolved:
+        context_parts.append(
+            "THESE REQUESTED COMPARISONS COULD NOT BE CALCULATED. Say plainly which "
+            "ones and why; do not compute them yourself:\n"
+            + json.dumps(unresolved, indent=1)
+        )
+
     missing = state.get("missing_inputs") or []
     if missing:
         context_parts.append(
@@ -1002,6 +1141,31 @@ async def prepare_answer(state: PensionAgentState) -> dict:
         "citations": citations,
         "timings": {"prepare_answer": time.perf_counter() - started},
     }
+
+
+def _resolve_retirement_age(scenario: dict, facts: dict) -> int | None:
+    """Turn a scenario into an absolute retirement age.
+
+    An explicit age is used as given. A relative offset ("wait 2 more years")
+    is added to the member's real age, which is available here even though it
+    was not available to the planner — planning runs concurrently with the
+    record fetch, so the offset deliberately survives unresolved until now.
+    """
+    age = scenario.get("retirement_age")
+    if age is not None:
+        try:
+            return int(age)
+        except (TypeError, ValueError):
+            return None
+
+    offset = scenario.get("years_from_now")
+    current = facts.get("age")
+    if offset is None or current is None:
+        return None
+    try:
+        return int(current) + int(offset)
+    except (TypeError, ValueError):
+        return None
 
 
 def _stated_in(value: Any, text: str) -> bool:
