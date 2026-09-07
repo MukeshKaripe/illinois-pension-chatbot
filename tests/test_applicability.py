@@ -23,6 +23,7 @@ from pension_chat.calculation.applicability import (
     UNVERIFIED,
     VERIFIED,
     evaluate_predicates,
+    facts_for_evaluation,
     validate_predicate,
 )
 from pension_chat.calculation.dsl_types import RuleSpecification
@@ -222,3 +223,57 @@ def test_a_range_mixing_dates_and_numbers_is_incoherent_not_false():
 
     assert not report.blocks_execution
     assert report.unknown
+
+
+# ── The gate must test what the calculation uses ──────────────────
+
+def test_a_stated_value_displaces_every_alias_of_the_same_fact():
+    """Otherwise the gate checks the record while the arithmetic uses the claim.
+
+    facts.py publishes service under four names. A member stating 9 years
+    displaced `creditable_service_years` only, so `service_years` kept the
+    record's 21.5 and a "20 or more years" condition reported itself satisfied
+    — while the calculation ran on 9 and produced a pension estimate of
+    $15,110.58 under a provision requiring 20 years.
+    """
+    record = {
+        "age": 56, "current_age": 56, "attained_age": 56,
+        "service_years": 21.5, "years_of_service": 21.5,
+        "creditable_service_years": 21.5, "total_service_years": 21.5,
+    }
+    stated = {"creditable_service_years": 9, "age": 47}
+
+    merged = facts_for_evaluation(record, stated)
+
+    assert merged["service_years"] == 9
+    assert merged["years_of_service"] == 9
+    assert merged["total_service_years"] == 9
+    assert merged["current_age"] == 47
+    assert merged["attained_age"] == 47
+
+
+def test_the_gate_blocks_once_it_sees_the_stated_values():
+    record = {"age": 56, "service_years": 21.5, "creditable_service_years": 21.5}
+    stated = {"creditable_service_years": 9}
+
+    report = evaluate_predicates(MIN_ANNUITY, facts_for_evaluation(record, stated))
+
+    assert report.blocks_execution
+    assert [f["fact"] for f in report.failed] == ["service_years"]
+
+
+def test_facts_the_member_did_not_state_still_come_from_the_record():
+    merged = facts_for_evaluation(
+        {"age": 56, "service_years": 21.5, "employment_status": "active"},
+        {"creditable_service_years": 24},
+    )
+
+    assert merged["age"] == 56
+    assert merged["employment_status"] == "active"
+    assert merged["service_years"] == 24
+
+
+def test_an_anonymous_member_gets_only_what_they_stated():
+    merged = facts_for_evaluation(None, {"creditable_service_years": 30})
+
+    assert merged == {"creditable_service_years": 30}

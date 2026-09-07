@@ -49,7 +49,10 @@ from pension_chat.agent.retrieval import (
     retrieve,
 )
 from pension_chat.agent.state import PensionAgentState
-from pension_chat.calculation.applicability import evaluate_predicates
+from pension_chat.calculation.applicability import (
+    evaluate_predicates,
+    facts_for_evaluation,
+)
 from pension_chat.calculation.dsl_interpreter import DSLExecutionError, DSLInterpreter
 from pension_chat.calculation.risk_assessor import RiskAssessor
 from pension_chat.calculation.validator import RecipeValidator
@@ -110,6 +113,16 @@ Use an empty scenarios list when the user asks about a single point in time."""
 _CALCULATION_SIGNALS = re.compile(
     r"\b(calculat|comput|estimat|how much|what would|what will|amount|"
     r"benefit|annuity|my pension|per month|monthly|annual|compare|scenario)\b",
+    re.IGNORECASE,
+)
+
+
+# A personal quantity restated in the member's own words: "25 years of service",
+# "my salary is $80,000". Anchored on the unit rather than the pronoun so that
+# "I have a question about section 11-134" is not read as a stated fact.
+_RESTATED_FACT = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:years?|yrs?)\s+of\s+(?:service|creditable\s+service)\b"
+    r"|\$\s?[\d,]{3,}",
     re.IGNORECASE,
 )
 
@@ -261,7 +274,13 @@ async def triage(state: PensionAgentState) -> dict:
     """
     started = time.perf_counter()
     question = state["question"]
-    scope = guardrails.classify_scope(question)
+    # A bare continuation ("and what about at 60?") carries no pension
+    # vocabulary of its own and is only in scope as a follow-up, so the check
+    # needs to know whether anything precedes it. `messages` always holds at
+    # least this turn's own question.
+    scope = guardrails.classify_scope(
+        question, has_history=len(state.get("messages") or []) > 1
+    )
 
     return {
         "in_scope": scope.in_scope,
@@ -293,7 +312,20 @@ async def plan_request(state: PensionAgentState) -> dict:
     settings = get_settings()
     question = state["question"]
 
-    if not _CALCULATION_SIGNALS.search(question):
+    # Restating a personal quantity mid-conversation is a request to work the
+    # figure out again, and none of the signal words above appear in "Actually I
+    # have 25 years of service, not 21.5. What changes?". That turn planned no
+    # calculation, ran no recipe -- and the model, holding an earlier estimate in
+    # the conversation, recomputed it in prose and had the answer withdrawn.
+    #
+    # Only mid-conversation: on a first turn the same sentence is someone
+    # introducing themselves, and treating that as a calculation would put a
+    # planner round trip in front of every applicability question.
+    correcting = bool(_RESTATED_FACT.search(question)) and len(
+        state.get("messages") or []
+    ) > 1
+
+    if not _CALCULATION_SIGNALS.search(question) and not correcting:
         return {
             "requires_calculation": False,
             "formula_types_needed": [],
@@ -529,6 +561,7 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
                             "status": recipe["status"],
                             "applicability": recipe.get("applicability"),
                             "applicability_status": applicable.status,
+                            "selection_basis": recipe.get("selection_basis"),
                             "alternatives_considered": (
                                 recipe.get("alternatives_considered") or []
                             )[:5],
@@ -561,6 +594,8 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
             # Never authoritative on first derivation — promotion is a human step.
             "policy": settings.derived_recipe_execution_policy,
             "applicability": derived.applicability,
+            "selection_basis": derived.selection_basis,
+            "cross_references": derived.cross_references,
             "alternatives_considered": derived.alternatives_considered,
             "derivation_notes": derived.derivation_notes,
             "controlling_subsection": derived.controlling_subsection,
@@ -573,6 +608,7 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
                 "section": derived.controlling_section,
                 "subsection": derived.controlling_subsection,
                 "applicability": derived.applicability,
+                "selection_basis": derived.selection_basis,
                 # Which neighbouring provisions were weighed and set aside. This
                 # is the answer to "why 11-134 and not 11-130", and it was being
                 # computed and then thrown away.
@@ -607,7 +643,15 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     # been shown and post-generation verification threw it away. Retrieve them.
     for recipe in recipes.values():
         for note in (recipe.get("alternatives_considered") or [])[:5]:
-            needed.extend(extract_section_references(str(note)))
+            if note.get("section"):
+                needed.append(str(note["section"]).split("(")[0].strip())
+        # A section the rule DEPENDS on for a defined term is not optional
+        # context. Section 11-134 computes on service "as service is defined or
+        # computed in Section 11-216", and an answer that has 11-134 but not
+        # 11-216 has half the rule -- which is how one answer came to say the
+        # cross-reference "cannot be analyzed further here".
+        for reference in (recipe.get("cross_references") or [])[:4]:
+            needed.append(str(reference).split("(")[0].strip())
 
     needed = [s for s in dict.fromkeys(needed) if s not in present][:_MAX_PINNED_SECTIONS]
     if needed:
@@ -628,6 +672,30 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
 
 
 # ── 4. Input resolution ───────────────────────────────────────────
+
+# A recipe names the quantities its arithmetic consumes. Several of those are
+# derivations, not things a member knows about themselves, and asking for them
+# verbatim produces requests nobody can answer -- "the number of months or
+# partial months your annuity would begin before age 60" is the system asking
+# the member to do its own work. Each entry is what to ask for instead; the
+# derivation still happens here once the underlying fact arrives.
+_ASK_INSTEAD = {
+    "months_before_age_60": "your date of birth",
+    "months_before_60": "your date of birth",
+    "full_months_under_age_60": "your date of birth",
+    "age_at_annuity_start": "your date of birth",
+    "age_at_withdrawal": "your date of birth",
+    "withdrawal_date": "the date you plan to stop working",
+    "creditable_service_years": "how many years of service you have with the fund",
+    "service_years": "how many years of service you have with the fund",
+    "highest_average_annual_salary_4yr": (
+        "your salary for each of the last ten years, or your best four consecutive years"
+    ),
+    "final_average_salary": (
+        "your salary for each of the last ten years, or your best four consecutive years"
+    ),
+}
+
 
 _EXTRACT_SYSTEM = """You map values a user has stated onto a calculation's declared inputs.
 
@@ -739,6 +807,12 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
             "name": spec["name"],
             "type": spec.get("type"),
             "description": spec.get("description", ""),
+            # What to actually ask the member for. A recipe declares the inputs
+            # its arithmetic needs, and some of those are quantities nobody
+            # knows about themselves: asking someone for "the number of full
+            # months your annuity begins before age 60" is asking them to do the
+            # derivation. Ask for the fact it comes from instead.
+            "ask_for": _ASK_INSTEAD.get(spec["name"], spec.get("description") or spec["name"]),
             "why_required": (
                 f"The controlling provision computes the benefit from "
                 f"{spec.get('description') or spec['name']}."
@@ -787,10 +861,9 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     # Predicates are checked against the member's record *and* anything they
     # stated themselves, so an anonymous user who supplies their age and service
     # gets the same applicability test a signed-in member does.
-    checkable_facts = {
-        **(state.get("member_facts") or {}),
-        **(state.get("resolved_inputs") or {}),
-    }
+    checkable_facts = facts_for_evaluation(
+        state.get("member_facts"), state.get("resolved_inputs")
+    )
 
     errors: list[dict] = []
     warnings: list[dict] = []
@@ -920,6 +993,29 @@ def _quantity(value: Any) -> str:
     if number == number.to_integral_value():
         return str(number.quantize(Decimal(1)))
     return f"{number:f}"
+
+
+def _years(value: Any) -> str:
+    """A length of service, to the tenth of a year a member would recognise."""
+    try:
+        return str(Decimal(str(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
+        return str(value)
+
+
+def _difference_from(base: dict | None, variant: dict) -> dict:
+    """How much more (or less) a scenario is worth than retiring now."""
+    if not (base or {}).get("ok") or not variant.get("ok"):
+        return {}
+    try:
+        annual = Decimal(variant["annual_amount"]) - Decimal(base["annual_amount"])
+        monthly = Decimal(variant["monthly_amount"]) - Decimal(base["monthly_amount"])
+    except (InvalidOperation, KeyError, TypeError):
+        return {}
+    return {
+        "difference_from_now_annual": _money(annual),
+        "difference_from_now_monthly": _money(monthly),
+    }
 
 
 def _present(result: dict, output_name: str, *, breakdown: bool = True) -> dict:
@@ -1090,7 +1186,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 # the same recipe at both ages would assume away the question.
                 applicable = evaluate_predicates(
                     spec.get("applicability_predicates"),
-                    {**scenario_facts, **user_supplied},
+                    facts_for_evaluation(scenario_facts, user_supplied),
                 )
                 if applicable.blocks_execution:
                     unresolved.append(
@@ -1104,16 +1200,48 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                     )
                     continue
 
+                variant = run(scenario_inputs, breakdown=False)
+                # "What do I gain by waiting?" is the whole point of the
+                # comparison, and the answer may not subtract two figures to
+                # find out -- one turn tried, produced $4,466.56 in prose, and
+                # had the whole answer withdrawn by verification. Supplying the
+                # difference deterministically answers the question and removes
+                # the temptation in one go.
+                variant.update(_difference_from(entry.get("base"), variant))
                 variants.append(
                     {
                         "label": scenario.get("label") or f"at age {age}",
                         "retirement_age": age,
+                        # A projection is only readable if what it holds
+                        # constant is stated. Service grows year on year and the
+                        # early-retirement reduction shrinks, but the salary
+                        # basis is carried forward unchanged -- there is no
+                        # future salary history to average, so the estimate
+                        # assumes today's pay. That assumption moves the number
+                        # and was not being reported at all.
                         "assumptions": {
                             "as_of_date": scenario_facts.get("as_of_date"),
-                            "service_years": scenario_facts.get("service_years"),
+                            # Rounded here, not in prose. Service accrues as a
+                            # fraction of a year, so the raw value is
+                            # 23.186516084873375 -- and because the answer is
+                            # required to copy figures verbatim, that is exactly
+                            # what landed in the comparison table.
+                            "service_years": _years(scenario_facts.get("service_years")),
                             "months_before_age_60": scenario_facts.get("months_before_age_60"),
+                            "final_average_salary": _money(
+                                scenario_facts.get("final_average_salary")
+                            ),
+                            "salary_basis": (
+                                "carried forward at today's level; future pay "
+                                "rises are not projected"
+                            ),
+                            "service_basis": (
+                                "assumes continuous employment to that age"
+                                if employee.get("employment_status") == "active"
+                                else "no further service assumed"
+                            ),
                         },
-                        **run(scenario_inputs, breakdown=False),
+                        **variant,
                     }
                 )
             if variants:
@@ -1234,20 +1362,42 @@ A comparison of retirement dates
   soonest option and the best one — so a member who reads no further still has
   the answer. Then one row per option, soonest first:
 
-  | If you retire | Annual pension | Monthly pension |
-  |---|---:|---:|
-  | Now, at 56 | $32,126.78 | $2,677.23 |
-  | At 58 | $36,593.34 | $3,049.45 |
+  | If you retire | Years of service | Annual pension | Monthly pension |
+  |---|---:|---:|---:|
+  | Now, at 56 | 21.5 | $32,126.78 | $2,677.23 |
+  | At 58 | 23.2 | $36,593.34 | $3,049.45 |
 
-  Then a sentence or two on what drives the difference. Show the worked-out steps
-  for one option only if the member asks for them.
+  Where a member asks what waiting gains them, the answer is already worked out:
+  each option carries "difference_from_now_annual" and
+  "difference_from_now_monthly". Copy those. Never reach it by subtracting two
+  figures yourself -- one turn did, wrote $4,466.56, and had the whole answer
+  withdrawn.
+
+  The service column comes from each option's own assumptions, and it is what
+  makes the table explain itself — without it a member sees four numbers going
+  up and has to take the reason on trust. Then a sentence or two on what else
+  drives the difference, and the line about what the projection holds constant.
+  Show the worked-out steps for one option only if the member asks for them.
 
 A question you cannot answer with a figure
-  Say so in the first sentence, and say why in plain terms — what you would need
-  from them, or which condition of the provision they do not meet and where they
-  currently stand against it. Never a bare refusal, never a bullet list of
-  internal reasons. Then, if the law offers them another route, point to it in a
-  sentence.
+  Say so in the first sentence, and say why in plain terms. Then, when the
+  reason is that something is missing:
+
+    Start by naming what you already have — what they have just told you, and
+    what is on file — in one short sentence. A member who has explained their
+    situation and gets back a list of demands reasonably concludes they were not
+    listened to.
+
+    Then set out what is still needed as a numbered list, one line each, saying
+    what each is needed for. Ask for it in the words of that item's "ask_for",
+    never by the name the calculation uses for it. Where two items need the same
+    thing from them, ask once and say what it settles: a list that asks twice
+    for the date they plan to stop working looks like nobody read it.
+
+  When the reason is instead that they do not meet a condition of the provision,
+  name the condition and where they stand against it. Never a bare refusal,
+  never a bullet list of internal reasons. Then, if the law offers them another
+  route, point to it in a sentence.
 
 
 CLOSING
@@ -1280,7 +1430,11 @@ ABSOLUTE RULES
    not calculating — but a member checking the table must not find a gap in it,
    so where a reduction or a ceiling was applied it belongs there too.
 3. NEVER state a pension amount when no figure was worked out for you. Explain
-   what is needed and why it matters.
+   what is needed and why it matters. That covers percentages too: with no
+   figures in front of you, an early-retirement reduction is "0.25% for each
+   month before age 60" and never a total you reached by multiplying it out.
+   Totalling it is the same arithmetic rule 1 forbids, and it is the one place
+   the temptation is strongest.
 4. Write money with a currency sign, thousands separators and two decimals
    ($32,126.78); percentages as percentages (2.40%, never 0.024); years to one
    decimal where the value has one (21.5 years).
@@ -1288,13 +1442,38 @@ ABSOLUTE RULES
    not use it. Say what the Pension Code actually provides and why their figure
    does not govern. Matter-of-fact, in a sentence — no lecture.
 6. If the statute text does not answer the question, say so. Do not fill the gap.
-7. Where the provision you rely on applies "in lieu of" another route, or another
-   provision was weighed and set aside, say which one and why it does not control,
-   in a clause. A member asking which provision applies to them is owed the
-   choice, not only its outcome.
-8. Do not volunteer where a figure came from, whether it was worked out fresh, or
-   that it was checked. If the member asks, tell them plainly.
-9. Answer the question in front of you. Do not carry a comparison or a scenario
+7. Say which other provisions were weighed, and be exact about WHY each one is
+   not the answer. Their status says which of four things happened, and they do
+   not mean the same thing:
+     not_applicable            - it does not reach this member. Say so.
+     applicable_not_calculable - it DOES reach them; the Pension Code simply
+                                 does not contain enough to put a number to it.
+                                 Say that it applies and that the figure cannot
+                                 be worked out here, and say what it turns on.
+                                 Never write this one off as not applying, and
+                                 never say it "does not control".
+     member_election           - the Code gives them a choice between it and the
+                                 one used. Say plainly that it is their choice
+                                 and that the figure shown is the larger of the
+                                 options on their numbers.
+     superseded                - the Code expressly displaces it. Say so.
+   Where a status is missing or "unspecified", describe the provision without
+   asserting which of these it is.
+   Each reason describes the PROVISION, and was written while working through
+   circumstances that are not necessarily these. Take the rule from it and leave
+   the arithmetic behind: where a reason says an election "cannot begin before
+   age 60, while this annuity begins at age 56", the part you can use is that it
+   cannot begin before 60. Never repeat an age, a length of service or an amount
+   out of one of these reasons as though it were this member's.
+8. Never present a provision as controlling because it is the one that can be
+   calculated. If more than one provision reaches this member, say so in a
+   sentence before the figure, so nobody reads an estimate as a determination.
+9. A comparison of future retirement dates is a projection, not an entitlement.
+   State what it holds constant -- the salary basis carried forward at today's
+   level, and continuous employment to that age -- in one line under the table.
+10. Do not volunteer where a figure came from, whether it was worked out fresh,
+   or that it was checked. If the member asks, tell them plainly.
+11. Answer the question in front of you. Do not carry a comparison or a scenario
    over from an earlier turn unless this question calls for it."""
 
 
@@ -1403,7 +1582,12 @@ async def prepare_answer(state: PensionAgentState) -> dict:
                     "section": entry.get("section"),
                     "subsection": entry.get("subsection"),
                     "why_it_applies": entry.get("applicability"),
-                    "other_provisions_ruled_out": entry.get("alternatives_considered") or [],
+                    # Renamed from "ruled_out", which was the frame causing the
+                    # damage: a provision that reaches this member but cannot be
+                    # computed from the Code was being reported as one that does
+                    # not govern them. Each entry now carries its own status.
+                    "other_provisions_considered": entry.get("alternatives_considered") or [],
+                    "how_this_provision_was_chosen": entry.get("selection_basis"),
                     "conditions_confirmed": [c["description"] for c in check.get("satisfied", [])],
                     "conditions_not_confirmed": [
                         c["description"] for c in check.get("unknown", [])
@@ -1412,10 +1596,17 @@ async def prepare_answer(state: PensionAgentState) -> dict:
                 }
             )
         context_parts.append(
-            "WHY THIS PROVISION AND NOT ANOTHER. Use 'other_provisions_ruled_out' to say "
-            "in a clause why the governing provision governs. If anything appears under "
-            "'conditions_not_confirmed', say which detail you would need to be sure "
-            "rather than implying it was checked. Never volunteer "
+            "WHY THIS PROVISION AND NOT ANOTHER. Every entry under "
+            "'other_provisions_considered' carries a 'status', and the four values mean "
+            "different things — read it before you characterise a provision. One marked "
+            "'applicable_not_calculable' DOES apply to this member: say that it applies "
+            "and that the Pension Code does not contain what is needed to put a figure "
+            "on it. Do not write it off. One marked 'member_election' is the member's "
+            "own choice: say the Code lets them choose, and that the figure shown is the "
+            "larger option on their numbers. Where 'how_this_provision_was_chosen' is "
+            "'statutory_election', the same applies to the provision actually used. If "
+            "anything appears under 'conditions_not_confirmed', say which detail you "
+            "would need to be sure, rather than implying it was checked. Never volunteer "
             "'worked_out_fresh_this_time' — it is only there in case the member asks "
             "outright:\n" + json.dumps(shown_provenance, indent=1)
         )

@@ -43,6 +43,7 @@ A calculation is a JSON tree. Every node is one of:
 
   {"value": <number>}                      a literal constant
   {"variable": "<input_or_parameter_name>"} a named input or parameter
+       (exactly that -- a variable reference has no "operation" key)
   {"operation": "<op>", "operands": [<node>, ...], ...}
 
 Operations and their shapes:
@@ -112,8 +113,16 @@ Rules you must follow:
    to receive, in lieu of any other annuity provided in this Section..."), the
    member has not told you which they will elect. Derive the one that yields the
    larger annuity on their facts — that is what electing means in practice —
-   and record the others in "alternatives_considered". Do not refuse to derive
-   because the election is unstated.
+   and set "selection_basis" to "statutory_election", listing the formulas they
+   are choosing between in "alternatives_considered" with status
+   "member_election". Do not refuse to derive because the election is unstated.
+
+   Be exact about what you are doing here. Producing the larger figure is a
+   convenience on the member's behalf, NOT a determination that the other
+   formula is wrong or inapplicable — the statute gives them the choice, and the
+   answer has to say so. Only use "sole_applicable_provision" when the statute
+   really does leave one route, and "statutory_minimum" where the provision
+   applies as a floor beneath another annuity rather than as a choice.
 
 3b. Where the provision the member's facts point to first does NOT contain an
    executable formula in the supplied text — typically because it converts
@@ -121,9 +130,15 @@ Rules you must follow:
    state — check whether another supplied provision does produce a computable
    annuity for the same member (a minimum-annuity provision, for example, often
    applies "in lieu of all annuities otherwise provided"). If one does, derive
-   that, and use "alternatives_considered" to record the provision you could not
-   execute and why. Refuse only when NO supplied provision yields a computable
-   result.
+   that, and record the provision you could not execute in
+   "alternatives_considered" with status "applicable_not_calculable". Refuse
+   only when NO supplied provision yields a computable result.
+
+   NEVER record such a provision as "not_applicable". A provision that reaches
+   this member and that you merely cannot put a number to is still the law that
+   governs them; calling it inapplicable because the arithmetic is out of reach
+   is the one substitution you must not make. Being easy to calculate is not
+   what makes a provision control.
 
 4. Encode the eligibility conditions, early-retirement reductions, and maximum
    percentage caps that the controlling provision imposes. Omitting a reduction
@@ -161,6 +176,23 @@ Rules you must follow:
    the member's facts fall outside every provision shown — set "cannot_derive"
    to a plain-language explanation and leave "rule_specification" null.
 
+6. "cross_references" are the sections this rule DEPENDS on — where it says
+   service is "defined or computed in Section 11-216", that is a dependency, not
+   an alternative. List every such section; they are retrieved so the answer can
+   rely on them.
+
+7. Every "reason" states the RULE and nothing about the person in front of you.
+   This recipe is stored and reused for other members, so "that election cannot
+   begin before age 60" travels and "...while this annuity begins at age 56"
+   becomes false for the next person who reads it. Never mention an age, a
+   length of service, or an amount from the facts you were given.
+
+8. Every "reason" you write is read by a member, not by an engineer. Write
+   "the Pension Code does not set out the conversion factors needed to work that
+   out", never "the supplied text does not provide the actuarial conversion
+   factors". Do not use the words "supplied", "retrieved", "provided text",
+   "the engine" or "recipe" in any reason.
+
 Keep the calculation tree as small as the statute allows.
 
 Respond with a single JSON object:
@@ -172,7 +204,14 @@ Respond with a single JSON object:
   "controlling_section": "<e.g. 11-134>",
   "controlling_subsection": "<e.g. (a)>" | null,
   "applicability": "<one sentence: who this recipe applies to>",
-  "alternatives_considered": ["<section/subsection and why it was not used>"],
+  "selection_basis": "sole_applicable_provision" | "statutory_election" | "statutory_minimum",
+  "alternatives_considered": [
+    {"section": "11-130", "subsection": "(1)" | null,
+     "status": "not_applicable" | "applicable_not_calculable" | "member_election"
+               | "superseded",
+     "reason": "<one plain sentence a member would understand>"}
+  ],
+  "cross_references": ["<section this rule DEPENDS on for a defined term, e.g. 11-216 for service>"],
   "source_sections": ["<every section id whose text this recipe relies on>"],
   "rule_specification": {
     "formula_id": "<article>_<formula_type>_<section>",
@@ -207,8 +246,10 @@ class DerivedRecipe:
     controlling_section: str | None = None
     controlling_subsection: str | None = None
     applicability: str = ""
+    selection_basis: str = "sole_applicable_provision"
     source_sections: list[str] = field(default_factory=list)
-    alternatives_considered: list[str] = field(default_factory=list)
+    cross_references: list[str] = field(default_factory=list)
+    alternatives_considered: list[dict] = field(default_factory=list)
     derivation_notes: str = ""
     cannot_derive: str | None = None
 
@@ -224,7 +265,9 @@ class DerivedRecipe:
             "controlling_section": self.controlling_section,
             "controlling_subsection": self.controlling_subsection,
             "applicability": self.applicability,
+            "selection_basis": self.selection_basis,
             "source_sections": self.source_sections,
+            "cross_references": self.cross_references,
             "alternatives_considered": self.alternatives_considered,
             "derivation_notes": self.derivation_notes,
             "cannot_derive": self.cannot_derive,
@@ -345,10 +388,126 @@ async def derive_recipe(
         controlling_section=payload.get("controlling_section"),
         controlling_subsection=payload.get("controlling_subsection"),
         applicability=payload.get("applicability", ""),
+        selection_basis=_selection_basis(payload.get("selection_basis")),
         source_sections=list(payload.get("source_sections") or []),
-        alternatives_considered=list(payload.get("alternatives_considered") or []),
+        cross_references=[
+            str(c).split("(")[0].strip()
+            for c in (payload.get("cross_references") or [])
+            if str(c).strip()
+        ],
+        alternatives_considered=normalize_alternatives(
+            payload.get("alternatives_considered")
+        ),
         derivation_notes=payload.get("derivation_notes", ""),
     )
+
+
+SELECTION_BASES = {
+    "sole_applicable_provision",
+    "statutory_election",
+    "statutory_minimum",
+}
+
+ALTERNATIVE_STATUSES = {
+    # The provision does not reach this member at all.
+    "not_applicable",
+    # It reaches them, but the Pension Code text does not contain enough to put
+    # a number to it. This is the distinction the first version collapsed:
+    # "not used because the conversion factors are missing" was recorded and
+    # then reported as though the provision did not govern.
+    "applicable_not_calculable",
+    # The statute gives the member a choice between this and the one derived.
+    "member_election",
+    # Displaced by the derived provision under an express "in lieu of" clause.
+    "superseded",
+}
+
+# Vocabulary from inside the machine. These reasons are stored and later quoted
+# back to a member almost verbatim, so a phrase that slips through here outlives
+# any instruction given to the answering model — which is exactly how "the
+# supplied text does not provide the actuarial conversion factors" reached a
+# member after the answer prompt had been told never to say "supplied".
+_INTERNAL_PHRASES = [
+    (re.compile(r"\bthe supplied (?:statute )?text\b", re.I), "the Pension Code"),
+    (re.compile(r"\bthe supplied facts\b", re.I), "your circumstances"),
+    (re.compile(r"\bthe supplied (?:information|data)\b", re.I), "what is known"),
+    (re.compile(r"\bsupplied\b", re.I), "available"),
+    (re.compile(r"\bretrieved text\b", re.I), "the Pension Code"),
+    (re.compile(r"\bthe (?:calculation )?engine\b", re.I), "the calculation"),
+    (re.compile(r"\brecipes?\b", re.I), "calculation method"),
+]
+
+
+# A reason is written once, against the circumstances of whoever the recipe was
+# first derived for, and then reused for everyone. The rule half travels; the
+# comparison half does not. "This election requires the annuity to begin no
+# earlier than age 60, while this annuity begins at age 56" told a member who
+# had just said they were 58 that their annuity begins at 56.
+_DERIVATION_TIME_FACTS = re.compile(
+    # Only "while" and "whereas" reliably introduce the contrast. "but" and
+    # "and" join clauses the rule needs — trimming on "but" turned "age 60 or
+    # more but less than age 65" into "age 60 or more", losing the bound.
+    r"\s*[,;]?\s*\b(?:while|whereas)\b[^.;]*?"
+    r"\b(?:this|the)\s+(?:member|employee|annuity|withdrawal)\b[^.;]*",
+    re.IGNORECASE,
+)
+
+
+def plain_language(text: str) -> str:
+    """Make free text safe to show a member.
+
+    Two separate problems, both arising because these strings are stored and
+    then quoted almost verbatim: machine vocabulary that no answer prompt can
+    instruct its way out of, and facts belonging to a different member.
+    """
+    cleaned = str(text or "").strip()
+    for pattern, replacement in _INTERNAL_PHRASES:
+        cleaned = pattern.sub(replacement, cleaned)
+    cleaned = _DERIVATION_TIME_FACTS.sub("", cleaned).strip()
+    if cleaned and not cleaned.endswith((".", "?", "!")):
+        cleaned += "."
+    return cleaned
+
+
+def _selection_basis(value: Any) -> str:
+    basis = str(value or "").strip().lower()
+    return basis if basis in SELECTION_BASES else "sole_applicable_provision"
+
+
+def normalize_alternatives(raw: Any) -> list[dict]:
+    """Coerce the model's alternatives into typed records.
+
+    Accepts the older free-string form too, so recipes stored before this
+    distinction existed still load — those carry no status, and an unknown
+    status is reported as such rather than being guessed at. Guessing would
+    reintroduce precisely the error being fixed: a provision that merely could
+    not be computed silently becoming one that does not apply.
+    """
+    records: list[dict] = []
+    for entry in raw or []:
+        if isinstance(entry, str):
+            sections = re.findall(r"\b\d{1,2}-\d{1,3}(?:\.\d{1,2})?\b", entry)
+            records.append(
+                {
+                    "section": sections[0] if sections else None,
+                    "status": "unspecified",
+                    "reason": plain_language(entry),
+                }
+            )
+            continue
+        if not isinstance(entry, dict):
+            continue
+        status = str(entry.get("status") or "").strip().lower()
+        records.append(
+            {
+                "section": (str(entry.get("section")).split("(")[0].strip()
+                            if entry.get("section") else None),
+                "subsection": entry.get("subsection"),
+                "status": status if status in ALTERNATIVE_STATUSES else "unspecified",
+                "reason": plain_language(entry.get("reason", "")),
+            }
+        )
+    return records
 
 
 # Keep the prompt's operation list honest: if an operation is added to the DSL

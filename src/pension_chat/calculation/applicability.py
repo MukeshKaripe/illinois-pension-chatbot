@@ -151,6 +151,35 @@ def validate_predicate(predicate: Any) -> str | None:
     return None
 
 
+def facts_for_evaluation(
+    record_facts: dict[str, Any] | None,
+    stated_values: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The values the calculation will actually run on.
+
+    The gate is only worth anything if it tests the same numbers the arithmetic
+    uses, and merging the two dicts does not achieve that. ``facts.py``
+    publishes service under four names, so a member who states 9 years of
+    service displaces ``creditable_service_years`` while ``service_years`` keeps
+    the record's 21.5 — and a condition reading "service_years ge 20" passes
+    against a figure the calculation never touched.
+
+    That is not a cosmetic mismatch. It produced a pension estimate of
+    $15,110.58 for someone stating 9 years of service under a provision that
+    requires 20, with the eligibility check reporting itself satisfied.
+
+    So a stated value displaces every alias of the same quantity, not only the
+    key it happened to be named with.
+    """
+    merged = dict(record_facts or {})
+    for name, value in (stated_values or {}).items():
+        canonical = normalize_fact_name(name)
+        for existing in [k for k in merged if normalize_fact_name(k) == canonical]:
+            merged[existing] = value
+        merged[name] = value
+    return merged
+
+
 def evaluate_predicates(
     predicates: list[dict] | None,
     facts: dict[str, Any] | None,

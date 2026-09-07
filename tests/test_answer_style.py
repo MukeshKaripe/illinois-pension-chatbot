@@ -22,7 +22,12 @@ import pytest
 
 from pension_chat.agent.graph import GREETING_MESSAGE, OUT_OF_SCOPE_MESSAGE
 from pension_chat.agent.guardrails import GuardrailReport, fallback_answer
-from pension_chat.agent.nodes import ANSWER_SYSTEM, _format_calculation, prepare_answer
+from pension_chat.agent.nodes import (
+    _ASK_INSTEAD,
+    ANSWER_SYSTEM,
+    _format_calculation,
+    prepare_answer,
+)
 from pension_chat.agent.state import initial_state
 
 # Words that describe how the answer was assembled rather than what is true of
@@ -171,7 +176,19 @@ def test_the_house_style_fixes_one_table_shape():
     # ("Item | Value", "Step | Amount", "Calculation item | Engine value", ...).
     assert "| Step | Amount |" in ANSWER_SYSTEM
     assert "**How that is worked out**" in ANSWER_SYSTEM
-    assert "| If you retire | Annual pension | Monthly pension |" in ANSWER_SYSTEM
+
+
+def test_a_comparison_table_carries_the_driver_not_only_the_money():
+    """Four rising numbers with no reason beside them are taken on trust.
+
+    Service is what mostly moves the figure between retirement dates, and it is
+    already computed per scenario, so it belongs in the table rather than in a
+    paragraph underneath.
+    """
+    assert (
+        "| If you retire | Years of service | Annual pension | Monthly pension |"
+        in ANSWER_SYSTEM
+    )
 
 
 def test_the_house_style_states_the_estimate_line_verbatim():
@@ -218,3 +235,42 @@ def test_the_house_style_forbids_the_vocabulary_by_name():
     for word in ("calculation engines", "recipes", "registries", "supplied", "retrieved"):
         assert word in ANSWER_SYSTEM
     assert "Never describe how you work." in ANSWER_SYSTEM
+
+
+# ── Asking for what a member can actually supply ──────────────────
+
+def test_derived_quantities_are_asked_for_by_their_underlying_facts():
+    """A recipe's input names are not questions a person can answer.
+
+    An anonymous member asking what their pension would be was told: "I need
+    your withdrawal date, your creditable years of service, your highest average
+    annual salary for any 4 consecutive years, and the number of months or
+    partial months your annuity would begin before age 60." The last of those is
+    the system asking the member to perform its own derivation.
+    """
+    assert _ASK_INSTEAD["months_before_age_60"] == "your date of birth"
+    assert "date you plan to stop working" in _ASK_INSTEAD["withdrawal_date"]
+    # Each request introduces exactly one new fact. Asking for the leaving date
+    # under both entries produced a numbered list that asked for it twice.
+    assert len(set(_ASK_INSTEAD.values())) == len(
+        {v for v in _ASK_INSTEAD.values()}
+    )
+    assert "stop working" not in _ASK_INSTEAD["months_before_age_60"]
+    # And nothing in the member-facing phrasings reads like a variable name.
+    for phrasing in _ASK_INSTEAD.values():
+        assert "_" not in phrasing
+
+
+def test_the_house_style_acknowledges_what_is_known_before_asking():
+    assert "what they have just told you" in ANSWER_SYSTEM
+    assert '"ask_for"' in ANSWER_SYSTEM
+
+
+def test_the_house_style_forbids_reusing_derivation_time_facts():
+    """A stored reason describes the provision, not the member it was derived for.
+
+    One reason reads "...cannot begin before age 60, while this annuity begins
+    at age 56". Reused verbatim, that told a member who had just said they were
+    58 that their annuity begins at 56.
+    """
+    assert "as though it were this member's" in ANSWER_SYSTEM

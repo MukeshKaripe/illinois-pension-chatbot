@@ -220,7 +220,10 @@ class RecipeValidator:
         if not isinstance(calculation, dict):
             return
 
-        # Variable references and literal values are fine
+        # Variable references and literal values are fine. The "variable" key
+        # settles it even when the node also carries operation:"variable" — the
+        # interpreter reads it the same way, so flagging it here would fail a
+        # recipe the engine can execute perfectly well.
         if "variable" in calculation or ("value" in calculation and "operation" not in calculation):
             return
 

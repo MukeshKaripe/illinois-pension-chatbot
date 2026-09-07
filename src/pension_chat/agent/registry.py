@@ -24,7 +24,7 @@ from datetime import date
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from pension_chat.agent.derivation import DerivedRecipe
+from pension_chat.agent.derivation import DerivedRecipe, normalize_alternatives
 from pension_chat.calculation.fingerprint import (
     compute_evidence_fingerprint,
     compute_implementation_hash,
@@ -65,10 +65,18 @@ class RegistryRecipe:
         # Why this provision and not the neighbouring ones. Derived once and
         # then dropped on every reuse, which is why a reused recipe could not
         # explain its own branch selection.
-        self.alternatives_considered: list[str] = list(
-            applicability.get("alternatives_considered") or []
+        # Normalised on read so rows written before alternatives were typed
+        # still load, rather than being silently dropped or mis-typed.
+        self.alternatives_considered: list[dict] = normalize_alternatives(
+            applicability.get("alternatives_considered")
         )
         self.controlling_subsection = applicability.get("controlling_subsection")
+        self.selection_basis = applicability.get(
+            "selection_basis", "sole_applicable_provision"
+        )
+        self.cross_references: list[str] = list(
+            applicability.get("cross_references") or []
+        )
         self.description = row.description
         self.version = row.version
         self.evidence_fingerprint: dict = row.evidence_fingerprint or {}
@@ -88,6 +96,8 @@ class RegistryRecipe:
             "applicability": self.applicability,
             "alternatives_considered": self.alternatives_considered,
             "controlling_subsection": self.controlling_subsection,
+            "selection_basis": self.selection_basis,
+            "cross_references": self.cross_references,
             "version": self.version,
         }
 
@@ -244,11 +254,15 @@ async def persist_recipe(
                         "summary": recipe.applicability,
                         "alternatives_considered": recipe.alternatives_considered,
                         "controlling_subsection": recipe.controlling_subsection,
+                        # Whether the member is choosing, or the statute leaves
+                        # one route. Reused recipes could not tell the two apart.
+                        "selection_basis": recipe.selection_basis,
+                        "cross_references": recipe.cross_references,
                         # Denormalised from the spec so a reuse decision can be
                         # made without unpacking the calculation tree.
                         "predicates": spec.get("applicability_predicates") or [],
                     },
-                    dependencies=[],
+                    dependencies=list(recipe.cross_references),
                     rule_specification=spec,
                     source_sections=recipe.source_sections,
                     evidence_fingerprint=fingerprint,

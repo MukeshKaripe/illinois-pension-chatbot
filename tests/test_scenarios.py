@@ -19,6 +19,7 @@ import pytest
 
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.nodes import (
+    _RESTATED_FACT,
     _corroborated,
     _merge_scenarios,
     _resolve_retirement_age,
@@ -219,3 +220,24 @@ def test_an_unresolvable_scenario_survives_only_when_timing_is_actually_asked():
 
     assert _corroborated(vague, "What if I retire at age 62 instead?") is True
     assert _corroborated(vague, "What does Section 11-116 define as salary?") is False
+
+
+# ── Correcting a fact mid-conversation ────────────────────────────
+
+def test_a_restated_quantity_is_recognised_as_a_correction():
+    """"Actually I have 25 years of service, not 21.5. What changes?"
+
+    None of the calculation signal words appear in that sentence, so the turn
+    planned no calculation and ran no recipe — while the conversation still held
+    an earlier estimate. The model recomputed it in prose and verification threw
+    the whole answer away.
+    """
+    assert _RESTATED_FACT.search("Actually I have 25 years of service, not 21.5.")
+    assert _RESTATED_FACT.search("my salary is now $80,000")
+
+
+def test_a_section_number_is_not_a_restated_quantity():
+    # Otherwise "I have a question about section 11-134" would put a planner
+    # round trip in front of an ordinary lookup.
+    assert not _RESTATED_FACT.search("I have a question about section 11-134")
+    assert not _RESTATED_FACT.search("What does Section 11-116 define as salary?")

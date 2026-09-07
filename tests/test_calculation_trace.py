@@ -225,3 +225,17 @@ def test_the_declared_type_decides_not_the_input_name():
     # money and pads it. The recipe declares it as years, so that governs.
     assert _run()["input_types"]["creditable_service_years"] == "years"
     assert _run()["input_types"]["highest_average_annual_salary_4yr"] == "money"
+
+
+def test_projected_service_is_rounded_before_it_reaches_the_answer():
+    """Service accrues as a fraction of a year, and the answer copies verbatim.
+
+    Unrounded, a scenario's assumptions carried 23.186516084873375 — which is
+    precisely what appeared in the comparison table a member read.
+    """
+    from pension_chat.agent.nodes import _years
+
+    assert _years(23.186516084873375) == "23.2"
+    assert _years(21.5) == "21.5"
+    assert _years(25) == "25.0"
+    assert _years(None) == "None"

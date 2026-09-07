@@ -38,20 +38,56 @@ logger = logging.getLogger("pension_chat.agent.guardrails")
 
 # ── Scope ─────────────────────────────────────────────────────────
 
+# Vocabulary that marks a message as being about a member's pension. Written to
+# cover how members actually ask, not only how the statute is worded — someone
+# asking "how much will I get when I stop working" is asking a pension question
+# without using one word of pension vocabulary.
 _PENSION_TERMS = {
     "pension", "annuity", "annuitant", "retire", "retirement", "benefit",
-    "service credit", "creditable service", "salary", "contribution",
-    "withdraw", "withdrawal", "survivor", "widow", "disability", "refund",
-    "ilcs", "article", "section", "fund", "vest", "vesting", "beneficiary",
-    "cola", "increase", "eligib", "employee", "member", "tier", "years of service",
+    "service credit", "creditable service", "creditable", "salary", "wages",
+    "contribution", "withdraw", "withdrawal", "survivor", "widow", "widower",
+    "spouse", "disability", "refund", "ilcs", "article", "section", "vest",
+    "vesting", "beneficiary", "cola", "eligib", "employee", "employer",
+    "member", "tier", "years of service", "fund", "40 ilcs",
+    # How members phrase the same thing
+    "stop working", "stop work", "keep working", "carry on working",
+    "keep on working", "stay in service", "worth it to retire",
+    "should i retire", "leave service", "leave my job", "quit my job",
+    "resign", "last day", "final pay", "payout", "pay out", "lump sum",
+    "how much will i get", "how much do i get", "what will i get",
+    "buy back", "purchase service", "reciprocal", "prior service",
+    "sick leave", "leave of absence", "years of work", "my years",
 }
 
-# Asks that are clearly not this system's job. Kept narrow on purpose: a
-# borderline question should reach retrieval and be answered or declined on the
-# evidence, not turned away by a keyword.
+# Retirement-timing language, which is a pension question even with none of the
+# vocabulary above: "what happens if I wait 2 more years", "and at age 60?".
+_TIMING_LANGUAGE = re.compile(
+    r"\b(?:age\s+\d{2}|at\s+\d{2}\b|\d{1,2}\s+(?:more\s+)?years?"
+    r"|wait(?:ing)?\s+\d|turn(?:ing|s)?\s+\d{2})",
+    re.IGNORECASE,
+)
+
+# A bare or cited section reference — "11-134", "Section 11-116", "40 ILCS 5/11-130".
+_SECTION_REFERENCE = re.compile(r"\b\d{1,2}-\d{1,3}(?:\.\d{1,2})?\b")
+
+# A message that only makes sense as a continuation of the turn before it.
+# Without this, flipping the default below would refuse "and what about at 60?"
+# in the middle of a conversation about exactly that.
+_CONTINUATION = re.compile(
+    r"^\s*(?:and|but|so|then|also|ok(?:ay)?|yes|no|thanks?|thank you"
+    r"|what about|how about|what if|why|why not|and what|what else"
+    r"|can you explain|explain that|tell me more|go on)\b",
+    re.IGNORECASE,
+)
+
+# Asks that are plainly somebody else's job. This list is a shortcut to a
+# clearer refusal, not the mechanism that keeps the assistant on topic — that
+# is the default below.
 _OUT_OF_SCOPE = re.compile(
-    r"\b(write|generate|compose)\s+(me\s+)?(a\s+)?(poem|song|story|essay|joke|script)\b"
-    r"|\b(recipe for|weather|stock price|medical advice|diagnose)\b"
+    r"\b(write|generate|compose|draft)\s+(me\s+)?(a\s+)?"
+    r"(poem|song|story|essay|joke|script|email|cover letter|resume)\b"
+    r"|\b(recipe for|weather|stock price|medical advice|diagnose|"
+    r"book (?:me )?a|order (?:me )?(?:some )?food|help me sleep)\b"
     r"|\bwho (won|is the president)\b",
     re.IGNORECASE,
 )
@@ -63,29 +99,47 @@ class ScopeVerdict:
     reason: str = ""
 
 
-def classify_scope(question: str) -> ScopeVerdict:
-    """Cheap deterministic scope check run before any model call."""
+def classify_scope(question: str, *, has_history: bool = False) -> ScopeVerdict:
+    """Cheap deterministic scope check run before any model call.
+
+    The default is **out of scope**. It used to be the opposite — anything
+    longer than three words that missed the keyword list fell through to the
+    full pipeline — which meant "i want an ice cream" was answered ("Go for
+    it, you've earned one") and "can you help me sleep" got a page of sleep
+    hygiene advice. An assistant that answers questions about someone's pension
+    has no business doing either, and letting the model decide on the way past
+    is both slower and less reliable than not asking it.
+
+    Flipping the default is only safe alongside the vocabulary and patterns
+    above. A member asking "how much will I get when I stop working" or "and
+    what about at age 60?" uses no statutory vocabulary at all, and refusing
+    them would be a far worse failure than the one being fixed.
+
+    Args:
+        question: The member's message.
+        has_history: Whether this session already has turns behind it. A bare
+            continuation ("and at 60?") is in scope only as a follow-up.
+    """
     text = (question or "").strip()
     if not text:
         return ScopeVerdict(False, "The message was empty.")
 
     if _OUT_OF_SCOPE.search(text):
-        return ScopeVerdict(
-            False,
-            "That is outside what this assistant covers — it answers questions "
-            "about the Illinois Pension Code (40 ILCS 5/).",
-        )
+        return ScopeVerdict(False, "out_of_scope")
 
     lowered = text.lower()
     if any(term in lowered for term in _PENSION_TERMS):
         return ScopeVerdict(True)
+    if _TIMING_LANGUAGE.search(text) or _SECTION_REFERENCE.search(text):
+        return ScopeVerdict(True)
+    if has_history and _CONTINUATION.search(text):
+        return ScopeVerdict(True)
 
-    # Short, term-free messages ("hi", "thanks") are conversational, not
-    # out-of-scope refusals. Anything longer gets the benefit of the doubt and
-    # goes to retrieval, which will come back empty if it truly is unrelated.
+    # Short, term-free openers ("hi", "thanks") are conversational rather than
+    # something to refuse.
     if len(lowered.split()) <= 3:
         return ScopeVerdict(False, "greeting")
-    return ScopeVerdict(True)
+    return ScopeVerdict(False, "out_of_scope")
 
 
 # ── Adversarial instruction detection ─────────────────────────────

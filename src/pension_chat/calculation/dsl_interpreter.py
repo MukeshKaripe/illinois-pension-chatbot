@@ -143,7 +143,10 @@ class DSLInterpreter:
         if not isinstance(node, dict):
             return node
 
-        # Direct variable reference
+        # Direct variable reference. A derivation occasionally wraps one as
+        # {"operation": "variable", "variable": "x"} rather than {"variable":
+        # "x"}; the intent is not in doubt, and rejecting the whole recipe over
+        # the wrapper costs the member a calculation for nothing.
         if "variable" in node:
             var_name = node["variable"]
             if var_name not in context:
