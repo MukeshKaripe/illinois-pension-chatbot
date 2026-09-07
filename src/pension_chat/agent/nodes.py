@@ -45,6 +45,7 @@ from pension_chat.agent.registry import (
 from pension_chat.agent.retrieval import (
     RetrievedSection,
     canonical_section_texts,
+    extract_article_references,
     extract_section_references,
     retrieve,
 )
@@ -287,6 +288,7 @@ async def triage(state: PensionAgentState) -> dict:
         "out_of_scope_reason": scope.reason,
         "override_signal": guardrails.detect_instruction_override(question).to_dict(),
         "explicit_sections": extract_section_references(question),
+        "explicit_articles": extract_article_references(question),
         "timings": {"triage": time.perf_counter() - started},
     }
 
@@ -388,14 +390,30 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
     settings = get_settings()
 
     if not state.get("in_scope", True):
-        return {"retrieved_sections": []}
+        return {"retrieved_sections": [], "answers_other_article": False}
 
     # Restrict to the member's own Article when we know it. Article 11 and 12
     # are deliberately confusable, so leaking Article 12 text into an Article 11
     # member's answer is the exact failure the pilot is scoped to catch. With no
     # record to go on, search the whole corpus.
+    #
+    # Naming an Article overrides that, rather than adding to it. An Article 11
+    # member asking what Article 12 provides was told Article 12 "is not covered
+    # by the statute text", which was untrue -- it is indexed, and the filter was
+    # the only thing hiding it. Searching both Articles would not have helped
+    # either: ranking puts Article 11 first even for a query that says "Article
+    # 12". Whichever Article the member asked about is the one to read from.
     employee = state.get("employee_record")
-    articles = [str(employee["article_number"])] if employee else None
+    named = state.get("explicit_articles") or []
+    articles = named or ([str(employee["article_number"])] if employee else None)
+
+    # A question about someone else's Article is a question about the law, not
+    # about this member's benefit. Their salary and service belong to Article 11
+    # and cannot be run through an Article 12 provision, so the figures stay out
+    # and the answer explains what that Article provides.
+    other_article = bool(
+        named and employee and str(employee["article_number"]) not in named
+    )
 
     # A calculation needs whole provisions; the derivation step refuses to work
     # from text marked truncated.
@@ -420,6 +438,8 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
     )
     return {
         "retrieved_sections": [s.to_dict() for s in sections],
+        "requires_calculation": False if other_article else calculating,
+        "answers_other_article": other_article,
         "timings": {"retrieve_policy": time.perf_counter() - started},
     }
 
@@ -514,7 +534,15 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
 
     sections = [_section_from_dict(s) for s in state.get("retrieved_sections", [])]
     employee = state.get("employee_record")
-    article = employee["article_number"] if employee else 11
+    # Without a record, the Article the member named is the one the recipe was
+    # read from. Defaulting to 11 would file an Article 12 provision under
+    # Article 11 and hand it to the next Article 11 member who asks.
+    named = [a for a in (state.get("explicit_articles") or []) if a.isdigit()]
+    article = (
+        employee["article_number"]
+        if employee
+        else (int(named[0]) if named else 11)
+    )
     tier = employee["tier"] if employee else None
     facts = dict(state.get("member_facts") or {})
 
@@ -1542,6 +1570,16 @@ async def prepare_answer(state: PensionAgentState) -> dict:
     statute = _format_sections(sections, settings.retrieval_context_token_budget * 4)
 
     context_parts: list[str] = []
+
+    if state.get("answers_other_article"):
+        context_parts.append(
+            "THIS QUESTION IS ABOUT A DIFFERENT PART OF THE CODE than the one "
+            "this member belongs to. Answer it as a question about what the law "
+            "provides, using the statute below. Do not give this member's own "
+            "salary, service or pension figures as the answer, and do not say "
+            "the Article is unavailable to you — its text is below. If it "
+            "helps, say plainly which fund the member's own pension comes under."
+        )
 
     facts = state.get("member_facts") or {}
     if facts:

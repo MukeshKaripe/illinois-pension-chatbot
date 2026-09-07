@@ -113,6 +113,40 @@ def extract_section_references(text: str) -> list[str]:
     return seen
 
 
+_ARTICLE_REF = re.compile(r"\bArt(?:icle)?\.?\s*(\d{1,2})\b", re.IGNORECASE)
+
+
+def extract_article_references(text: str) -> list[str]:
+    """Pull explicit Article references out of free text.
+
+    Retrieval is normally filtered to the member's own Article, because Articles
+    11 and 12 are deliberately confusable and leaking one into the other's
+    answer is the failure the pilot exists to catch. But that filter also made
+    an Article 12 question unanswerable for an Article 11 member: the text was
+    indexed and retrievable, and the answer still said the Article was not
+    covered.
+
+    Widening the filter to both Articles does not fix it. Semantic ranking
+    favours Article 11's fuller provisions even on a query that names Article 12
+    outright, so an unfiltered search returns no Article 12 sections at all.
+    Naming an Article has to *move* the filter, not merely relax it.
+
+    A section reference implies its Article, so "what does 12-133 say" resolves
+    the same way as "Article 12".
+    """
+    seen: list[str] = []
+
+    def add(value: str) -> None:
+        if value not in seen:
+            seen.append(value)
+
+    for match in _ARTICLE_REF.finditer(text or ""):
+        add(match.group(1).lstrip("0") or "0")
+    for ref in extract_section_references(text):
+        add(ref.split("-", 1)[0].lstrip("0") or "0")
+    return seen
+
+
 def _subsection_sort_key(subsection_id: str) -> tuple:
     """Order subsections the way the statute prints them: (a), (a-5), (b), (f-1).
 

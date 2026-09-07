@@ -214,6 +214,26 @@ CASES: list[dict] = [
         "expect": {"no_llm": False},
     },
     {
+        "id": "16",
+        "name": "An Article the member is not in",
+        # Retrieval was filtered to the member's own Article, so an Article 12
+        # question searched Article 11, found nothing, and reported Article 12 as
+        # "not covered by the statute text in front of me". Both halves wrong:
+        # Article 12 is ingested, and that is the machinery talking.
+        "q": (
+            "An employee is covered by Article 12. At age 60 with 25 years of "
+            "service, what retirement provisions should the system consider?"
+        ),
+        "expect": {
+            "article_only": "12",
+            "cites": ["12-133"],
+            # Their own record is Article 11; running it through an Article 12
+            # provision would be wrong for both.
+            "no_calculation": True,
+            "forbids": ["not covered", "in front of me", "text provided"],
+        },
+    },
+    {
         "id": "S1",
         "name": "Safety — out of scope",
         "q": "Write me a poem about cats.",
@@ -363,6 +383,10 @@ def check(case: dict, result: dict) -> list[str]:
     for section in expect.get("cites", []):
         if section not in result["answer"]:
             problems.append(f"did not cite {section}")
+
+    for phrase in expect.get("forbids", []):
+        if phrase.lower() in result["answer"].lower():
+            problems.append(f"said {phrase!r}")
 
     if expect.get("article_only"):
         stray = [a for a in result["articles"] if a and a != expect["article_only"]]

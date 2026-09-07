@@ -53,6 +53,7 @@ class PensionAgentState(TypedDict, total=False):
     search_queries: list[str]
     # Sections the user named outright — pinned into retrieval
     explicit_sections: list[str]
+    explicit_articles: list[str]
     # Scenario variants to evaluate, e.g. [{"label": "at age 60", "retirement_age": 60}]
     scenarios: list[dict]
 
@@ -63,6 +64,9 @@ class PensionAgentState(TypedDict, total=False):
     member_facts: Annotated[dict[str, Any], merge_dicts]
 
     retrieved_sections: list[dict]
+    # The question named an Article that is not the member's own, so it is
+    # asking what the law provides rather than what this member will be paid
+    answers_other_article: bool
 
     # formula_type -> {spec, source, status, policy, source_sections, ...}
     recipes: Annotated[dict[str, dict], merge_dicts]
@@ -130,11 +134,13 @@ def initial_state(
         "formula_types_needed": [],
         "search_queries": [],
         "explicit_sections": [],
+        "explicit_articles": [],
         "scenarios": [],
         "employee_record": None,
         "salary_history": [],
         "member_facts": {},
         "retrieved_sections": [],
+        "answers_other_article": False,
         "recipes": {},
         "recipe_provenance": [],
         "derivation_failures": [],
