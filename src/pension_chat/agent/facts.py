@@ -1,0 +1,200 @@
+"""Deterministic member facts derived from the employee record.
+
+Everything here is arithmetic on database values — no model involvement. The
+first implementation hardcoded ``age = 55`` with a ``# Mock age calc`` comment,
+which silently produced wrong eligibility for every member.
+
+A derived recipe declares the inputs it needs by name, and different derivations
+of the same rule pick different names for the same quantity (``months_before_60``
+vs ``months_before_age_60`` vs ``age_at_annuity_start``). Rather than force one
+vocabulary on the model, this module publishes the canonical facts under a
+generous set of aliases; anything still unresolved falls through to the
+extraction step, and anything unresolved after that gates execution.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import date
+from decimal import Decimal
+from typing import Any
+
+logger = logging.getLogger("pension_chat.agent.facts")
+
+
+def age_on(birth_date: date, on: date) -> int:
+    """Whole years completed on ``on``."""
+    years = on.year - birth_date.year
+    if (on.month, on.day) < (birth_date.month, birth_date.day):
+        years -= 1
+    return years
+
+
+def months_between(start: date, end: date) -> int:
+    """Whole months from ``start`` to ``end``; negative if ``end`` precedes it."""
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    return months
+
+
+def nth_birthday(birth_date: date, age: int) -> date:
+    """The date the member turns ``age``."""
+    try:
+        return birth_date.replace(year=birth_date.year + age)
+    except ValueError:  # 29 February
+        return birth_date.replace(year=birth_date.year + age, day=28)
+
+
+def highest_average_salary(
+    salary_history: list[tuple[date, Decimal]],
+    consecutive_years: int,
+    window_years: int,
+    as_of: date,
+) -> Decimal | None:
+    """Highest average annual salary over N consecutive years in the last M.
+
+    Article 11's minimum-annuity formulas are written on "the highest average
+    annual salary for any 4 consecutive years within the last 10 years of
+    service immediately preceding the date of withdrawal", so this computes a
+    rolling mean over the eligible window rather than simply averaging the most
+    recent years.
+
+    Returns ``None`` when the history does not cover enough years to compute the
+    average the statute asks for — a missing input, not a zero.
+    """
+    if not salary_history or consecutive_years <= 0:
+        return None
+
+    cutoff = date(as_of.year - window_years, as_of.month, as_of.day)
+    eligible = sorted(
+        ((d, Decimal(str(s))) for d, s in salary_history if d >= cutoff),
+        key=lambda row: row[0],
+    )
+    if len(eligible) < consecutive_years:
+        return None
+
+    best: Decimal | None = None
+    for start in range(len(eligible) - consecutive_years + 1):
+        window = eligible[start : start + consecutive_years]
+        average = sum(s for _, s in window) / Decimal(consecutive_years)
+        if best is None or average > best:
+            best = average
+    return best
+
+
+def build_member_facts(
+    employee: dict[str, Any] | None,
+    salary_history: list[tuple[date, Decimal]] | None = None,
+    *,
+    today: date | None = None,
+    assumed_retirement_age: int | None = None,
+) -> dict[str, Any]:
+    """Compute every member fact a recipe might reference.
+
+    Args:
+        employee: The employee record dict, or ``None`` for an anonymous user.
+        salary_history: ``(effective_date, annual_salary)`` rows.
+        today: Overridable for deterministic tests.
+        assumed_retirement_age: When set, facts are computed as of the date the
+            member reaches that age instead of today — this is what powers
+            "what changes when I reach 60" scenarios.
+
+    Returns:
+        A flat dict of facts. Keys are aliased liberally so that a derived
+        recipe's chosen input names resolve without a model call.
+    """
+    today = today or date.today()
+    if not employee:
+        return {"as_of_date": today.isoformat()}
+
+    birth_date = _as_date(employee.get("birth_date"))
+    hire_date = _as_date(employee.get("hire_date"))
+    if birth_date is None:
+        return {"as_of_date": today.isoformat()}
+
+    service_years = Decimal(str(employee.get("total_service_years") or 0))
+
+    if assumed_retirement_age is not None:
+        as_of = nth_birthday(birth_date, assumed_retirement_age)
+        # Service keeps accruing while the member stays in service.
+        if employee.get("employment_status") == "active" and as_of > today:
+            extra_years = Decimal(str((as_of - today).days)) / Decimal("365.25")
+            service_years = service_years + extra_years
+    else:
+        as_of = today
+
+    current_age = age_on(birth_date, as_of)
+    age_60_date = nth_birthday(birth_date, 60)
+    age_55_date = nth_birthday(birth_date, 55)
+    months_before_60 = max(0, months_between(as_of, age_60_date))
+
+    facts: dict[str, Any] = {
+        "as_of_date": as_of.isoformat(),
+        "birth_date": birth_date.isoformat(),
+        "hire_date": hire_date.isoformat() if hire_date else None,
+        "article_number": employee.get("article_number"),
+        "tier": employee.get("tier"),
+        "employment_status": employee.get("employment_status"),
+        "current_annual_salary": _num(employee.get("current_annual_salary")),
+        # Age, under the names a derivation is likely to pick
+        "age": current_age,
+        "current_age": current_age,
+        "age_at_annuity_start": current_age,
+        "age_at_withdrawal": current_age,
+        "attained_age": current_age,
+        # Service
+        "service_years": _num(service_years),
+        "years_of_service": _num(service_years),
+        "total_service_years": _num(service_years),
+        "creditable_service_years": _num(service_years),
+        # Dates a date_diff operation may reference
+        "withdrawal_date": as_of.isoformat(),
+        "annuity_start_date": as_of.isoformat(),
+        "age_55_date": age_55_date.isoformat(),
+        "age_60_date": age_60_date.isoformat(),
+        # The early-retirement reduction in Article 11 is stated per month
+        # before age 60, so publish that count directly.
+        "months_before_age_60": months_before_60,
+        "months_before_60": months_before_60,
+        "full_months_under_age_60": months_before_60,
+    }
+
+    if salary_history:
+        for consecutive in (4, 5, 8):
+            average = highest_average_salary(
+                salary_history, consecutive, window_years=10, as_of=as_of
+            )
+            if average is None:
+                continue
+            value = _num(average)
+            facts[f"highest_average_annual_salary_{consecutive}yr"] = value
+            if consecutive == 4:
+                # 4 consecutive years is the Article 11 default for withdrawals
+                # under the post-1988 formulas, so it also answers the generic
+                # "final average salary" input name.
+                facts["final_average_salary"] = value
+                facts["highest_average_annual_salary"] = value
+                facts["fas"] = value
+
+    return {k: v for k, v in facts.items() if v is not None}
+
+
+def _as_date(value: Any) -> date | None:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _num(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

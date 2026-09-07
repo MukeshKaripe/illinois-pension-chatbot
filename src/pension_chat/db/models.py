@@ -1,0 +1,352 @@
+"""SQLAlchemy ORM models matching the §7.1 schema exactly.
+
+All tables, constraints, indexes, and RLS policies from the architecture
+document are defined here. Alembic migrations derive from these models.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    """Base class for all ORM models."""
+    pass
+
+
+class PensionArticle(Base):
+    """Reference table: one row per Article (~20 eventually)."""
+
+    __tablename__ = "pension_articles"
+
+    article_number: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    system_name: Mapped[str] = mapped_column(Text, nullable=False)
+    chapter: Mapped[str] = mapped_column(Text, nullable=False, server_default="40")
+    act: Mapped[str] = mapped_column(Text, nullable=False, server_default="5")
+    ingestion_status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="not_ingested",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "ingestion_status IN ('not_ingested', 'validating', 'ingested')",
+            name="ck_pension_articles_ingestion_status",
+        ),
+    )
+
+    # Relationships
+    employees: Mapped[list[Employee]] = relationship(back_populates="article")
+    formulas: Mapped[list[FormulaRegistry]] = relationship(back_populates="article")
+
+
+class Employee(Base):
+    """Employees table — synthetic for pilot, identical schema for real data later."""
+
+    __tablename__ = "employees"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # For JWT auth (replaces Entra oid claim)
+    hashed_password: Mapped[str | None] = mapped_column(Text, nullable=True)
+    article_number: Mapped[int] = mapped_column(
+        SmallInteger,
+        ForeignKey("pension_articles.article_number"),
+        nullable=False,
+    )
+    tier: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    birth_date: Mapped[date] = mapped_column(Date, nullable=False)
+    hire_date: Mapped[date] = mapped_column(Date, nullable=False)
+    employment_status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="active",
+    )
+    total_service_years: Mapped[float] = mapped_column(
+        Numeric(5, 2),
+        nullable=False,
+        server_default="0",
+    )
+    current_annual_salary: Mapped[float] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+    )
+    is_synthetic: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="true",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        CheckConstraint("tier IN (1, 2)", name="ck_employees_tier"),
+        CheckConstraint(
+            "employment_status IN ('active', 'separated', 'retired')",
+            name="ck_employees_employment_status",
+        ),
+    )
+
+    # Relationships
+    article: Mapped[PensionArticle] = relationship(back_populates="employees")
+    salary_history: Mapped[list[EmployeeSalaryHistory]] = relationship(
+        back_populates="employee", cascade="all, delete-orphan"
+    )
+    sessions: Mapped[list[Session]] = relationship(back_populates="employee")
+
+
+class EmployeeSalaryHistory(Base):
+    """Salary history for final-average-salary calculations."""
+
+    __tablename__ = "employee_salary_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    employee_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employees.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)
+    annual_salary: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("employee_id", "effective_date", name="uq_salary_history_emp_date"),
+    )
+
+    # Relationships
+    employee: Mapped[Employee] = relationship(back_populates="salary_history")
+
+
+class Session(Base):
+    """Chat sessions. employee_id is NULL for unauthenticated sessions."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employees.id"),
+        nullable=True,
+    )
+    session_token: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("gen_random_uuid()::text"),
+    )
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="active",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'ended')",
+            name="ck_sessions_status",
+        ),
+    )
+
+    # Relationships
+    employee: Mapped[Employee | None] = relationship(back_populates="sessions")
+    messages: Mapped[list[SessionMessage]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class SessionMessage(Base):
+    """Turn-by-turn messages: conversation state AND the DB-level audit trail."""
+
+    __tablename__ = "session_messages"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    tool_calls: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    guardrail_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('user', 'assistant')",
+            name="ck_session_messages_role",
+        ),
+        Index("idx_session_messages_session", "session_id", "created_at"),
+    )
+
+    # Relationships
+    session: Mapped[Session] = relationship(back_populates="messages")
+
+
+class FormulaRegistry(Base):
+    """Calculation Knowledge Registry: stores reusable agent-derived recipes
+    and promoted/approved capabilities.
+
+    Full lifecycle: discovered → agent_derived → validated → approved → stale/retired
+    """
+
+    __tablename__ = "formula_registry"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    document_id: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="il_pension_code_40_ilcs_5",
+    )
+    article_number: Mapped[int] = mapped_column(
+        SmallInteger,
+        ForeignKey("pension_articles.article_number"),
+        nullable=False,
+    )
+    formula_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    section: Mapped[str | None] = mapped_column(Text, nullable=True)
+    formula_name: Mapped[str] = mapped_column(Text, nullable=False)
+    formula_type: Mapped[str] = mapped_column(Text, nullable=False)
+    tier: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    required_inputs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    optional_inputs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    output_schema: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    applicability: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    dependencies: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    rule_specification: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    source_sections: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    evidence_fingerprint: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    execution_type: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="declarative",
+    )
+    execution_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    implementation_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    effective_start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    effective_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    annual_parameter_set: Mapped[str | None] = mapped_column(Text, nullable=True)
+    knowledge_status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="discovered",
+    )
+    risk_tier: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="high",
+    )
+    execution_policy: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="no_execute",
+    )
+    derivation_method: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completeness_check: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
+    created_from_message_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("session_messages.id"),
+        nullable=True,
+    )
+    reviewed_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    test_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_public_act: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "execution_type IN ('declarative', 'custom')",
+            name="ck_formula_registry_execution_type",
+        ),
+        CheckConstraint(
+            "knowledge_status IN ('discovered', 'agent_derived', 'validated', 'approved', 'stale', 'retired')",
+            name="ck_formula_registry_knowledge_status",
+        ),
+        CheckConstraint(
+            "risk_tier IN ('low', 'medium', 'high')",
+            name="ck_formula_registry_risk_tier",
+        ),
+        CheckConstraint(
+            "execution_policy IN ('no_execute', 'estimate', 'authoritative')",
+            name="ck_formula_registry_execution_policy",
+        ),
+        UniqueConstraint("article_number", "formula_id", "version", name="uq_formula_article_version"),
+        Index(
+            "idx_formula_lookup",
+            "article_number", "tier", "formula_type", "effective_start_date",
+        ),
+        Index("idx_formula_status", "knowledge_status", "execution_policy"),
+    )
+
+    # Relationships
+    article: Mapped[PensionArticle] = relationship(back_populates="formulas")

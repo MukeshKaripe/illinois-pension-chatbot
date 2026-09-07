@@ -1,0 +1,503 @@
+"""Hybrid statute retrieval over the Azure AI Search index.
+
+The first implementation issued one semantic-only query per planner-generated
+string, kept the top 10 *chunks*, and truncated each to 500 characters. Three
+things went wrong with that:
+
+* **No article filter.** An Article 11 member's questions came back with
+  Article 12 sections mixed in — the two articles are deliberately adjacent and
+  confusable (architecture doc §2), so this is the failure mode the pilot exists
+  to catch.
+* **Chunks, not sections.** The index stores one record per *subsection*, so a
+  top-10 chunk list gives the model fragments of a rule. Section 11-134(a) alone
+  is 6KB; truncating it at 500 characters removes the accrual rates.
+* **No vector leg.** Semantic-only search misses paraphrases.
+
+This module does hybrid retrieval (BM25 + vector + semantic reranker), filters
+by article, then *expands* the winning chunks back into whole assembled
+sections before applying a token budget.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Any
+
+from azure.search.documents.models import VectorizedQuery
+
+from pension_chat.agent.llm import get_async_search_client, get_llm
+from pension_chat.config import get_settings
+
+logger = logging.getLogger("pension_chat.agent.retrieval")
+
+# "Section 11-134", "Sec. 11-134(a)", "40 ILCS 5/11-134.1", "11-134(f-1)"
+_SECTION_REF = re.compile(
+    r"(?:40\s*ILCS\s*5/)?(?:Sec(?:tion|\.)?\s*)?\b(\d{1,2}-\d{1,3}(?:\.\d{1,2})?)\b",
+    re.IGNORECASE,
+)
+_SELECT_FIELDS = [
+    "id", "content", "article", "section", "section_title", "subsection_id",
+    "calculation_relevance", "referenced_sections", "effective_date",
+    "source_public_act",
+]
+
+# Statute text is immutable for the life of the process — an Article is
+# re-ingested by running the ingestion script, which restarts the API. Caching
+# assembled section chunks removes a ~0.3s round trip from the request path,
+# and the hot sections (11-130, 11-134) are hit by almost every calculation
+# question. `reset_caches()` exists so tests and the ingestion path can clear it.
+_SECTION_CACHE: dict[str, list[dict]] = {}
+_EMBED_CACHE: dict[str, list[float]] = {}
+_EMBED_CACHE_MAX = 512
+
+# Below this much remaining budget a section is dropped rather than truncated.
+_MIN_SECTION_CHARS = 1200
+
+
+def reset_caches() -> None:
+    """Drop cached statute text and query embeddings."""
+    _SECTION_CACHE.clear()
+    _EMBED_CACHE.clear()
+
+
+@dataclass
+class RetrievedSection:
+    """One statute section, assembled from its indexed subsection chunks."""
+
+    section: str
+    article: str
+    title: str
+    text: str
+    score: float = 0.0
+    subsection_ids: list[str] = field(default_factory=list)
+    relevance: list[str] = field(default_factory=list)
+    referenced_sections: list[str] = field(default_factory=list)
+    source_public_act: str | None = None
+    truncated: bool = False
+
+    @property
+    def citation(self) -> str:
+        return f"40 ILCS 5/{self.section}"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.section,
+            "section": self.section,
+            "article": self.article,
+            "title": self.title,
+            "text": self.text,
+            "citation": self.citation,
+            "score": self.score,
+            "relevance": self.relevance,
+            "referenced_sections": self.referenced_sections,
+            "truncated": self.truncated,
+        }
+
+
+def extract_section_references(text: str) -> list[str]:
+    """Pull explicit statute section references out of free text.
+
+    Used both to short-circuit retrieval when the user names a section outright
+    ("What does Section 11-116 define as salary?") and to resolve the
+    cross-references a retrieved section makes to other sections.
+    """
+    seen: list[str] = []
+    for match in _SECTION_REF.finditer(text or ""):
+        ref = match.group(1)
+        if ref not in seen:
+            seen.append(ref)
+    return seen
+
+
+def _subsection_sort_key(subsection_id: str) -> tuple:
+    """Order subsections the way the statute prints them: (a), (a-5), (b), (f-1).
+
+    Chunks with no subsection id sort first — they are the section preamble.
+    """
+    if not subsection_id:
+        return (0, "", 0)
+    inner = subsection_id.strip("()")
+    match = re.match(r"([a-z]+)(?:-(\d+))?", inner, re.IGNORECASE)
+    if not match:
+        return (2, inner, 0)
+    letter, suffix = match.group(1), match.group(2)
+    return (1, letter.lower(), int(suffix) if suffix else 0)
+
+
+async def _embed(queries: list[str]) -> list[list[float] | None]:
+    """Embed every query in one batched call rather than one call per query.
+
+    Returns a list positionally aligned with ``queries``; an entry is ``None``
+    when that query could not be embedded, so the caller can still run the
+    keyword and semantic legs for it.
+    """
+    settings = get_settings()
+    client = get_llm()
+
+    missing = [q for q in queries if q not in _EMBED_CACHE]
+    if missing:
+        try:
+            response = await client.embeddings.create(
+                model=settings.azure_openai_embedding_deployment, input=missing
+            )
+            if len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
+                _EMBED_CACHE.clear()
+            for query, item in zip(missing, response.data):
+                _EMBED_CACHE[query] = item.embedding
+        except Exception as exc:  # embedding is an optimisation, not a hard dependency
+            logger.warning("Embedding failed, falling back to keyword+semantic: %s", exc)
+
+    return [_EMBED_CACHE.get(q) for q in queries]
+
+
+def _article_filter(articles: Iterable[str] | None) -> str | None:
+    values = [a for a in (articles or []) if a]
+    if not values:
+        return None
+    joined = ",".join(str(a) for a in values)
+    return f"search.in(article, '{joined}', ',')"
+
+
+async def _search_one(
+    query: str,
+    vector: list[float] | None,
+    filter_expr: str | None,
+    top: int,
+) -> list[dict]:
+    """Run one hybrid query, degrading gracefully if a leg is unavailable."""
+    settings = get_settings()
+    client = get_async_search_client()
+    kwargs: dict[str, Any] = {
+        "search_text": query,
+        "top": top,
+        "select": _SELECT_FIELDS,
+        "query_type": "semantic",
+        "semantic_configuration_name": "pension-semantic-config",
+    }
+    if filter_expr:
+        kwargs["filter"] = filter_expr
+    if vector:
+        kwargs["vector_queries"] = [
+            VectorizedQuery(
+                vector=vector,
+                k_nearest_neighbors=settings.retrieval_vector_k,
+                fields="content_vector",
+            )
+        ]
+
+    try:
+        results = await client.search(**kwargs)
+        return [dict(doc) async for doc in results]
+    except Exception as exc:
+        logger.warning("Semantic hybrid search failed for %r: %s", query, exc)
+
+    # Retry without the semantic ranker — it has its own quota and is the most
+    # likely leg to fail. Keyword+vector still gives usable results.
+    kwargs.pop("query_type", None)
+    kwargs.pop("semantic_configuration_name", None)
+    try:
+        results = await client.search(**kwargs)
+        return [dict(doc) async for doc in results]
+    except Exception as exc:
+        logger.error("Search failed entirely for %r: %s", query, exc)
+        return []
+
+
+def _chunk_score(doc: dict) -> float:
+    """Prefer the reranker score; fall back to the raw BM25/RRF score."""
+    reranker = doc.get("@search.reranker_score")
+    if reranker:
+        return float(reranker)
+    return float(doc.get("@search.score") or 0.0)
+
+
+async def fetch_sections(
+    section_ids: list[str],
+    articles: Iterable[str] | None = None,
+) -> dict[str, list[dict]]:
+    """Fetch every indexed chunk for the given sections, keyed by section id."""
+    if not section_ids:
+        return {}
+
+    cached = {s: _SECTION_CACHE[s] for s in section_ids if s in _SECTION_CACHE}
+    pending = [s for s in section_ids if s not in _SECTION_CACHE]
+    if not pending:
+        return cached
+
+    client = get_async_search_client()
+    quoted = ",".join(pending)
+    filter_parts = [f"search.in(section, '{quoted}', ',')"]
+    article_expr = _article_filter(articles)
+    if article_expr:
+        filter_parts.append(article_expr)
+
+    try:
+        results = await client.search(
+            search_text="*",
+            filter=" and ".join(filter_parts),
+            top=200,
+            select=_SELECT_FIELDS,
+        )
+        docs = [dict(doc) async for doc in results]
+    except Exception as exc:
+        logger.error("Section fetch failed for %s: %s", pending, exc)
+        return cached
+
+    grouped: dict[str, list[dict]] = dict(cached)
+    fetched: dict[str, list[dict]] = {}
+    for doc in docs:
+        fetched.setdefault(doc.get("section", ""), []).append(doc)
+
+    # Only cache when the article filter did not restrict the result, so a
+    # filtered fetch never poisons the cache with a partial section.
+    for section_id, chunks in fetched.items():
+        if not article_expr:
+            _SECTION_CACHE[section_id] = chunks
+        grouped[section_id] = chunks
+    return grouped
+
+
+async def canonical_section_texts(section_ids: Iterable[str]) -> dict[str, str]:
+    """Return the complete, untrimmed text of each section.
+
+    This is what evidence fingerprints must hash. The text carried on a
+    ``RetrievedSection`` has been through a character budget, so it varies with
+    how many other sections shared that budget on a given turn — fingerprinting
+    it makes an unchanged statute hash differently between two runs, every
+    stored recipe look stale, and the registry re-derive from scratch each time.
+    Canonical text depends only on what was ingested.
+    """
+    ids = [s for s in dict.fromkeys(section_ids) if s]
+    if not ids:
+        return {}
+
+    grouped = await fetch_sections(ids)
+    texts: dict[str, str] = {}
+    for section_id, chunks in grouped.items():
+        ordered = sorted(
+            chunks, key=lambda d: _subsection_sort_key(d.get("subsection_id") or "")
+        )
+        body = "\n".join((c.get("content") or "").strip() for c in ordered)
+        if body.strip():
+            texts[section_id] = body
+    return texts
+
+
+def _assemble(
+    section_id: str, chunks: list[dict], score: float, char_budget: int
+) -> RetrievedSection:
+    """Join a section's chunks into one ordered text block."""
+    chunks = sorted(chunks, key=lambda d: _subsection_sort_key(d.get("subsection_id") or ""))
+    first = chunks[0] if chunks else {}
+
+    parts: list[str] = []
+    used = 0
+    truncated = False
+    relevance: list[str] = []
+    references: list[str] = []
+
+    for chunk in chunks:
+        for tag in chunk.get("calculation_relevance") or []:
+            if tag not in relevance:
+                relevance.append(tag)
+        for ref in chunk.get("referenced_sections") or []:
+            if ref not in references:
+                references.append(ref)
+
+        body = (chunk.get("content") or "").strip()
+        if not body:
+            continue
+        if used + len(body) > char_budget:
+            remaining = max(0, char_budget - used)
+            if remaining > 400:
+                parts.append(body[:remaining])
+                used += remaining
+            truncated = True
+            break
+        parts.append(body)
+        used += len(body)
+
+    return RetrievedSection(
+        section=section_id,
+        article=first.get("article", ""),
+        title=first.get("section_title", ""),
+        text="\n".join(parts),
+        score=score,
+        subsection_ids=[c.get("subsection_id") or "" for c in chunks],
+        relevance=relevance,
+        referenced_sections=references,
+        source_public_act=first.get("source_public_act") or None,
+        truncated=truncated,
+    )
+
+
+async def retrieve(
+    queries: list[str],
+    *,
+    articles: Iterable[str] | None = None,
+    must_include_sections: Iterable[str] | None = None,
+    top_sections: int | None = None,
+    char_budget: int | None = None,
+    follow_cross_references: int = 2,
+) -> list[RetrievedSection]:
+    """Retrieve and assemble the statute sections relevant to ``queries``.
+
+    Args:
+        queries: Search strings. Embedded and searched concurrently.
+        articles: Article numbers to restrict to (e.g. ``["11"]``). Omitting
+            this searches the whole corpus, which is right for a general legal
+            question but wrong for a member-specific one.
+        must_include_sections: Sections to retrieve regardless of score —
+            explicit references from the question, or cross-references being
+            resolved.
+        top_sections: How many distinct sections to assemble.
+        char_budget: Total character budget across all assembled sections.
+        follow_cross_references: How many sections named *inside* the retrieved
+            text to pull in as well. Article 11 is written in cross-references —
+            11-134(a) computes on service "as service is defined or computed in
+            Section 11-216" — so an answer that reads 11-134 without 11-216 is
+            reading half a rule, and citing 11-216 from it would be citing text
+            the agent was never shown. Set to 0 to disable.
+
+    Returns:
+        Assembled sections, highest scoring first.
+    """
+    settings = get_settings()
+    top_sections = top_sections or settings.retrieval_top_sections
+    # ~4 characters per token is a good approximation for statute prose.
+    char_budget = char_budget or settings.retrieval_context_token_budget * 4
+
+    queries = [q.strip() for q in queries if q and q.strip()][:4]
+    pinned = list(dict.fromkeys(must_include_sections or []))
+
+    section_scores: dict[str, float] = {}
+
+    if queries:
+        vectors = await _embed(queries)
+        filter_expr = _article_filter(articles)
+        hits = await asyncio.gather(
+            *(
+                _search_one(
+                    query,
+                    vectors[i] if i < len(vectors) else None,
+                    filter_expr,
+                    settings.retrieval_per_query_top,
+                )
+                for i, query in enumerate(queries)
+            )
+        )
+        for docs in hits:
+            for doc in docs:
+                section_id = doc.get("section")
+                if not section_id:
+                    continue
+                # A section's score is its best-scoring chunk: a long section
+                # should not be penalised for having many weak subsections.
+                score = _chunk_score(doc)
+                if score > section_scores.get(section_id, 0.0):
+                    section_scores[section_id] = score
+
+    ranked = sorted(section_scores, key=lambda s: section_scores[s], reverse=True)
+    # Pinned sections come first and do not consume a ranked slot.
+    chosen = pinned + [
+        s for s in ranked if s not in pinned
+    ][: max(0, top_sections - len(pinned))]
+    if not chosen:
+        return []
+
+    # No article filter here: section ids carry their article as a prefix
+    # ("11-134"), so the ids chosen above already encode the restriction, and a
+    # pinned section named explicitly by the user should be honoured even when
+    # it sits outside the filter (cross-article references are legitimate).
+    grouped = await fetch_sections(chosen)
+
+    # Budget allocation is greedy by rank, and it *drops* a section rather than
+    # truncating it once little budget is left. A half-included section is worse
+    # than an absent one: the derivation step refuses to derive from text marked
+    # truncated, so mid-truncating the controlling provision to make room for a
+    # weak tail section loses the answer entirely.
+    # Hold back part of the budget for cross-referenced sections. Without a
+    # reservation the top few sections consume everything (11-134 alone is 13KB)
+    # and the definitions they depend on never get fetched.
+    reserved = int(char_budget * 0.2) if follow_cross_references else 0
+
+    assembled: list[RetrievedSection] = []
+    remaining = char_budget - reserved
+    for section_id in chosen:
+        chunks = grouped.get(section_id)
+        if not chunks:
+            continue
+        if remaining < _MIN_SECTION_CHARS:
+            break
+        section = _assemble(
+            section_id, chunks, section_scores.get(section_id, 0.0), remaining
+        )
+        if not section.text:
+            continue
+        remaining -= len(section.text)
+        assembled.append(section)
+
+    reference_budget = remaining + reserved
+    if follow_cross_references and reference_budget >= _MIN_SECTION_CHARS:
+        assembled.extend(
+            await _follow_references(
+                assembled, reference_budget, limit=follow_cross_references
+            )
+        )
+
+    assembled.sort(key=lambda s: (s.section not in pinned, -s.score))
+    return assembled
+
+
+async def _follow_references(
+    assembled: list[RetrievedSection],
+    char_budget: int,
+    limit: int,
+) -> list[RetrievedSection]:
+    """Pull in the sections that the retrieved text itself points at.
+
+    Only the highest-scoring sections' references are followed, and only one
+    hop — following every reference transitively pulls in most of the Article.
+    """
+    already = {section.section for section in assembled}
+    wanted: list[str] = []
+
+    for section in assembled[:3]:
+        for ref in section.referenced_sections:
+            normalised = str(ref).split("(")[0].strip()
+            if normalised and normalised not in already and normalised not in wanted:
+                wanted.append(normalised)
+        if len(wanted) >= limit:
+            break
+
+    wanted = wanted[:limit]
+    if not wanted:
+        return []
+
+    grouped = await fetch_sections(wanted)
+    extra: list[RetrievedSection] = []
+    remaining = char_budget
+    for section_id in wanted:
+        chunks = grouped.get(section_id)
+        if not chunks or remaining < _MIN_SECTION_CHARS:
+            continue
+        # Referenced sections are supporting context, so they get a bounded
+        # share rather than whatever is left.
+        share = min(remaining, max(_MIN_SECTION_CHARS, char_budget // max(1, len(wanted))))
+        section = _assemble(section_id, chunks, 0.0, share)
+        if not section.text:
+            continue
+        remaining -= len(section.text)
+        extra.append(section)
+
+    if extra:
+        logger.debug(
+            "Followed cross-references from %s to %s",
+            [s.section for s in assembled[:3]],
+            [s.section for s in extra],
+        )
+    return extra
