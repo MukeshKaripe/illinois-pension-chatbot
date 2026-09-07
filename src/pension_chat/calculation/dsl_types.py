@@ -74,6 +74,21 @@ class ParameterSpec(BaseModel):
     effective_date: str | None = None
 
 
+class ApplicabilityPredicate(BaseModel):
+    """One machine-evaluable statutory condition for using a recipe.
+
+    Prose applicability ("applies to an employee withdrawing at age 56 with
+    21.5 years of service") cannot be re-checked when the recipe is reused for
+    a different member. A predicate can: `calculation/applicability.py`
+    evaluates it against the member's facts before execution.
+    """
+    fact: str
+    operator: str
+    value: Any | None = None
+    description: str | None = None
+    source: dict[str, str] = Field(default_factory=dict)  # {section, subsection}
+
+
 class OperationNode(BaseModel):
     """A single operation in the calculation tree."""
     operation: OperationType
@@ -110,6 +125,10 @@ class RuleSpecification(BaseModel):
     inputs: list[InputSpec] = Field(default_factory=list)
     parameters: dict[str, ParameterSpec] = Field(default_factory=dict)
     calculation: dict = Field(default_factory=dict)  # OperationNode tree
+    # Conditions the statute attaches to this provision. Evaluated
+    # deterministically before execution and again on every reuse, so a recipe
+    # cannot be applied to a member the provision does not reach.
+    applicability_predicates: list[ApplicabilityPredicate] = Field(default_factory=list)
     output_name: str = "result"
     output_type: InputType = InputType.MONEY
 

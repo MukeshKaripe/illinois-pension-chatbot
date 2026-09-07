@@ -302,10 +302,30 @@ def verify_answer(
         report.fail("EMPTY_ANSWER", "The model produced no answer text.")
         return report
 
-    # 1. Citations must point at sections that were actually retrieved.
+    # 1. A bracketed citation must point at a section whose text was retrieved.
+    #
+    # A bare mention is held to a weaker standard, deliberately. Article 11 is
+    # written in cross-references — 11-134 computes on service "as service is
+    # defined or computed in Section 11-216", and 11-216 in turn points at
+    # 11-164 — so naming the provision a retrieved section sends you to is
+    # reading the page, not recalling from memory. Requiring every mention to
+    # have been retrieved made it impossible to describe a cross-reference at
+    # all, and threw away correct answers that did: the multi-hop question in
+    # the regression suite asks for exactly this and was failed for answering it.
+    named_in_evidence = set(_SECTION_MENTION.findall(sections_text)) | set(
+        _CITATION.findall(sections_text)
+    )
     cited = set(_CITATION.findall(answer)) | set(_SECTION_MENTION.findall(answer))
-    for section in sorted(cited):
+    for section in sorted(set(_CITATION.findall(answer))):
         if section in available:
+            report.verified_citations.append(section)
+        else:
+            report.unverified_citations.append(section)
+
+    for section in sorted(set(_SECTION_MENTION.findall(answer))):
+        if section in report.verified_citations or section in report.unverified_citations:
+            continue
+        if section in available or section in named_in_evidence:
             report.verified_citations.append(section)
         else:
             report.unverified_citations.append(section)
@@ -364,22 +384,46 @@ def verify_answer(
 def fallback_answer(report: GuardrailReport) -> str:
     """The message shown when verification fails hard.
 
-    It says what could not be substantiated rather than only that something
-    went wrong, so the member knows whether to rephrase or to call the Fund.
+    This replaces an answer the member has already begun reading, so it has to
+    do two things at once: be honest that the answer was withdrawn, and be a
+    reply a person would want to receive.
+
+    It used to print the verification codes verbatim — "the answer cites 40 ILCS
+    5/11-164, which was not among the sections retrieved for it". That tells the
+    member about the machinery instead of about their pension, and it reads as a
+    malfunction rather than as care. What they need is what went unverified, in
+    their terms, and what to do next; the codes stay in the audit trail.
     """
-    lines = [
-        "I could not give you an answer I am able to stand behind for this question.",
-        "",
-    ]
-    for failure in report.hard_failures:
-        lines.append(f"- {failure['message']}")
-    lines += [
-        "",
-        "Rather than show you a figure or a citation I cannot trace back to the "
-        "Illinois Pension Code, I would rather tell you that up front. Try asking "
-        "about a specific Section, or give me the details the calculation needs "
-        "(your age, service credit, and salary history), and I will work from the "
-        "statute text directly. For a binding determination, contact your "
-        "retirement fund.",
-    ]
-    return "\n".join(lines)
+    kinds = {failure["code"] for failure in report.hard_failures}
+
+    if "UNVERIFIED_FIGURE" in kinds:
+        detail = (
+            "I had a figure in that answer I could not trace back to the Pension Code, "
+            "and an estimate of your pension is not worth having unless every number in "
+            "it comes from the statute and your own record."
+        )
+        next_step = (
+            "If you tell me your age, your years of service and your salary history, "
+            "I can work it through again from the Code itself."
+        )
+    elif "UNVERIFIED_CITATION" in kinds:
+        detail = (
+            "I found myself relying on a provision I do not have the text of, and I "
+            "would rather not describe a rule I cannot read to you directly."
+        )
+        next_step = (
+            "Naming the Section you are interested in usually helps — I currently have "
+            "the text of Articles 11 and 12."
+        )
+    else:
+        detail = (
+            "Something in that answer did not hold up when I checked it back against "
+            "the Pension Code."
+        )
+        next_step = "It may help to ask again more specifically, or about one Section."
+
+    return (
+        "I have taken that answer back — sorry.\n\n"
+        f"{detail}\n\n"
+        f"{next_step} For anything binding, your retirement fund is the one to ask."
+    )

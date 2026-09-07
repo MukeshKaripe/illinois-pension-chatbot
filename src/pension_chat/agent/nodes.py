@@ -49,6 +49,7 @@ from pension_chat.agent.retrieval import (
     retrieve,
 )
 from pension_chat.agent.state import PensionAgentState
+from pension_chat.calculation.applicability import evaluate_predicates
 from pension_chat.calculation.dsl_interpreter import DSLExecutionError, DSLInterpreter
 from pension_chat.calculation.risk_assessor import RiskAssessor
 from pension_chat.calculation.validator import RecipeValidator
@@ -135,6 +136,47 @@ _RETIRE_NOW = re.compile(r"\b(?:retire\s+now|right\s+now|retire\s+today|if\s+i\s
 # Ages outside this band are not retirement ages — the guard stops "at 21.5
 # years of service" or a dollar figure being read as one.
 _PLAUSIBLE_AGE = range(45, 76)
+
+# The planner is shown the conversation so far, because a follow-up question is
+# often unreadable without it. That context leaked: after a turn asking "what if
+# I waited three more years", the NEXT question — about a claimed 50%-of-salary
+# formula, with no timing request in it — still came back with a three-year
+# comparison the member had not asked for again.
+#
+# A word-level "does this mention timing" gate does not fix it: "21.5 years of
+# service" is not a request to compare retirement dates, and neither is "56
+# years old". What distinguishes a live scenario from a remembered one is
+# whether its target appears in the message in front of us, so that is what is
+# checked. A planner scenario survives only if the current message names the age
+# or the offset it is about.
+_NOW_CUE = re.compile(r"\b(?:now|today|immediately|currently|right\s+away)\b", re.I)
+
+
+def _corroborated(scenario: dict, question: str) -> bool:
+    """True if the current message names the age or offset this scenario is for."""
+    age = scenario.get("retirement_age")
+    offset = scenario.get("years_from_now")
+
+    if offset == 0 or (age is None and offset is None and _NOW_CUE.search(question)):
+        return bool(_RETIRE_NOW.search(question) or _NOW_CUE.search(question))
+
+    target = age if age is not None else offset
+    if target is None:
+        # Nothing concrete to corroborate. Kept only when the message is clearly
+        # asking about timing at all, so it can be reported as unresolvable
+        # rather than silently answered or silently dropped.
+        return bool(_NOW_CUE.search(question)) or any(
+            p.search(question) for p in _OFFSET_PATTERNS + _AGE_PATTERNS
+        )
+
+    word = next((w for w, n in _NUMBER_WORDS.items() if n == target), None)
+    # The number must stand alone. Excluding a preceding "$" or digit keeps
+    # "$72,000" from corroborating a retirement age of 72, and "(?!,\d)" rejects
+    # thousands grouping without rejecting the comma in "at 57, at 59 and at 60".
+    digits = re.compile(rf"(?<![\d.$]){target}(?![\d.]|,\d)")
+    return bool(digits.search(question)) or (
+        word is not None and re.search(rf"\b{word}\b", question, re.I) is not None
+    )
 
 
 def _as_count(token: str) -> int | None:
@@ -295,7 +337,11 @@ async def plan_request(state: PensionAgentState) -> dict:
         "search_queries": queries[:3],
         "scenarios": _merge_scenarios(
             extract_scenarios(question),
-            [s for s in (plan.get("scenarios") or []) if isinstance(s, dict)],
+            [
+                s
+                for s in (plan.get("scenarios") or [])
+                if isinstance(s, dict) and _corroborated(s, question)
+            ],
         ),
         "timings": {"plan_request": time.perf_counter() - started},
     }
@@ -413,6 +459,11 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
 
 # ── 3. Recipe resolution ──────────────────────────────────────────
 
+# How many extra sections may be pinned into context to back a recipe and the
+# alternatives it set aside. Bounded because every one of them is statute text
+# the answer prompt then carries.
+_MAX_PINNED_SECTIONS = 6
+
 
 async def resolve_recipes(state: PensionAgentState) -> dict:
     """Reuse a registry recipe where one exists; derive from statute otherwise.
@@ -450,20 +501,47 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
             mismatches = await verify_freshness(row, relevant) if relevant else {}
             if not mismatches:
                 recipe = RegistryRecipe(row).to_dict()
-                recipes[formula_type] = recipe
-                provenance.append(
-                    {
-                        "formula_type": formula_type,
-                        "source": "registry",
-                        "formula_id": recipe["formula_id"],
-                        "status": recipe["status"],
-                        "reused": True,
-                    }
+                # Freshness says the law has not moved under the recipe. It says
+                # nothing about whether the recipe's provision reaches the member
+                # asking today — and matching on article, formula type and tier
+                # does not either. A recipe derived for a 56-year-old with 21.5
+                # years of service would otherwise be handed unchanged to someone
+                # aged 47 with 9, who cannot reach the provision at all.
+                applicable = evaluate_predicates(
+                    (recipe.get("spec") or {}).get("applicability_predicates"), facts
                 )
-                return
-            logger.info(
-                "Registry recipe %s is stale (%s); re-deriving", row.formula_id, mismatches
-            )
+                if applicable.blocks_execution:
+                    logger.info(
+                        "Registry recipe %s does not apply to this member (%s); deriving",
+                        row.formula_id,
+                        applicable.summary(),
+                    )
+                else:
+                    recipe["applicability_check"] = applicable.to_dict()
+                    recipes[formula_type] = recipe
+                    provenance.append(
+                        {
+                            "formula_type": formula_type,
+                            "source": "registry",
+                            "formula_id": recipe["formula_id"],
+                            "section": recipe.get("section"),
+                            "subsection": recipe.get("controlling_subsection"),
+                            "status": recipe["status"],
+                            "applicability": recipe.get("applicability"),
+                            "applicability_status": applicable.status,
+                            "alternatives_considered": (
+                                recipe.get("alternatives_considered") or []
+                            )[:5],
+                            "reused": True,
+                        }
+                    )
+                    return
+            else:
+                logger.info(
+                    "Registry recipe %s is stale (%s); re-deriving",
+                    row.formula_id,
+                    mismatches,
+                )
 
         derived = await derive_recipe(formula_type, sections, facts)
         if not derived.ok:
@@ -494,6 +572,11 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
                 "source": "derived",
                 "section": derived.controlling_section,
                 "subsection": derived.controlling_subsection,
+                "applicability": derived.applicability,
+                # Which neighbouring provisions were weighed and set aside. This
+                # is the answer to "why 11-134 and not 11-130", and it was being
+                # computed and then thrown away.
+                "alternatives_considered": derived.alternatives_considered[:5],
                 "reused": False,
             }
         )
@@ -511,17 +594,24 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     retrieved = list(state.get("retrieved_sections") or [])
     present = {s["section"] for s in retrieved}
     needed = [
-        section
+        str(section).split("(")[0].strip()
         for recipe in recipes.values()
         for section in (recipe.get("source_sections") or [])
-        if str(section).split("(")[0].strip() not in present
     ]
+
+    # The provisions the derivation weighed and set aside are the answer to "why
+    # this provision and not the neighbouring one" — the question a reader of
+    # Article 11 has to ask, since 11-129, 11-130, 11-131 and 11-134 all reach a
+    # member withdrawing after 55. Those alternatives were being named to the
+    # answer without their text, so the answer cited provisions it had never
+    # been shown and post-generation verification threw it away. Retrieve them.
+    for recipe in recipes.values():
+        for note in (recipe.get("alternatives_considered") or [])[:5]:
+            needed.extend(extract_section_references(str(note)))
+
+    needed = [s for s in dict.fromkeys(needed) if s not in present][:_MAX_PINNED_SECTIONS]
     if needed:
-        extra = await retrieve(
-            [],
-            must_include_sections=[str(s).split("(")[0].strip() for s in needed],
-            follow_cross_references=0,
-        )
+        extra = await retrieve([], must_include_sections=needed, follow_cross_references=0)
         for section in extra:
             if section.section not in present:
                 retrieved.append(section.to_dict())
@@ -694,6 +784,14 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     validator = RecipeValidator()
     assessor = RiskAssessor()
 
+    # Predicates are checked against the member's record *and* anything they
+    # stated themselves, so an anonymous user who supplies their age and service
+    # gets the same applicability test a signed-in member does.
+    checkable_facts = {
+        **(state.get("member_facts") or {}),
+        **(state.get("resolved_inputs") or {}),
+    }
+
     errors: list[dict] = []
     warnings: list[dict] = []
     highest = "low"
@@ -714,6 +812,47 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         if not result.is_valid:
             can_execute = False
             blocked = "validation_failed"
+
+        # The gate the whole applicability layer exists for: a recipe may not
+        # produce a figure for a member the provision demonstrably does not
+        # reach. A condition that simply could not be checked does not block —
+        # an unverifiable fact is not a failed test — but it is recorded so the
+        # answer can say the check was incomplete.
+        applicable = evaluate_predicates(
+            spec.get("applicability_predicates"), checkable_facts
+        )
+        recipe["applicability_check"] = applicable.to_dict()
+        if applicable.blocks_execution:
+            can_execute = False
+            blocked = "applicability_not_satisfied"
+            for failure in applicable.failed:
+                errors.append(
+                    {
+                        "formula_type": formula_type,
+                        "code": "APPLICABILITY_NOT_SATISFIED",
+                        "severity": "error",
+                        "message": (
+                            f"{recipe.get('section') or 'The provision'} requires "
+                            f"{failure['description']}, but this member has "
+                            f"{failure.get('actual')}"
+                        ),
+                    }
+                )
+        elif applicable.unknown:
+            warnings.append(
+                {
+                    "formula_type": formula_type,
+                    "code": "APPLICABILITY_PARTIALLY_VERIFIED",
+                    "severity": "warning",
+                    "message": (
+                        "Could not check every statutory condition: "
+                        + "; ".join(
+                            f"{u['description']} ({u.get('reason')})"
+                            for u in applicable.unknown[:4]
+                        )
+                    ),
+                }
+            )
 
         assessment = assessor.assess(
             spec,
@@ -763,11 +902,39 @@ def _money(value: Any) -> str:
         return str(value)
 
 
-def _present(result: dict, output_name: str) -> dict:
+def _quantity(value: Any) -> str:
+    """Render a value that is not money: no forced second decimal place.
+
+    ``_money`` quantizes everything to two places, which is right for a currency
+    amount and wrong for everything else. Running the recipe's inputs through it
+    put "21.50" where the member has 21.5 years of service, and since the answer
+    is required to copy figures character for character, "21.50 years" is what
+    came out. Trailing zeros are dropped so the figure reads the way a person
+    would say it.
+    """
+    try:
+        number = Decimal(str(value)).normalize()
+    except (InvalidOperation, TypeError, ValueError):
+        return str(value)
+    # normalize() turns 44 into 4.4E+1; expand any exponent back out.
+    if number == number.to_integral_value():
+        return str(number.quantize(Decimal(1)))
+    return f"{number:f}"
+
+
+def _present(result: dict, output_name: str, *, breakdown: bool = True) -> dict:
     """Format one interpreter result for the answer, adding the monthly figure.
 
     The monthly amount is computed here, deterministically, precisely so the
     answer never has to divide by 12 in prose.
+
+    ``breakdown`` also carries the path to the figure: the input values it
+    consumed, the statutory constants with the section each was read from, and
+    the named intermediate steps in evaluation order. Without it the answer
+    could state a benefit but not show how the salary and rate it quoted led
+    there — a reader checking 69,956.40 x 21.5 x 2.4% got 36,097.50 and no
+    account of the early-retirement reduction that takes it to 32,126.78, even
+    though the reduction was applied correctly and cited in prose.
     """
     value = result.get("result")
     presented: dict[str, Any] = {
@@ -782,6 +949,31 @@ def _present(result: dict, output_name: str) -> dict:
         presented["monthly_amount"] = str(monthly)
     except (InvalidOperation, TypeError, ValueError):
         pass
+
+    if not breakdown:
+        # Scenario variants repeat the same constants and the same derivation;
+        # only what differs is worth the tokens, and that is already reported
+        # as the scenario's assumptions.
+        return presented
+
+    if result.get("inputs_used"):
+        # Money keeps two decimals; service years, month counts and rates are
+        # rendered as the quantities they are, on the recipe's own declared type.
+        types = result.get("input_types") or {}
+        presented["inputs_used"] = {
+            k: (_money(v) if types.get(k) == "money" else _quantity(v))
+            for k, v in result["inputs_used"].items()
+        }
+    if result.get("parameters_used"):
+        presented["statutory_values_used"] = {
+            k: {"value": p.get("value"), "source": p.get("source") or {}}
+            for k, p in result["parameters_used"].items()
+        }
+    if result.get("steps"):
+        presented["steps"] = [
+            {"name": step["name"], "value": _money(step["value"])}
+            for step in result["steps"]
+        ]
     if result.get("intermediate"):
         presented["intermediate"] = {
             k: _money(v) for k, v in result["intermediate"].items()
@@ -827,9 +1019,14 @@ async def execute_calculations(state: PensionAgentState) -> dict:
         spec = recipe.get("spec") or {}
         output_name = spec.get("output_name", "result")
 
-        def run(inputs: dict) -> dict:
+        def run(inputs: dict, *, breakdown: bool = True) -> dict:
             try:
-                return {"ok": True, **_present(interpreter.execute(spec, inputs), output_name)}
+                return {
+                    "ok": True,
+                    **_present(
+                        interpreter.execute(spec, inputs), output_name, breakdown=breakdown
+                    ),
+                }
             except DSLExecutionError as exc:
                 return {"ok": False, "error": str(exc)}
             except Exception as exc:  # noqa: BLE001 - interpreter bug, not user error
@@ -885,6 +1082,28 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 # stated themselves still wins — their figure is not a fact the
                 # scenario re-derives.
                 scenario_inputs = {**base_inputs, **scenario_facts, **user_supplied}
+
+                # Applicability is a question about a member at a date, not
+                # about a member — so it is re-asked at each retirement age. A
+                # provision reachable at 60 need not be reachable at 56, and
+                # answering "what changes when I reach 60" by silently running
+                # the same recipe at both ages would assume away the question.
+                applicable = evaluate_predicates(
+                    spec.get("applicability_predicates"),
+                    {**scenario_facts, **user_supplied},
+                )
+                if applicable.blocks_execution:
+                    unresolved.append(
+                        {
+                            "label": scenario.get("label") or f"at age {age}",
+                            "reason": (
+                                f"at that retirement age {recipe.get('section') or 'the provision'} "
+                                f"does not apply: {applicable.summary()}"
+                            ),
+                        }
+                    )
+                    continue
+
                 variants.append(
                     {
                         "label": scenario.get("label") or f"at age {age}",
@@ -894,7 +1113,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                             "service_years": scenario_facts.get("service_years"),
                             "months_before_age_60": scenario_facts.get("months_before_age_60"),
                         },
-                        **run(scenario_inputs),
+                        **run(scenario_inputs, breakdown=False),
                     }
                 )
             if variants:
@@ -953,40 +1172,159 @@ async def _persist_new_recipes(state: PensionAgentState, results: dict) -> None:
 
 # ── 7. Answer assembly (no model call — streaming happens in graph.py) ──
 
-ANSWER_SYSTEM = """You are the Illinois Pension Code assistant. You answer members' \
-questions about 40 ILCS 5/ using only the statute text supplied to you and figures \
-supplied by the deterministic calculation engine.
+ANSWER_SYSTEM = """You are a pension assistant for members of a City of Chicago retirement fund,
+answering questions about the Illinois Pension Code (40 ILCS 5/).
 
-How to answer:
+You work only from the statute text and the figures placed in front of you. You
+are talking to a member about their own retirement, so be warm, plain-spoken and
+exact. Careful, never anxious. Helpful, never chatty.
 
-- Be direct and brief. Lead with the answer, then the reasoning. No preamble, no \
-restating the question. Most answers are 3-8 sentences; use a short list or a small \
-table only when comparing options or scenarios.
-- Cite the section you are relying on inline, as [40 ILCS 5/11-134]. Only cite \
-sections that appear in the supplied statute text. Never cite a section from memory.
-- Write for a member, not a lawyer. Where the statute's wording matters, quote the \
-operative phrase briefly.
 
-Absolute rules:
+VOICE
 
-1. NEVER perform arithmetic. Do not multiply a rate by a salary, do not apply a \
-reduction, do not total anything, do not convert annual to monthly. Every number you \
-state must be copied verbatim from the calculation results or from the statute text. \
-If a figure you want is not in either, say what is missing instead of computing it.
-2. NEVER state a benefit amount when no calculation result was supplied. Explain what \
-is needed and why.
-3. If the supplied results are marked as an estimate, say so, and say the member's \
-retirement fund makes the binding determination.
-4. If the user supplied their own formula or told you to skip the Code, do not use \
-their formula. Say plainly what the Pension Code actually provides and why their \
-figure does not govern. Be matter-of-fact about it, not preachy.
-5. If the statute text does not answer the question, say so. Do not fill the gap."""
+Write the way a knowledgeable colleague would explain this across a desk. Address
+the member as "you". Short sentences. Everyday words for everyday things — "your
+pension", "your salary", "your years of service" — and the statute's own wording
+only where it carries legal weight, quoted briefly.
+
+Never describe how you work. The member is not told about calculation engines,
+recipes, registries, retrieved sections, supplied text, records, look-ups, or
+steps that were skipped. Words like "supplied", "the engine", "stored", "derived"
+and "retrieved" have no place in an answer. Say what is true about their pension,
+not how the answer was assembled. If they ask outright how you arrived at
+something, tell them plainly and without jargon.
+
+Never open with a preamble, an apology, or a restatement of the question. Never
+close by offering further help — just stop.
+
+
+SHAPE
+
+Every answer opens with one or two sentences that answer the question outright.
+What follows depends on the kind of question, and the same kind always looks the
+same.
+
+A question about what the law says, or which provision applies
+  The answer, then the conditions or consequences: a short bullet list if there
+  are more than two, prose otherwise. Usually 3 to 6 sentences in all.
+
+A question that produces a pension figure
+  Open with the amount — annual first, monthly in brackets — and the
+  circumstances it assumes. Then exactly this:
+
+  **How that is worked out**
+
+  | Step | Amount |
+  |---|---:|
+  | Highest average salary (best 4 years) | $69,956.40 |
+  | Years of service | 21.5 |
+  | Annual rate | 2.40% |
+  | Before early-retirement reduction | $36,097.50 |
+  | Reduction (44 months x 0.25%) | -11.00% |
+  | **Annual pension** | **$32,126.78** |
+  | **Monthly pension** | **$2,677.23** |
+
+  Always that heading, always those two columns, always the annual and monthly
+  figures in bold on the last two rows. A row for every step that was actually
+  applied, and no rows for anything else. Label rows in plain English, and label
+  the same quantity the same way every time.
+
+A comparison of retirement dates
+  Never open with the table. Lead with a sentence naming the range — the
+  soonest option and the best one — so a member who reads no further still has
+  the answer. Then one row per option, soonest first:
+
+  | If you retire | Annual pension | Monthly pension |
+  |---|---:|---:|
+  | Now, at 56 | $32,126.78 | $2,677.23 |
+  | At 58 | $36,593.34 | $3,049.45 |
+
+  Then a sentence or two on what drives the difference. Show the worked-out steps
+  for one option only if the member asks for them.
+
+A question you cannot answer with a figure
+  Say so in the first sentence, and say why in plain terms — what you would need
+  from them, or which condition of the provision they do not meet and where they
+  currently stand against it. Never a bare refusal, never a bullet list of
+  internal reasons. Then, if the law offers them another route, point to it in a
+  sentence.
+
+
+CLOSING
+
+An answer containing a pension figure ends with this line, once:
+"This is an estimate — your retirement fund makes the binding determination."
+Do not express that sentiment anywhere else in the answer. An answer with no
+figure in it does not need the line at all.
+
+
+CITING
+
+Cite the provision you rely on inline as [40 ILCS 5/11-134], at the end of the
+sentence it supports. Cite ONLY a section whose own text appears in front of you
+under a "### 40 ILCS 5/..." heading. A section number merely *mentioned inside*
+that text is not one you have read: name it in words ("service credit is governed
+by Section 11-216") without brackets. Never cite from memory. Two or three
+citations is usually right; one per sentence is too many.
+
+
+ABSOLUTE RULES
+
+1. NEVER do arithmetic. Do not multiply a rate by a salary, apply a reduction,
+   total anything, or divide an annual figure by 12. Every number you write is
+   copied character for character from the figures in front of you or from the
+   statute text. If a number you want is in neither, say what is missing instead
+   of working it out.
+2. The rows of "How that is worked out" come from "inputs_used",
+   "statutory_values_used" and "steps". Copying those into the table is copying,
+   not calculating — but a member checking the table must not find a gap in it,
+   so where a reduction or a ceiling was applied it belongs there too.
+3. NEVER state a pension amount when no figure was worked out for you. Explain
+   what is needed and why it matters.
+4. Write money with a currency sign, thousands separators and two decimals
+   ($32,126.78); percentages as percentages (2.40%, never 0.024); years to one
+   decimal where the value has one (21.5 years).
+5. If the member gives you their own formula, or tells you to skip the Code, do
+   not use it. Say what the Pension Code actually provides and why their figure
+   does not govern. Matter-of-fact, in a sentence — no lecture.
+6. If the statute text does not answer the question, say so. Do not fill the gap.
+7. Where the provision you rely on applies "in lieu of" another route, or another
+   provision was weighed and set aside, say which one and why it does not control,
+   in a clause. A member asking which provision applies to them is owed the
+   choice, not only its outcome.
+8. Do not volunteer where a figure came from, whether it was worked out fresh, or
+   that it was checked. If the member asks, tell them plainly.
+9. Answer the question in front of you. Do not carry a comparison or a scenario
+   over from an earlier turn unless this question calls for it."""
 
 
 def _format_calculation(results: dict | None) -> str:
+    """Render the worked figures for the answer prompt.
+
+    The interpreter's output carries bookkeeping the member has no use for and
+    that an answer should never repeat — which formula type ran, the recipe's
+    knowledge status, its execution policy, its risk tier. Naming those in the
+    prompt is what put "the calculation engine", "the stored recipe" and
+    "agent-derived" into answers: the model reaches for the vocabulary it is
+    handed. So only the figures and their statutory basis are passed through,
+    with the policy reduced to a plain flag.
+    """
     if not results:
         return ""
-    return json.dumps(results, indent=1, default=str)
+
+    trimmed: dict[str, Any] = {}
+    for formula_type, entry in results.items():
+        shown = {
+            "section": entry.get("section"),
+            "subsection": entry.get("subsection"),
+            "is_estimate": entry.get("execution_policy") != "authoritative",
+            "result": entry.get("base"),
+        }
+        if entry.get("scenarios"):
+            shown["comparisons"] = entry["scenarios"]
+        trimmed[formula_type] = {k: v for k, v in shown.items() if v is not None}
+
+    return json.dumps(trimmed, indent=1, default=str)
 
 
 def _format_sections(sections: list[dict], budget_chars: int) -> str:
@@ -1010,6 +1348,13 @@ async def prepare_answer(state: PensionAgentState) -> dict:
     Message order is chosen for prompt caching: the static system prompt and the
     statute text come first and change least between turns of a conversation,
     the volatile per-turn context comes last.
+
+    The headings below are written the way the answer should sound, not the way
+    the pipeline is built. That is not cosmetic: a heading reading "CALCULATION
+    RESULTS from the deterministic engine" reliably produced answers about a
+    deterministic engine, and fifteen of eighteen regression answers repeated
+    some word — "supplied", "retrieved", "stored" — that came from a label here
+    rather than from the Pension Code.
     """
     started = time.perf_counter()
     settings = get_settings()
@@ -1031,74 +1376,119 @@ async def prepare_answer(state: PensionAgentState) -> dict:
             if k in facts
         }
         context_parts.append(
-            "MEMBER RECORD (authoritative; use these values, do not recompute them):\n"
-            + json.dumps(shown, indent=1)
+            "WHAT YOU KNOW ABOUT THIS MEMBER. Treat these as settled and do not "
+            "recompute them:\n" + json.dumps(shown, indent=1)
         )
 
     results = state.get("calculation_result")
     if results:
         context_parts.append(
-            "CALCULATION RESULTS from the deterministic engine — copy figures from "
-            "here verbatim:\n" + _format_calculation(results)
+            "THE FIGURES FOR THIS MEMBER. Copy them character for character; do not "
+            "recalculate, round or convert anything:\n" + _format_calculation(results)
         )
 
     provenance = state.get("recipe_provenance") or []
     if provenance:
+        checks = {
+            formula_type: recipe.get("applicability_check") or {}
+            for formula_type, recipe in (state.get("recipes") or {}).items()
+        }
+        # Trimmed to what an answer may legitimately draw on. The identifiers and
+        # lifecycle fields stay in the audit trail, where they belong.
+        shown_provenance = []
+        for entry in provenance:
+            check = checks.get(entry.get("formula_type")) or {}
+            shown_provenance.append(
+                {
+                    "section": entry.get("section"),
+                    "subsection": entry.get("subsection"),
+                    "why_it_applies": entry.get("applicability"),
+                    "other_provisions_ruled_out": entry.get("alternatives_considered") or [],
+                    "conditions_confirmed": [c["description"] for c in check.get("satisfied", [])],
+                    "conditions_not_confirmed": [
+                        c["description"] for c in check.get("unknown", [])
+                    ],
+                    "worked_out_fresh_this_time": not entry.get("reused"),
+                }
+            )
         context_parts.append(
-            "CALCULATION PROVENANCE (say whether a stored recipe was reused or a new "
-            "one was derived, if the user asked):\n" + json.dumps(provenance, indent=1)
+            "WHY THIS PROVISION AND NOT ANOTHER. Use 'other_provisions_ruled_out' to say "
+            "in a clause why the governing provision governs. If anything appears under "
+            "'conditions_not_confirmed', say which detail you would need to be sure "
+            "rather than implying it was checked. Never volunteer "
+            "'worked_out_fresh_this_time' — it is only there in case the member asks "
+            "outright:\n" + json.dumps(shown_provenance, indent=1)
         )
 
     overrides = state.get("input_overrides") or []
     if overrides:
         context_parts.append(
-            "THE MEMBER STATED FACTS THAT DIFFER FROM THEIR RECORD. The calculation "
-            "used what they stated. Note the difference briefly so they know which "
-            "figures the estimate rests on:\n" + json.dumps(overrides, indent=1)
+            "THE MEMBER GAVE YOU DETAILS THAT DIFFER FROM WHAT IS ON FILE, and the "
+            "figures use what they told you. Note the difference in a sentence so they "
+            "know what the estimate rests on:\n" + json.dumps(overrides, indent=1)
         )
 
     unresolved = state.get("unresolved_scenarios") or []
     if unresolved:
         context_parts.append(
-            "THESE REQUESTED COMPARISONS COULD NOT BE CALCULATED. Say plainly which "
-            "ones and why; do not compute them yourself:\n"
-            + json.dumps(unresolved, indent=1)
+            "COMPARISONS YOU HAVE NO FIGURES FOR. Say which ones and why, in plain "
+            "terms; do not work them out yourself:\n" + json.dumps(unresolved, indent=1)
         )
 
     missing = state.get("missing_inputs") or []
     if missing:
         context_parts.append(
-            "NO CALCULATION WAS RUN — these required inputs could not be determined. "
-            "List them and explain why each is needed:\n" + json.dumps(missing, indent=1)
+            "THERE IS NO FIGURE FOR THIS MEMBER because these details are not known. "
+            "Ask for them and say what each one is needed for:\n"
+            + json.dumps(missing, indent=1)
         )
 
     failures = state.get("derivation_failures") or []
     if failures:
         context_parts.append(
-            "A CALCULATION RECIPE COULD NOT BE DERIVED from the retrieved text:\n"
-            + json.dumps(failures, indent=1)
+            "THE PENSION CODE TEXT IN FRONT OF YOU DOES NOT YIELD A WORKABLE "
+            "CALCULATION HERE. Say what the law does provide, and what stands in the "
+            "way of putting a number on it:\n" + json.dumps(failures, indent=1)
         )
 
     errors = state.get("validation_errors") or []
-    if errors:
+    if errors and state.get("execution_blocked") == "applicability_not_satisfied":
+        # Not a malfunction: the provision simply does not reach this member.
+        # Framed as the eligibility answer it is.
         context_parts.append(
-            "THE DERIVED RECIPE FAILED VALIDATION and was not executed. Explain that "
-            "no figure can be given and why:\n" + json.dumps(errors, indent=1)
+            "THIS MEMBER DOES NOT MEET THE PROVISION'S CONDITIONS, so there is no "
+            "figure. This is an answer about eligibility, not a failure. Say which "
+            "condition is unmet and where they stand against it, and point to the "
+            "provision that would apply instead if the text in front of you shows "
+            "one:\n" + json.dumps(errors, indent=1)
+        )
+    elif errors:
+        context_parts.append(
+            "THERE IS NO FIGURE FOR THIS MEMBER — the rule could not be established "
+            "from the Pension Code text closely enough to rely on. Explain what the "
+            "law provides and that a figure needs their fund to confirm it. Do not "
+            "recite these reasons; they are for you:\n" + json.dumps(errors, indent=1)
         )
 
     blocked = state.get("execution_blocked")
-    if blocked and blocked not in {"missing_inputs", "validation_failed"}:
-        context_parts.append(f"EXECUTION WAS BLOCKED: {blocked}")
+    if blocked and blocked not in {
+        "missing_inputs", "validation_failed", "applicability_not_satisfied"
+    }:
+        context_parts.append(
+            f"THERE IS NO FIGURE FOR THIS MEMBER. For your information only, the "
+            f"reason was: {blocked}. Do not repeat that phrase to the member — say in "
+            f"plain words that you cannot put a number on it yet, and why."
+        )
 
     override = state.get("override_signal") or {}
     if override.get("detected"):
         context_parts.append(
-            "NOTE ON THIS REQUEST: the user "
+            "ABOUT THIS REQUEST: the member "
             + "; ".join(override.get("reasons") or [])
-            + ". Do not apply their formula. State what the Pension Code provides, "
-            "cite it, and explain briefly why their figure does not govern."
+            + ". Do not use their formula. Say what the Pension Code provides, cite it, "
+            "and say in one sentence why their figure does not govern."
             + (
-                f" The figure they asserted was: {override['asserted_formula']}."
+                f" The figure they put to you was: {override['asserted_formula']}."
                 if override.get("asserted_formula")
                 else ""
             )
@@ -1106,15 +1496,15 @@ async def prepare_answer(state: PensionAgentState) -> dict:
 
     if not sections:
         context_parts.append(
-            "NO STATUTE TEXT WAS RETRIEVED for this question. Say that you could not "
-            "find a governing provision in the ingested Articles (11 and 12) rather "
-            "than answering from general knowledge."
+            "YOU HAVE NO PENSION CODE TEXT FOR THIS QUESTION. Say you cannot find a "
+            "governing provision — this assistant currently covers Articles 11 and 12 "
+            "only — rather than answering from general knowledge."
         )
 
     messages: list[dict] = [{"role": "system", "content": ANSWER_SYSTEM}]
     if statute:
         messages.append(
-            {"role": "system", "content": "STATUTE TEXT AVAILABLE TO YOU:\n\n" + statute}
+            {"role": "system", "content": "THE PENSION CODE TEXT YOU MAY RELY ON:\n\n" + statute}
         )
 
     history = _history(state, settings.history_turns)

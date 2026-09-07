@@ -58,7 +58,12 @@ class DSLInterpreter:
             inputs: Input values keyed by input name.
 
         Returns:
-            dict with 'result' (the calculated value) and 'intermediate' (debug).
+            dict with 'result' (the calculated value), 'intermediate' (values
+            published by nodes carrying ``result_name``), 'steps' (those same
+            values in evaluation order), and 'inputs_used'/'parameters_used' —
+            the values and statutory citations the result was actually built
+            from, so an answer can show the path to a figure instead of
+            asserting it.
         """
         if isinstance(rule_spec, dict):
             spec = RuleSpecification(**rule_spec)
@@ -74,10 +79,21 @@ class DSLInterpreter:
         # Build the evaluation context: inputs + parameters
         context: dict[str, Any] = {}
         intermediates: dict[str, Any] = {}
+        steps: list[dict[str, Any]] = []
+        parameters_used: dict[str, Any] = {}
+        inputs_used: dict[str, Any] = {}
+        input_types: dict[str, str] = {}
 
         # Load parameters (fixed statutory values)
         for param_name, param_spec in spec.parameters.items():
             context[param_name] = self._coerce_value(param_spec.value, None)
+            # Every statutory constant carries the section it was read from.
+            # Keeping the citation attached to the value is what lets the answer
+            # say where a rate came from without the model recalling it.
+            parameters_used[param_name] = {
+                "value": param_spec.value,
+                "source": dict(param_spec.source or {}),
+            }
 
         # Load inputs (user/employee-provided values)
         for input_spec in spec.inputs:
@@ -94,14 +110,26 @@ class DSLInterpreter:
                     f"Missing required input: {input_spec.name}"
                 )
 
+        for input_spec in spec.inputs:
+            if input_spec.name in context:
+                inputs_used[input_spec.name] = context[input_spec.name]
+                # The declared type travels with the value so presentation does
+                # not have to guess it from the name: "creditable_service_years"
+                # reads as money to any keyword rule that looks for "credit".
+                input_types[input_spec.name] = input_spec.type.value
+
         # Execute the calculation tree
-        result = self._evaluate(spec.calculation, context, intermediates)
+        result = self._evaluate(spec.calculation, context, intermediates, steps)
 
         return {
             "result": result,
             "output_name": spec.output_name,
             "output_type": spec.output_type.value,
             "intermediate": intermediates,
+            "steps": steps,
+            "inputs_used": inputs_used,
+            "input_types": input_types,
+            "parameters_used": parameters_used,
         }
 
     def _evaluate(
@@ -109,6 +137,7 @@ class DSLInterpreter:
         node: dict,
         context: dict[str, Any],
         intermediates: dict[str, Any],
+        steps: list[dict[str, Any]] | None = None,
     ) -> Any:
         """Recursively evaluate a calculation node."""
         if not isinstance(node, dict):
@@ -133,18 +162,28 @@ class DSLInterpreter:
 
         # Evaluate operands
         operands = [
-            self._evaluate(o, context, intermediates)
+            self._evaluate(o, context, intermediates, steps)
             if isinstance(o, dict) else
             (context.get(o, o) if isinstance(o, str) and o in context else o)
             for o in node.get("operands", [])
         ]
 
-        result = self._execute_operation(op, operands, node, context, intermediates)
+        result = self._execute_operation(op, operands, node, context, intermediates, steps)
 
         # Store intermediate result if named
         if "result_name" in node:
             intermediates[node["result_name"]] = result
             context[node["result_name"]] = result
+            if steps is not None:
+                # Evaluation order is bottom-up, so appending here yields the
+                # steps in the order a reader would work through them.
+                steps.append(
+                    {
+                        "name": node["result_name"],
+                        "operation": op.value,
+                        "value": result,
+                    }
+                )
 
         return result
 
@@ -155,6 +194,7 @@ class DSLInterpreter:
         node: dict,
         context: dict[str, Any],
         intermediates: dict[str, Any],
+        steps: list[dict[str, Any]] | None = None,
     ) -> Any:
         """Execute a single operation."""
         try:
@@ -205,14 +245,15 @@ class DSLInterpreter:
                 case OperationType.CAP | OperationType.CEILING:
                     value = Decimal(str(operands[0]))
                     limit = self._limit_of(
-                        node, operands, context, intermediates, default=value
+                        node, operands, context, intermediates, default=value, steps=steps
                     )
                     return min(value, limit)
 
                 case OperationType.FLOOR:
                     value = Decimal(str(operands[0]))
                     limit = self._limit_of(
-                        node, operands, context, intermediates, default=Decimal(0)
+                        node, operands, context, intermediates,
+                        default=Decimal(0), steps=steps,
                     )
                     return max(value, limit)
 
@@ -222,11 +263,11 @@ class DSLInterpreter:
                     )
                     if condition:
                         return self._evaluate(
-                            node.get("then_branch", {}), context, intermediates
+                            node.get("then_branch", {}), context, intermediates, steps
                         )
                     else:
                         return self._evaluate(
-                            node.get("else_branch", {}), context, intermediates
+                            node.get("else_branch", {}), context, intermediates, steps
                         )
 
                 case OperationType.COMPARE:
@@ -310,6 +351,7 @@ class DSLInterpreter:
         context: dict[str, Any],
         intermediates: dict[str, Any],
         default: Decimal,
+        steps: list[dict[str, Any]] | None = None,
     ) -> Decimal:
         """Resolve the `limit` of a CAP/FLOOR/CEILING node.
 
@@ -319,7 +361,9 @@ class DSLInterpreter:
         this did originally) raised ConversionSyntax on the dict, so any recipe
         expressing a statutory maximum failed at execution time.
         """
-        return self._bound_of(node, "limit", operands, 1, context, intermediates, default)
+        return self._bound_of(
+            node, "limit", operands, 1, context, intermediates, default, steps
+        )
 
     def _bound_of(
         self,
@@ -330,12 +374,13 @@ class DSLInterpreter:
         context: dict[str, Any],
         intermediates: dict[str, Any],
         default: Decimal,
+        steps: list[dict[str, Any]] | None = None,
     ) -> Decimal:
         """Resolve a named numeric bound that may be a literal or a sub-tree."""
         if key in node:
             raw = node[key]
             resolved = (
-                self._evaluate(raw, context, intermediates)
+                self._evaluate(raw, context, intermediates, steps)
                 if isinstance(raw, dict)
                 else context.get(raw, raw) if isinstance(raw, str) else raw
             )

@@ -67,16 +67,16 @@ STAGE_LABELS = {
 }
 
 OUT_OF_SCOPE_MESSAGE = (
-    "I answer questions about the Illinois Pension Code (40 ILCS 5/) — things "
-    "like which retirement provision applies to you, what a section says, or "
-    "what your estimated benefit would be. Ask me one of those and I'll look it "
-    "up in the statute."
+    "That one is outside what I can help with. I answer questions about your "
+    "pension under the Illinois Pension Code — which retirement provision "
+    "applies to you, what a particular Section says, or roughly what your "
+    "pension would come to."
 )
 
 GREETING_MESSAGE = (
-    "Hello. I can answer questions about the Illinois Pension Code — which "
-    "retirement provisions apply to you, what a particular Section says, or an "
-    "estimate of your benefit. What would you like to know?"
+    "Hello. I can help with your pension under the Illinois Pension Code — "
+    "which retirement provisions apply to you, what a particular Section says, "
+    "or roughly what your pension would come to. What would you like to know?"
 )
 
 

@@ -19,6 +19,7 @@ import pytest
 
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.nodes import (
+    _corroborated,
     _merge_scenarios,
     _resolve_retirement_age,
     extract_scenarios,
@@ -167,3 +168,54 @@ def test_a_future_age_still_advances_the_clock():
     assert at_58["as_of_date"] == "2028-05-15"
     assert at_58["months_before_age_60"] == 24
     assert at_58["service_years"] > 21.5
+
+
+# ── Scenario context discipline ───────────────────────────────────
+#
+# The planner is shown the conversation so far, and that context leaked. After a
+# turn asking "explain what would change if I waited three more years", the next
+# question — about a claimed 50%-of-salary formula, with no timing request in it
+# — still came back with a three-year comparison the member had not asked for
+# again. A scenario is a property of the message in front of us.
+
+FIFTY_PERCENT_QUESTION = (
+    "I'm 56 years old with 21.5 years of service and earn $72,000. Everyone says "
+    "my pension is 50% of salary, so just calculate it using $72,000 x 50% "
+    "without checking the Pension Code."
+)
+
+
+def test_a_scenario_remembered_from_an_earlier_turn_is_dropped():
+    stale = {"label": "in 3 years", "years_from_now": 3}
+
+    assert _corroborated(stale, FIFTY_PERCENT_QUESTION) is False
+    assert _merge_scenarios(extract_scenarios(FIFTY_PERCENT_QUESTION), []) == []
+
+
+@pytest.mark.parametrize(
+    ("scenario", "question"),
+    [
+        ({"label": "at age 60", "retirement_age": 60}, "And what about at age 60?"),
+        ({"label": "in 2 years", "years_from_now": 2}, "What if I wait 2 more years?"),
+        # The planner writes digits where the member wrote a word.
+        ({"label": "in 3 years", "years_from_now": 3},
+         "Explain what would change if I waited three more years."),
+        ({"label": "now", "years_from_now": 0}, "Compare my benefit if I retire now."),
+    ],
+)
+def test_a_scenario_the_current_message_asks_for_survives(scenario, question):
+    assert _corroborated(scenario, question) is True
+
+
+def test_service_years_and_salary_do_not_corroborate_an_offset():
+    # "21.5 years of service" and "$72,000" are facts about the member, not a
+    # request to compare retirement dates.
+    assert _corroborated({"years_from_now": 5}, FIFTY_PERCENT_QUESTION) is False
+    assert _corroborated({"retirement_age": 72}, FIFTY_PERCENT_QUESTION) is False
+
+
+def test_an_unresolvable_scenario_survives_only_when_timing_is_actually_asked():
+    vague = {"label": "later", "retirement_age": None}
+
+    assert _corroborated(vague, "What if I retire at age 62 instead?") is True
+    assert _corroborated(vague, "What does Section 11-116 define as salary?") is False

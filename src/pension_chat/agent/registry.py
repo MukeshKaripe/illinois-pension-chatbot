@@ -60,7 +60,15 @@ class RegistryRecipe:
         self.knowledge_status = row.knowledge_status
         self.execution_policy = row.execution_policy
         self.risk_tier = row.risk_tier
-        self.applicability = (row.applicability or {}).get("summary", "")
+        applicability = row.applicability or {}
+        self.applicability = applicability.get("summary", "")
+        # Why this provision and not the neighbouring ones. Derived once and
+        # then dropped on every reuse, which is why a reused recipe could not
+        # explain its own branch selection.
+        self.alternatives_considered: list[str] = list(
+            applicability.get("alternatives_considered") or []
+        )
+        self.controlling_subsection = applicability.get("controlling_subsection")
         self.description = row.description
         self.version = row.version
         self.evidence_fingerprint: dict = row.evidence_fingerprint or {}
@@ -78,6 +86,8 @@ class RegistryRecipe:
             "policy": self.execution_policy,
             "risk_tier": self.risk_tier,
             "applicability": self.applicability,
+            "alternatives_considered": self.alternatives_considered,
+            "controlling_subsection": self.controlling_subsection,
             "version": self.version,
         }
 
@@ -121,6 +131,11 @@ async def lookup_recipe(
     candidates.sort(
         key=lambda r: (
             _STATUS_RANK.get(r.knowledge_status, 9),
+            # A recipe carrying machine-checkable applicability conditions beats
+            # an equally-ranked one without them: only the first can be re-tested
+            # against the member asking today. This is also how recipes derived
+            # before predicates existed get superseded rather than pinned.
+            0 if (r.rule_specification or {}).get("applicability_predicates") else 1,
             -(r.version or 1),
             -(r.created_at.timestamp() if r.created_at else 0),
         )
@@ -229,6 +244,9 @@ async def persist_recipe(
                         "summary": recipe.applicability,
                         "alternatives_considered": recipe.alternatives_considered,
                         "controlling_subsection": recipe.controlling_subsection,
+                        # Denormalised from the spec so a reuse decision can be
+                        # made without unpacking the calculation tree.
+                        "predicates": spec.get("applicability_predicates") or [],
                     },
                     dependencies=[],
                     rule_specification=spec,

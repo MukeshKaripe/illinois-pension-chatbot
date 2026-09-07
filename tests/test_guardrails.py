@@ -194,7 +194,15 @@ def test_uncited_long_answer_warns_without_failing():
     assert any(w["code"] == "NO_CITATIONS" for w in report.warnings)
 
 
-def test_fallback_answer_names_what_could_not_be_substantiated():
+def test_fallback_answer_explains_the_withdrawal_in_the_members_terms():
+    """This message replaces text the member is already reading.
+
+    It used to paste the verification finding through verbatim — "the answer
+    cites 40 ILCS 5/9-101, which was not among the sections retrieved for it" —
+    which tells them about the machinery instead of their pension, and reads as
+    a malfunction rather than as care. What it owes them is what went
+    unverified, in their terms, and what to do next.
+    """
     report = verify_answer(
         "Under [40 ILCS 5/9-101] your pension is $50,000.",
         retrieved_sections=SECTIONS,
@@ -202,6 +210,63 @@ def test_fallback_answer_names_what_could_not_be_substantiated():
     )
     message = fallback_answer(report)
 
-    assert "9-101" in message
-    # It should tell the member what to do next, not just that it failed.
+    assert "9-101" not in message
+    assert "retrieved" not in message.lower()
+    # A figure it could not trace is the reason here, so it asks for what would
+    # let it try again, and points at who can actually decide.
+    assert "years of service" in message
     assert "retirement fund" in message.lower()
+
+
+# ── Cross-references vs. citations ────────────────────────────────
+#
+# Article 11 is written in cross-references, so an answer often has to name a
+# provision it was not handed the text of. Requiring every mention to have been
+# retrieved made the multi-hop question unanswerable: the agent read 11-134,
+# followed it to 11-216, correctly reported that 11-216 points on to 11-164, and
+# had the whole answer discarded for saying so.
+
+_ELEVEN_216 = {
+    "section": "11-216",
+    "title": "Basis of service credit",
+    "text": (
+        "Service during 6 or more months in any year shall constitute a year of "
+        "service. Any employee who has withdrawn and received a refund under "
+        "Section 11-164 shall not receive credit for that period."
+    ),
+}
+
+
+def test_a_cross_reference_read_off_the_retrieved_page_is_allowed():
+    report = verify_answer(
+        "Service credit is governed by Section 11-216, which excludes periods "
+        "refunded under Section 11-164 [40 ILCS 5/11-216].",
+        retrieved_sections=[_ELEVEN_216],
+        check_numbers=False,
+    )
+
+    assert report.passed
+    assert "11-164" in report.verified_citations
+
+
+def test_a_bracketed_citation_still_requires_the_section_itself():
+    # Naming 11-164 is reading the page; citing it as authority is not.
+    report = verify_answer(
+        "Refunds are governed by [40 ILCS 5/11-164].",
+        retrieved_sections=[_ELEVEN_216],
+        check_numbers=False,
+    )
+
+    assert not report.passed
+    assert report.unverified_citations == ["11-164"]
+
+
+def test_a_section_named_nowhere_in_the_evidence_is_still_refused():
+    report = verify_answer(
+        "Your benefit is set by Section 12-131.",
+        retrieved_sections=[_ELEVEN_216],
+        check_numbers=False,
+    )
+
+    assert not report.passed
+    assert report.unverified_citations == ["12-131"]

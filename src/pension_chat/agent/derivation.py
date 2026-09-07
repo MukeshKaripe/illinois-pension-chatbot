@@ -65,6 +65,10 @@ Operations and their shapes:
 
 Any node may carry "result_name": "<name>" to expose that value as a named
 intermediate; later nodes can then reference it with {"variable": "<name>"}.
+Name every step a member would need to follow the arithmetic — the unreduced
+amount, any reduction factor, any statutory maximum, and the final figure. These
+names are what the answer shows as the path from salary to benefit, so a tree
+with none of them yields a number the member cannot check.
 
 Hard constraints:
 - Operands must be node objects ({"value":...}, {"variable":...}, or a nested
@@ -125,6 +129,33 @@ Rules you must follow:
    percentage caps that the controlling provision imposes. Omitting a reduction
    or a cap is a correctness failure.
 
+4a. Also state the provision's entitlement conditions separately, as
+   "applicability_predicates" — machine-checkable tests that decide whether this
+   provision reaches a member at all. Each is:
+
+     {"fact": "<member fact>", "operator": "ge|gt|le|lt|eq|ne|in|not_in|between|
+                                             is_true|is_false",
+      "value": <number|string|date|list>,
+      "description": "<the condition in the statute's own words>",
+      "source": {"section": "11-134", "subsection": "(a)"}}
+
+   Facts you may test: age, service_years, employment_status, article_number,
+   tier, withdrawal_date, birth_date, current_annual_salary,
+   final_average_salary, months_before_age_60. Dates are ISO strings.
+
+   These are the conditions the STATUTE imposes, not a description of the member
+   in front of you. "20 or more years of service" is a condition; "has 21.5
+   years of service" is not. Only state a threshold the provision actually
+   sets — an unnecessary bound will wrongly exclude members the provision covers,
+   and this recipe is stored and reused for other members and for the same
+   member at other retirement ages.
+
+   A provision that applies "in lieu of any other annuity provided in this
+   Section" imposes no upper age bound just because the member is under 60
+   today; the under-60 reduction is arithmetic in the tree, not an eligibility
+   condition. Commencement rules ("to begin not earlier than age 55") ARE
+   conditions.
+
 5. If the supplied text does not contain a complete, executable rule — the
    conversion factor is actuarial, the governing subsection was not retrieved,
    the member's facts fall outside every provision shown — set "cannot_derive"
@@ -154,6 +185,10 @@ Respond with a single JSON object:
       "<name>": {"value": <number>, "source": {"section": "11-134", "subsection": "(a)"}}
     },
     "calculation": <node>,
+    "applicability_predicates": [
+      {"fact": "...", "operator": "...", "value": ...,
+       "description": "...", "source": {"section": "...", "subsection": "..."}}
+    ],
     "output_name": "annual_annuity",
     "output_type": "money"
   },

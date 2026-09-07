@@ -13,12 +13,14 @@ Checks:
 - Effective-date ranges are coherent
 - Recipe doesn't select an internal executable handler
 - Evidence fingerprint is captured
+- Statutory applicability conditions are well formed and cited
 """
 
 from __future__ import annotations
 
 import logging
 
+from pension_chat.calculation.applicability import validate_predicate
 from pension_chat.calculation.dsl_types import (
     InputType,
     OperationType,
@@ -146,7 +148,43 @@ class RecipeValidator:
         # 7. No internal handler selection
         self._validate_no_handler_selection(spec, result)
 
+        # 8. Applicability conditions are well formed and cited
+        self._validate_applicability(spec, result)
+
         return result
+
+    def _validate_applicability(self, spec: RuleSpecification, result: ValidationResult):
+        """Check the recipe's statutory conditions are checkable and cited.
+
+        Whether they are *satisfied* is a question about a particular member, so
+        it belongs to `calculation/applicability.py` at execution time, not here.
+        This only establishes that each condition can be evaluated at all and is
+        traceable to statute text — a predicate with no citation is the model
+        asserting an eligibility rule it was never shown.
+        """
+        predicates = spec.applicability_predicates
+        if not predicates:
+            # Deliberately a warning even in strict mode. An absent condition is
+            # not a false one, and refusing to calculate whenever the derivation
+            # omits predicates would trade a real capability for no added safety.
+            # The gate that matters is at execution: a predicate known to be
+            # FALSE blocks, and the answer discloses when none could be checked.
+            result.add_warning(
+                "NO_APPLICABILITY_PREDICATES",
+                "Recipe declares no machine-checkable applicability conditions, so "
+                "whether the provision reaches this member cannot be verified before "
+                "the figure is produced",
+            )
+            return
+
+        for predicate in predicates:
+            problem = validate_predicate(predicate.model_dump())
+            if problem:
+                result.add_error(
+                    "INVALID_APPLICABILITY_PREDICATE",
+                    f"Applicability condition on '{predicate.fact}' cannot be "
+                    f"evaluated: {problem}",
+                )
 
     def _validate_source_sections(
         self,
