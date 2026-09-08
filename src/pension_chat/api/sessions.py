@@ -21,7 +21,7 @@ from sqlalchemy import select, update
 
 from pension_chat.api.auth import TokenData, get_current_user
 from pension_chat.db.models import Session, SessionMessage
-from pension_chat.db.session import async_session_factory
+from pension_chat.db.session import get_admin_session, get_db_session
 from pension_chat.sse import (
     sse_done,
     sse_error,
@@ -125,7 +125,7 @@ async def create_session(
     Anonymous if no token — returns a session_token the client must send.
     Bound to employee_id if authenticated.
     """
-    async with async_session_factory() as db:
+    async with get_admin_session() as db:
         session = Session(
             employee_id=user.employee_id if user else None,
         )
@@ -156,7 +156,7 @@ async def list_sessions(
     if user is None:
         return []
 
-    async with async_session_factory() as db:
+    async with get_db_session(employee_id=user.employee_id) as db:
         result = await db.execute(
             select(Session)
             .where(Session.employee_id == user.employee_id)
@@ -195,7 +195,10 @@ async def send_message(
     # stream, after the preamble has gone out. Each of those is a round trip to
     # a remote Postgres, and doing all five up front delayed the first visible
     # byte by two to four seconds for work the member is not waiting on.
-    async with async_session_factory() as db:
+    # Deliberately unrestricted: this read *is* the authorisation step, and it
+    # has to tell a session that does not exist from one that is not yours.
+    # Everything after it is scoped.
+    async with get_admin_session() as db:
         result = await db.execute(select(Session).where(Session.id == session_uuid))
         session = result.scalar_one_or_none()
 
@@ -215,6 +218,19 @@ async def send_message(
 
     employee_id = user.employee_id if user else None
 
+    def _scoped():
+        """A session scoped to whoever this request belongs to.
+
+        Authenticated members are scoped by employee id, anonymous ones by the
+        session token the client echoes back. Everything reached after the
+        access check above goes through here.
+        """
+        return get_db_session(
+            employee_id=employee_id,
+            session_token=None if employee_id else session.session_token,
+        )
+
+
     async def save_user_turn() -> None:
         """Record the member's message and touch the session.
 
@@ -227,7 +243,7 @@ async def send_message(
             if len(body.content) > 80:
                 title += "..."
 
-        async with async_session_factory() as db:
+        async with _scoped() as db:
             values: dict = {"last_active_at": datetime.now(UTC)}
             if title is not None:
                 values["title"] = title
@@ -252,7 +268,7 @@ async def send_message(
         if needs_title:
             return []
 
-        async with async_session_factory() as db:
+        async with _scoped() as db:
             prior = await db.execute(
                 select(SessionMessage)
                 .where(SessionMessage.session_id == session_uuid)
@@ -300,9 +316,15 @@ async def send_message(
                 # its own state ignores this rather than appending a second copy
                 # of the conversation to itself.
                 history=history,
-                # Names the thread's owner, which scopes its checkpoints to the
-                # same row-level policy as the transcript.
-                session_token=session.session_token if employee_id is None else None,
+                # Names the thread's owner, which scopes its checkpoints to
+                # the same row-level policy as the transcript. This thread is a
+                # real session row, so the policy can resolve it.
+                thread_owner={
+                    "employee_id": str(employee_id) if employee_id else None,
+                    "session_token": (
+                        session.session_token if employee_id is None else None
+                    ),
+                },
             ):
                 kind = event["type"]
                 if kind == "status":
@@ -343,7 +365,7 @@ async def send_message(
         # architecture requires (§7.1): citations, and whether the answer passed
         # verification.
         try:
-            async with async_session_factory() as db:
+            async with _scoped() as db:
                 assistant_msg = SessionMessage(
                     session_id=session_uuid,
                     role="assistant",
@@ -388,8 +410,8 @@ async def get_messages(
     """Reload one session's conversation (page refresh / sidebar click)."""
     session_uuid = uuid.UUID(session_id)
 
-    async with async_session_factory() as db:
-        # Verify session access
+    # As above: the access check runs unrestricted, the message read does not.
+    async with get_admin_session() as db:
         result = await db.execute(
             select(Session).where(Session.id == session_uuid)
         )

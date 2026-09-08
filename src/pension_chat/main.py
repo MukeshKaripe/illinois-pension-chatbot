@@ -37,10 +37,10 @@ async def _warm_connections() -> None:
     from sqlalchemy import text as sa_text
 
     from pension_chat.agent.llm import get_async_search_client, get_llm
-    from pension_chat.db.session import async_session_factory
+    from pension_chat.db.session import get_admin_session
 
     async def warm_db():
-        async with async_session_factory() as db:
+        async with get_admin_session() as db:
             await db.execute(sa_text("SELECT 1"))
 
     async def warm_search():

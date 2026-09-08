@@ -17,7 +17,7 @@ from sqlalchemy import select, update
 
 from pension_chat.api.auth import TokenData, require_auth
 from pension_chat.db.models import FormulaRegistry, PensionArticle
-from pension_chat.db.session import async_session_factory
+from pension_chat.db.session import get_admin_session
 
 logger = logging.getLogger("pension_chat.api.admin")
 
@@ -62,7 +62,7 @@ async def list_formulas(
     user: TokenData = Depends(require_auth),
 ):
     """List calculation-knowledge rows, lifecycle state, execution policy."""
-    async with async_session_factory() as db:
+    async with get_admin_session() as db:
         result = await db.execute(
             select(FormulaRegistry).order_by(
                 FormulaRegistry.article_number,
@@ -108,7 +108,7 @@ async def promote_formula(
     if body.execution_policy not in ("estimate", "authoritative"):
         raise HTTPException(status_code=400, detail="Execution policy must be 'estimate' or 'authoritative'")
 
-    async with async_session_factory() as db:
+    async with get_admin_session() as db:
         result = await db.execute(
             select(FormulaRegistry).where(FormulaRegistry.id == formula_uuid)
         )
@@ -143,7 +143,7 @@ async def list_articles(
     user: TokenData = Depends(require_auth),
 ):
     """Ingestion status per Article — progress at a glance."""
-    async with async_session_factory() as db:
+    async with get_admin_session() as db:
         result = await db.execute(
             select(PensionArticle).order_by(PensionArticle.article_number)
         )

@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from pension_chat.config import get_settings
-from pension_chat.db.session import async_session_factory
+from pension_chat.db.session import get_admin_session
 
 settings = get_settings()
 
@@ -124,7 +124,7 @@ async def register(body: UserRegister):
     For the pilot, employees are pre-seeded with email but no password.
     Registration links the password to the employee record.
     """
-    async with async_session_factory() as session:
+    async with get_admin_session() as session:
         from pension_chat.db.models import Employee
 
         result = await session.execute(
@@ -160,7 +160,7 @@ async def register(body: UserRegister):
 @router.post("/login", response_model=TokenResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Login with email/password and receive a JWT token."""
-    async with async_session_factory() as session:
+    async with get_admin_session() as session:
         from pension_chat.db.models import Employee
 
         result = await session.execute(

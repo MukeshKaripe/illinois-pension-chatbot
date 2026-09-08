@@ -202,7 +202,7 @@ async def run_agent_stream(
     session_id: str,
     employee_id: str | None = None,
     history: list[BaseMessage] | None = None,
-    session_token: str | None = None,
+    thread_owner: dict[str, str | None] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Run a turn, yielding progress and answer tokens as they become available.
 
@@ -222,9 +222,13 @@ async def run_agent_stream(
     usage = begin_usage()
     started = time.perf_counter()
 
-    config = thread_config(
-        session_id, employee_id=employee_id, session_token=session_token
-    )
+    # Two identities that look alike and are not the same. `employee_id` is
+    # whose record to read; `thread_owner` is who owns this conversation's
+    # stored state. In the chat API they coincide, but the evaluation harness
+    # reads a member's record on threads that are not sessions at all, and
+    # naming an owner there would scope the checkpoints to sessions that do not
+    # contain the thread -- every write silently discarded.
+    config = thread_config(session_id, **(thread_owner or {}))
 
     # `history` seeds a thread that has none. Once a thread is checkpointed it
     # holds its own messages, and re-supplying them would append a second copy

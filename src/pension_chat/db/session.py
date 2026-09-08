@@ -55,22 +55,23 @@ async def get_db_session(
         session_token: Anonymous session token for unauthenticated sessions.
     """
     async with async_session_factory() as session:
-        # Set RLS session variables.
+        # Both identities in one statement.
         #
         # Via `set_config(..., is_local => true)` rather than `SET LOCAL`, which
         # takes no bind parameters -- `SET LOCAL app.current_employee_id = $1`
         # is a syntax error, so this helper raised on every call that passed an
         # identity. It had no callers to notice.
-        if employee_id:
-            await session.execute(
-                sa_text("SELECT set_config('app.current_employee_id', :eid, true)"),
-                {"eid": str(employee_id)},
-            )
-        if session_token:
-            await session.execute(
-                sa_text("SELECT set_config('app.current_session_token', :st, true)"),
-                {"st": session_token},
-            )
+        #
+        # One round trip rather than two, because the database is ~232ms away
+        # and this sits in front of the member's record fetch. An unset identity
+        # is passed as the empty string, which the policies read through NULLIF.
+        await session.execute(
+            sa_text(
+                "SELECT set_config('app.current_employee_id', :eid, true),"
+                "       set_config('app.current_session_token', :st, true)"
+            ),
+            {"eid": str(employee_id or ""), "st": session_token or ""},
+        )
         try:
             yield session
             await session.commit()
@@ -79,9 +80,21 @@ async def get_db_session(
             raise
 
 
+@asynccontextmanager
 async def get_admin_session() -> AsyncGenerator[AsyncSession, None]:
-    """Yield a session without RLS restrictions — for admin/system operations."""
+    """Yield a session that can see everything — admin and system operations.
+
+    The escape hatch used to be a role grant: the application connected as a
+    role holding BYPASSRLS, so *every* statement skipped the policies and this
+    function differed from the scoped one only by omission. It is now an
+    explicit, transaction-local setting the policies test for, which means an
+    unrestricted read has to say so, and shows up in a diff when it does.
+
+    Legitimate users: the admin API, the health check, and the login path, which
+    looks an employee up by email before there is any identity to scope to.
+    """
     async with async_session_factory() as session:
+        await session.execute(sa_text("SELECT set_config('app.admin', 'on', true)"))
         try:
             yield session
             await session.commit()

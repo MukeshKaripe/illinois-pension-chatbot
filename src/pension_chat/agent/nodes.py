@@ -59,7 +59,7 @@ from pension_chat.calculation.risk_assessor import RiskAssessor
 from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
 from pension_chat.db.models import Employee
-from pension_chat.db.session import async_session_factory
+from pension_chat.db.session import get_db_session
 
 logger = logging.getLogger("pension_chat.agent.nodes")
 
@@ -486,7 +486,9 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
         return {"employee_record": None, "salary_history": []}
 
     try:
-        async with async_session_factory() as db:
+        # Scoped to this member: the policy on `employees` and, through it, on
+        # `employee_salary_history` will return nothing for anyone else's id.
+        async with get_db_session(employee_id=employee_id) as db:
             # One round trip, not two. The database is remote (Azure Postgres),
             # so each query costs ~1s of wall clock on the critical path; eager
             # loading the salary history in the same statement halves that.

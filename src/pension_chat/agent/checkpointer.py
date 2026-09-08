@@ -50,23 +50,13 @@ from langgraph.checkpoint.base import (
     get_checkpoint_metadata,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pension_chat.db.models import AgentCheckpoint, AgentCheckpointWrite
-from pension_chat.db.session import engine, get_db_session
+from pension_chat.db.session import get_admin_session, get_db_session
 
 logger = logging.getLogger("pension_chat.agent.checkpointer")
-
-
-# A session that issues each statement on its own, without wrapping it in a
-# transaction. See `SqlAlchemyCheckpointSaver._db`.
-_autocommit_factory = async_sessionmaker(
-    engine.execution_options(isolation_level="AUTOCOMMIT"),
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
 
 
 def thread_config(
@@ -132,17 +122,15 @@ class SqlAlchemyCheckpointSaver(BaseCheckpointSaver):
                 yield session
             return
 
-        # No owner: a system caller, and nothing here needs a transaction. Each
-        # checkpoint operation is a single statement, and the database is far
-        # enough away that the round trip dominates -- 232ms each, so BEGIN,
-        # statement, COMMIT costs ~700ms where the statement alone costs ~230ms.
-        # Two of these sit on time-to-first-token, so it is worth not paying for
-        # a transaction that protects nothing.
+        # No owner named: a system caller, whose thread is not a session row at
+        # all -- the evaluation harness, or a test. The delegating policy would
+        # match nothing for such a thread and silently discard every write, so
+        # this takes the declared escape instead of failing quietly.
         #
-        # The scoped path above keeps its transaction: `set_config(..., local)`
-        # is transaction-scoped, and without one the identity would leak to
-        # whoever the pool hands the connection to next.
-        async with _autocommit_factory() as session:
+        # Both paths are transactional now. `set_config(..., local)` is scoped
+        # to a transaction, and without one the identity would outlive the
+        # statement and reach whoever the pool hands the connection to next.
+        async with get_admin_session() as session:
             yield session
 
     @staticmethod
@@ -164,16 +152,54 @@ class SqlAlchemyCheckpointSaver(BaseCheckpointSaver):
             query.where(AgentCheckpoint.checkpoint_id == wanted)
             if wanted
             # Checkpoint ids are monotonic, so the highest is the newest.
-            else query.order_by(AgentCheckpoint.checkpoint_id.desc()).limit(1)
+            # Newest checkpoint, chosen by subquery rather than LIMIT: the join
+            # below multiplies rows by pending writes, so limiting the joined
+            # result would drop all but the first of them.
+            else query.where(
+                AgentCheckpoint.checkpoint_id
+                == select(func.max(AgentCheckpoint.checkpoint_id))
+                .where(
+                    AgentCheckpoint.thread_id == thread_id,
+                    AgentCheckpoint.checkpoint_ns == checkpoint_ns,
+                )
+                .scalar_subquery()
+            )
+        )
+
+        # Checkpoint and its pending writes in one round trip. They used to be
+        # two statements, which at ~232ms each is most of a second on the
+        # critical path for a join the database can do itself.
+        joined = (
+            query.add_columns(AgentCheckpointWrite)
+            .outerjoin(
+                AgentCheckpointWrite,
+                (AgentCheckpointWrite.thread_id == AgentCheckpoint.thread_id)
+                & (AgentCheckpointWrite.checkpoint_ns == AgentCheckpoint.checkpoint_ns)
+                & (
+                    AgentCheckpointWrite.checkpoint_id
+                    == AgentCheckpoint.checkpoint_id
+                ),
+            )
+            .order_by(AgentCheckpointWrite.task_id, AgentCheckpointWrite.idx)
         )
 
         async with self._db(config) as db:
-            row = (await db.execute(query)).scalars().first()
-            if row is None:
-                return None
-            writes = await self._pending_writes(db, thread_id, checkpoint_ns, row.checkpoint_id)
+            rows = (await db.execute(joined)).all()
 
-        return self._to_tuple(row, writes)
+        if not rows:
+            return None
+
+        checkpoint = rows[0][0]
+        writes = [
+            (
+                write.task_id,
+                write.channel,
+                self.serde.loads_typed((write.type or "", write.blob)),
+            )
+            for _, write in rows
+            if write is not None
+        ]
+        return self._to_tuple(checkpoint, writes)
 
     async def alist(
         self,
