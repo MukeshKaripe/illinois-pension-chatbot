@@ -111,9 +111,20 @@ Use an empty scenarios list when the user asks about a single point in time."""
 
 # Words that mean the user wants a number, not an explanation. Used by the
 # fast path below to decide whether the planner model call can be skipped.
+# Word stems carry their own suffix wildcard. Written as a bare
+# `\b(calculat|...)\b` the trailing boundary applied to whichever alternative
+# matched, and "calculat" is followed by a word character in every real word it
+# was meant to catch -- so `calculat`, `comput` and `estimat` matched nothing at
+# all, for as long as they had existed. "calculate my estimated pension" planned
+# no calculation; the model then did the arithmetic in prose from the facts in
+# its prompt, and verification withdrew the answer. The eval suite never saw it
+# because every case happened to trip a different alternative.
 _CALCULATION_SIGNALS = re.compile(
-    r"\b(calculat|comput|estimat|how much|what would|what will|amount|"
-    r"benefit|annuity|my pension|per month|monthly|annual|compare|scenario)\b",
+    r"\b(?:"
+    r"calculat\w*|recalculat\w*|comput\w*|estimat\w*|compar\w*|project\w*"
+    r"|how much|what would|what will|amount|benefit|annuity"
+    r"|my pension|per month|monthly|annual|scenario"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -323,11 +334,26 @@ async def plan_request(state: PensionAgentState) -> dict:
     # Only mid-conversation: on a first turn the same sentence is someone
     # introducing themselves, and treating that as a calculation would put a
     # planner round trip in front of every applicability question.
-    correcting = bool(_RESTATED_FACT.search(question)) and len(
-        state.get("messages") or []
-    ) > 1
+    mid_conversation = len(state.get("messages") or []) > 1
+    correcting = bool(_RESTATED_FACT.search(question)) and mid_conversation
 
-    if not _CALCULATION_SIGNALS.search(question) and not correcting:
+    # "Now do the same at age 59." carries no calculation word at all -- it is
+    # the previous question with one variable moved, and it produced no figure
+    # for the same reason a correction did. What it does carry is a retirement
+    # timing, which `extract_scenarios` already finds, so the follow-up is
+    # recognised by what it names rather than by widening the keyword list.
+    #
+    # Mid-conversation only, for the same reason as a correction: on a first
+    # turn "what happens at age 60" is asking what the law says, and planning a
+    # calculation for it would put a round trip in front of every applicability
+    # question.
+    continuing_a_comparison = mid_conversation and bool(extract_scenarios(question))
+
+    if (
+        not _CALCULATION_SIGNALS.search(question)
+        and not correcting
+        and not continuing_a_comparison
+    ):
         return {
             "requires_calculation": False,
             "formula_types_needed": [],
@@ -1603,6 +1629,20 @@ async def prepare_answer(state: PensionAgentState) -> dict:
             "THE FIGURES FOR THIS MEMBER. Copy them character for character; do not "
             "recalculate, round or convert anything:\n" + _format_calculation(results)
         )
+    elif facts:
+        # The member's salary and service are above because a question about
+        # which provision applies needs them. Given both and no figures, the
+        # model will multiply them together: that is how one turn produced a
+        # correct-looking estimate in prose and had the whole answer withdrawn,
+        # since a figure the model works out itself traces to nothing. Say so
+        # plainly rather than relying on the general rule further up.
+        context_parts.append(
+            "NO BENEFIT FIGURE WAS WORKED OUT THIS TURN. State no dollar amount "
+            "and no percentage of salary, and do not arrive at one from the "
+            "numbers above. Answer what was asked without a figure, and say what "
+            "you would need in order to work one out — but only ever ask for "
+            "something that is not already listed above."
+        )
 
     provenance = state.get("recipe_provenance") or []
     if provenance:
@@ -1787,6 +1827,10 @@ def _resolve_retirement_age(scenario: dict, facts: dict) -> int | None:
         return None
 
 
+# Any number as a member would write it: "56", "21.5", "$69,956.40".
+_NUMBER_TOKEN = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
 def _stated_in(value: Any, text: str) -> bool:
     """True if ``value`` appears literally in ``text``.
 
@@ -1799,22 +1843,28 @@ def _stated_in(value: Any, text: str) -> bool:
         return False
     haystack = (text or "").lower()
     raw = str(value).strip().lower()
-
-    if raw and raw in haystack:
-        return True
+    if not raw:
+        return False
 
     try:
         number = Decimal(raw)
     except (InvalidOperation, ValueError):
-        return False
+        # Not a number — a date, a status, a name. Match it whole.
+        return re.search(rf"(?<!\w){re.escape(raw)}(?!\w)", haystack) is not None
 
-    digits = re.sub(r"[^\d]", "", haystack)
-    # Compare the integer part: "72000" must appear in the digit run of the
-    # message, which "$72,000" and "72,000.00" both satisfy.
-    whole = str(int(number)) if number == number.to_integral_value() else None
-    if whole and whole in digits:
-        return True
-    return raw.replace(".", "") in digits
+    # A number has to be one the member actually wrote, so compare it against
+    # the numbers in the message rather than looking for its digits inside them.
+    # As a substring test, an extracted 0 counted as "the member said so"
+    # against "at age 60", and the inferred value then overrode the record: the
+    # early-retirement reduction silently became zero while service stayed at
+    # 21.5 years, giving a base figure inconsistent with its own inputs.
+    for token in _NUMBER_TOKEN.findall(haystack):
+        try:
+            if Decimal(token.replace(",", "")) == number:
+                return True
+        except InvalidOperation:
+            continue
+    return False
 
 
 def _article_of(section: str | None, default: int) -> int:
