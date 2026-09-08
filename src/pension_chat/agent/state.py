@@ -17,29 +17,54 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 
+# `None` means clear, anything else merges. Without that distinction a
+# checkpointed conversation could not start a turn fresh: passing `{}` for a
+# merged key merges nothing and leaves the previous turn's value in place, so
+# last turn's facts and figures would silently become this turn's.
+CLEAR = None
+
 
 def merge_dicts(a: dict | None, b: dict | None) -> dict:
-    """Merge two dictionaries, updating a with b."""
-    a = a or {}
-    b = b or {}
-    return {**a, **b}
+    """Merge ``b`` into ``a``; ``b is CLEAR`` empties the key."""
+    if b is CLEAR:
+        return {}
+    return {**(a or {}), **b}
 
 
 def merge_lists(a: list | None, b: list | None) -> list:
-    """Merge two lists, appending b to a."""
-    a = a or []
-    b = b or []
-    return a + b
+    """Append ``b`` to ``a``; ``b is CLEAR`` empties the key."""
+    if b is CLEAR:
+        return []
+    return (a or []) + b
 
 
 class PensionAgentState(TypedDict, total=False):
     """The central state for the LangGraph agent."""
 
-    # ── Core inputs ───────────────────────────────────────────────
+    # ── Durable: carried across turns by the checkpointer ─────────
+    # Everything else on this blackboard is scratch for one turn and is cleared
+    # by `turn_input()`. What survives is what the conversation has actually
+    # established, so a follow-up can refer to it instead of re-reading it out
+    # of the prose of an earlier answer.
     session_id: str
     employee_id: str | None
-    question: str
     messages: Annotated[list[BaseMessage], operator.add]
+    turn_index: Annotated[int, operator.add]
+    # The provision this conversation settled on: section, subsection,
+    # formula_type, formula_id, selection_basis.
+    selected_provision: dict | None
+    # The last figures worked out, with the inputs they were worked out from,
+    # so "change only my salary" has something to change.
+    baseline: dict | None
+    # name -> {value, source: record|stated|hypothetical, turn}. The source is
+    # the point: it is what separates the member's record from what they have
+    # supposed, and lets a later turn say which was which.
+    assumptions: Annotated[dict[str, Any], merge_dicts]
+    # Scenarios the member has built up by name, across turns.
+    scenario_set: Annotated[dict[str, Any], merge_dicts]
+
+    # ── Per-turn ──────────────────────────────────────────────────
+    question: str
 
     # ── Gate (deterministic, before any model call) ───────────────
     in_scope: bool
@@ -107,6 +132,68 @@ class PensionAgentState(TypedDict, total=False):
     timings: Annotated[dict[str, float], merge_dicts]
 
 
+# Keys the checkpointer carries from one turn to the next. Everything else is
+# scratch and is cleared by `turn_input()`.
+#
+# `calculation_result` is deliberately absent, and that is the load-bearing
+# omission. Verification builds the set of figures an answer may state from this
+# turn's calculation, the member's record, the retrieved statute and what the
+# member typed -- never from what the assistant said before, "so a figure this
+# system stated once does not become its own justification for stating it
+# again". Leaving a result in place across turns would smuggle exactly that back
+# in through the front door.
+DURABLE_KEYS: frozenset[str] = frozenset({
+    "session_id",
+    "employee_id",
+    "messages",
+    "turn_index",
+    "selected_provision",
+    "baseline",
+    "assumptions",
+    "scenario_set",
+})
+
+# Merged keys need `CLEAR` rather than an empty value: `{}` merges to nothing
+# and leaves the previous turn's contents in place.
+_MERGED_PER_TURN: frozenset[str] = frozenset({
+    "member_facts", "recipes", "resolved_inputs", "timings",
+})
+
+PER_TURN_KEYS: frozenset[str] = frozenset(
+    PensionAgentState.__annotations__
+) - DURABLE_KEYS
+
+
+def turn_input(
+    question: str,
+    session_id: str,
+    employee_id: str | None = None,
+) -> dict[str, Any]:
+    """The update that starts a new turn on an existing thread.
+
+    Not a whole state: the checkpointer already holds one. This resets every
+    per-turn key and adds the new message, so what the previous turn worked out
+    survives and what it merely happened to be doing does not.
+    """
+    from langchain_core.messages import HumanMessage
+
+    fresh = {key: _per_turn_default(key) for key in PER_TURN_KEYS}
+    fresh.update(
+        session_id=session_id,
+        employee_id=employee_id,
+        question=question,
+        messages=[HumanMessage(content=question)],
+        turn_index=1,
+    )
+    return fresh
+
+
+def _per_turn_default(key: str) -> Any:
+    if key in _MERGED_PER_TURN:
+        return CLEAR
+    return _BLANK_STATE[key]
+
+
 def initial_state(
     question: str,
     session_id: str,
@@ -127,6 +214,11 @@ def initial_state(
         "employee_id": employee_id,
         "question": question,
         "messages": list(history or []) + [HumanMessage(content=question)],
+        "turn_index": 0,
+        "selected_provision": None,
+        "baseline": None,
+        "assumptions": {},
+        "scenario_set": {},
         "in_scope": True,
         "out_of_scope_reason": "",
         "override_signal": {},
@@ -163,3 +255,9 @@ def initial_state(
         "token_usage": {},
         "timings": {},
     }
+
+
+# The per-turn defaults, named once. `turn_input()` reads them, so a key added
+# to `initial_state` without a default fails loudly rather than arriving as a
+# missing key mid-run.
+_BLANK_STATE: dict[str, Any] = initial_state("", "")

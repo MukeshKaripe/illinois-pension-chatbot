@@ -18,6 +18,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     Text,
@@ -350,3 +351,64 @@ class FormulaRegistry(Base):
 
     # Relationships
     article: Mapped[PensionArticle] = relationship(back_populates="formulas")
+
+
+class AgentCheckpoint(Base):
+    """One saved snapshot of the agent graph, keyed by conversation thread.
+
+    The thread is the chat session, so a follow-up turn resumes from what the
+    previous turn established instead of re-deriving it from the prose of the
+    answer. Written once per turn (``durability="exit"``), not once per node.
+
+    The payload is opaque here on purpose: LangGraph owns its own serialisation
+    format, and this table stores what its serialiser produced. What it contains
+    is not opaque, though — member facts reach it — which is why the migration
+    puts the same row-level security on this table as on the messages.
+    """
+
+    __tablename__ = "agent_checkpoints"
+
+    # LangGraph's thread id, holding the session UUID as text. Kept as text
+    # because the checkpointer contract says so, and because the eval harness
+    # and tests use thread ids that are not session rows.
+    thread_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    checkpoint_ns: Mapped[str] = mapped_column(
+        Text, primary_key=True, server_default=""
+    )
+    checkpoint_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    parent_checkpoint_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checkpoint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    checkpoint_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    __table_args__ = (
+        Index("ix_agent_checkpoints_thread", "thread_id", "checkpoint_ns"),
+    )
+
+
+class AgentCheckpointWrite(Base):
+    """Pending channel writes belonging to a checkpoint.
+
+    LangGraph records what each task wrote before the next checkpoint is
+    committed, so an interrupted run can be resumed without replaying the work
+    that already finished.
+    """
+
+    __tablename__ = "agent_checkpoint_writes"
+
+    thread_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    checkpoint_ns: Mapped[str] = mapped_column(
+        Text, primary_key=True, server_default=""
+    )
+    checkpoint_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    task_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    idx: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(Text, nullable=False)
+    type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blob: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    task_path: Mapped[str] = mapped_column(Text, nullable=False, server_default="")

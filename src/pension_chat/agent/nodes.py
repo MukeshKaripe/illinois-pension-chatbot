@@ -1623,11 +1623,37 @@ async def prepare_answer(state: PensionAgentState) -> dict:
             "recompute them:\n" + json.dumps(shown, indent=1)
         )
 
+    # What earlier turns in this conversation settled on. Figures here were
+    # produced by the calculation engine on a previous turn and carried forward
+    # as state, not read back out of the prose of an earlier answer -- which is
+    # what makes "put all four results in one table" answerable at all.
+    turn = state.get("turn_index")
+    earlier = {
+        label: {k: v for k, v in result.items() if k != "turn"}
+        for label, result in (state.get("scenario_set") or {}).items()
+        if result.get("turn") != turn
+    }
+    if earlier:
+        context_parts.append(
+            "ALREADY WORKED OUT EARLIER IN THIS CONVERSATION, keyed by what the "
+            "member called each one. These stand: quote them exactly and do not "
+            "recompute them. If the member is asking you to gather up or compare "
+            "what has been worked out so far, this is the record of it:\n"
+            + json.dumps(earlier, indent=1, default=str)
+        )
+
     results = state.get("calculation_result")
     if results:
         context_parts.append(
             "THE FIGURES FOR THIS MEMBER. Copy them character for character; do not "
-            "recalculate, round or convert anything:\n" + _format_calculation(results)
+            "recalculate, round or convert anything.\n"
+            "Every money amount and percentage in your answer must appear "
+            "verbatim either here or in the earlier results above. If the figure "
+            "you are about to write is not in one of them, it is not yours to "
+            "state: say what is missing instead. A projection you work out "
+            "yourself is wrong even when the arithmetic is right, because "
+            "nothing can check it.\n"
+            + _format_calculation(results)
         )
     elif facts:
         # The member's salary and service are above because a question about

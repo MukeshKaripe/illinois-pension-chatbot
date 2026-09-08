@@ -30,13 +30,19 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
+from pension_chat.agent.checkpointer import (
+    SqlAlchemyCheckpointSaver,
+    thread_config,
+    thread_has_state,
+)
 from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
 from pension_chat.agent.nodes import (
+    _stated_in,
     execute_calculations,
     fetch_employee_record,
     plan_request,
@@ -47,7 +53,7 @@ from pension_chat.agent.nodes import (
     triage,
     validate_recipes,
 )
-from pension_chat.agent.state import PensionAgentState, initial_state
+from pension_chat.agent.state import PensionAgentState, initial_state, turn_input
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.graph")
@@ -115,8 +121,14 @@ async def decline(state: PensionAgentState) -> dict:
     }
 
 
-def build_graph():
-    """Assemble and compile the StateGraph."""
+def build_graph(checkpointer: Any | None = None):
+    """Assemble and compile the StateGraph.
+
+    Without a checkpointer the graph is stateless and every turn starts from a
+    blank blackboard, which is what tests want. The application passes one, so a
+    conversation is a thread and a follow-up resumes from what the previous turn
+    established.
+    """
     workflow = StateGraph(PensionAgentState)
 
     workflow.add_node("triage", triage)
@@ -155,10 +167,10 @@ def build_graph():
     workflow.add_edge("execute_calculations", "prepare_answer")
     workflow.add_edge("prepare_answer", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)
 
 
-agent_graph = build_graph()
+agent_graph = build_graph(SqlAlchemyCheckpointSaver())
 
 
 async def run_agent(
@@ -190,6 +202,7 @@ async def run_agent_stream(
     session_id: str,
     employee_id: str | None = None,
     history: list[BaseMessage] | None = None,
+    session_token: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Run a turn, yielding progress and answer tokens as they become available.
 
@@ -209,21 +222,43 @@ async def run_agent_stream(
     usage = begin_usage()
     started = time.perf_counter()
 
-    state: dict[str, Any] = initial_state(question, session_id, employee_id, history)
+    config = thread_config(
+        session_id, employee_id=employee_id, session_token=session_token
+    )
+
+    # `history` seeds a thread that has none. Once a thread is checkpointed it
+    # holds its own messages, and re-supplying them would append a second copy
+    # of the conversation to itself. The lookup that decides this is one indexed
+    # row and replaces the larger transcript read it makes unnecessary.
+    if history and not await thread_has_state(config):
+        turn: dict[str, Any] = initial_state(question, session_id, employee_id, history)
+    else:
+        turn = turn_input(question, session_id, employee_id)
+
+    state: dict[str, Any] = {}
 
     try:
-        async for update in agent_graph.astream(state, stream_mode="updates"):
-            for node_name, node_output in update.items():
-                if isinstance(node_output, dict):
-                    # `timings` is an accumulator: every node contributes one
-                    # key. A plain dict update would replace the whole map with
-                    # the last node's single entry.
-                    merged_timings = {
-                        **state.get("timings", {}),
-                        **(node_output.get("timings") or {}),
-                    }
-                    state.update(node_output)
-                    state["timings"] = merged_timings
+        # "values" carries the whole blackboard, including what earlier turns
+        # left on it; "updates" says which node just finished, for the stage
+        # labels. Taking both avoids a second read to recover the full state.
+        async for mode, payload in agent_graph.astream(
+            turn,
+            config,
+            stream_mode=["values", "updates"],
+            # One checkpoint write at the end of the turn rather than one per
+            # superstep. Seven extra round trips to Azure Postgres would land
+            # squarely on time-to-first-token.
+            durability="exit",
+        ):
+            if mode == "values":
+                merged_timings = {
+                    **state.get("timings", {}),
+                    **(payload.get("timings") or {}),
+                }
+                state = dict(payload)
+                state["timings"] = merged_timings
+                continue
+            for node_name in payload:
                 label = STAGE_LABELS.get(node_name)
                 if label:
                     yield {"type": "status", "stage": label, "node": node_name}
@@ -243,6 +278,7 @@ async def run_agent_stream(
     if state.get("final_answer"):
         answer = state["final_answer"]
         yield {"type": "token", "text": answer}
+        await _record_turn(config, state)
         state["token_usage"] = usage.to_dict()
         state["timings"] = {**state.get("timings", {}), "total": time.perf_counter() - started}
         yield {"type": "done", "state": state}
@@ -301,6 +337,8 @@ async def run_agent_stream(
         )
         yield {"type": "replace", "text": replacement, "reason": report.to_dict()}
 
+    await _record_turn(config, state)
+
     state["token_usage"] = usage.to_dict()
     state["timings"] = {
         **state.get("timings", {}),
@@ -308,6 +346,116 @@ async def run_agent_stream(
         "total": time.perf_counter() - started,
     }
     yield {"type": "done", "state": state}
+
+
+def turn_record(state: dict) -> dict[str, Any] | None:
+    """What this turn adds to the thread's durable memory.
+
+    Pure: given the finished state, return the update, or ``None`` when there is
+    nothing worth remembering.
+
+    The answer is generated outside the graph, so the graph never sees it. Left
+    at that, a thread would accumulate only the member's questions and the
+    assistant would lose track of its own half of the conversation.
+
+    The working set is written here for the same reason: the provision this
+    conversation settled on and the figures it last produced are what a
+    follow-up refers back to. The figures are kept as a named baseline, which is
+    not the same thing as leaving `calculation_result` lying around — the
+    baseline is something a later turn may vary from and cite as its own, while
+    a stale `calculation_result` would silently widen what the next turn's
+    verification accepts.
+    """
+    answer = state.get("final_answer")
+    if not answer:
+        return None
+
+    update: dict[str, Any] = {"messages": [AIMessage(content=answer)]}
+
+    results = state.get("calculation_result") or {}
+    for formula_type, entry in results.items():
+        base = entry.get("base") or {}
+        if not base.get("ok"):
+            continue
+        update["selected_provision"] = {
+            "formula_type": formula_type,
+            "section": entry.get("section"),
+            "subsection": entry.get("subsection"),
+            "formula_id": entry.get("formula_id"),
+            "selection_basis": entry.get("selection_basis"),
+        }
+        update["baseline"] = {
+            "turn": state.get("turn_index"),
+            "formula_type": formula_type,
+            "section": entry.get("section"),
+            "annual_amount": base.get("annual_amount"),
+            "monthly_amount": base.get("monthly_amount"),
+            "inputs_used": base.get("inputs_used") or {},
+        }
+
+        # Results accumulate across turns under the label the member used, so
+        # "put all four in one table" has all four to put there. The baseline
+        # above is only ever the latest turn, which is why asking for the set
+        # produced a table the guardrail then had to withdraw: the age-59 figure
+        # was three turns old and traced to nothing this turn had computed.
+        #
+        # When a turn evaluates scenarios those are the results worth keeping;
+        # the unscenarioed base is the "as things stand today" case.
+        scenarios = entry.get("scenarios") or []
+        recorded = {
+            str(scenario.get("label")): {
+                "annual_amount": scenario.get("annual_amount"),
+                "monthly_amount": scenario.get("monthly_amount"),
+                "service_years": (scenario.get("assumptions") or {}).get(
+                    "service_years"
+                ),
+                "section": entry.get("section"),
+                "turn": state.get("turn_index"),
+            }
+            for scenario in scenarios
+            if scenario.get("label") and scenario.get("annual_amount")
+        } or {
+            "if you retire now": {
+                "annual_amount": base.get("annual_amount"),
+                "monthly_amount": base.get("monthly_amount"),
+                "service_years": (base.get("inputs_used") or {}).get(
+                    "creditable_service_years"
+                ),
+                "section": entry.get("section"),
+                "turn": state.get("turn_index"),
+            }
+        }
+        update["scenario_set"] = recorded
+        break
+
+    if state.get("resolved_inputs"):
+        turn = state.get("turn_index")
+        question = state.get("question") or ""
+        update["assumptions"] = {
+            name: {
+                "value": value,
+                # What the member typed outranks the record, and the answer may
+                # need to say which was which several turns later.
+                "source": "stated" if _stated_in(value, question) else "record",
+                "turn": turn,
+            }
+            for name, value in (state.get("resolved_inputs") or {}).items()
+        }
+
+    return update
+
+
+async def _record_turn(config: dict, state: dict) -> None:
+    """Persist what `turn_record` decided this turn is worth remembering."""
+    update = turn_record(state)
+    if not update:
+        return
+    try:
+        await agent_graph.aupdate_state(config, update)
+    except Exception:
+        # The member has their answer; losing the thread's memory of it is worth
+        # a warning, not a failed turn.
+        logger.exception("Could not record turn state for session %s", config)
 
 
 def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
@@ -328,10 +476,26 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         for message in state.get("messages") or []
         if getattr(message, "type", None) == "human"
     )
+    # Figures this conversation worked out on an earlier turn are traceable
+    # too, but only as the structured baseline -- the interpreter's own output,
+    # carried forward as state. That is a different thing from the sentences of
+    # a previous answer, which stay excluded: the baseline cannot contain a
+    # figure the model invented, because the model never wrote it.
+    computed = dict(state.get("calculation_result") or {})
+    turn = state.get("turn_index")
+    if (baseline := state.get("baseline")) and baseline.get("turn") != turn:
+        computed["_carried_baseline"] = baseline
+    if carried := {
+        label: result
+        for label, result in (state.get("scenario_set") or {}).items()
+        if result.get("turn") != turn
+    }:
+        computed["_carried_scenarios"] = carried
+
     return guardrails.verify_answer(
         answer,
         retrieved_sections=state.get("retrieved_sections") or [],
-        calculation_result=state.get("calculation_result"),
+        calculation_result=computed or None,
         facts=state.get("member_facts") or {},
         user_text=conversation or state.get("question", ""),
         check_numbers=settings.guardrail_numeric_provenance,

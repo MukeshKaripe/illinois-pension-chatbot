@@ -55,15 +55,20 @@ async def get_db_session(
         session_token: Anonymous session token for unauthenticated sessions.
     """
     async with async_session_factory() as session:
-        # Set RLS session variables
+        # Set RLS session variables.
+        #
+        # Via `set_config(..., is_local => true)` rather than `SET LOCAL`, which
+        # takes no bind parameters -- `SET LOCAL app.current_employee_id = $1`
+        # is a syntax error, so this helper raised on every call that passed an
+        # identity. It had no callers to notice.
         if employee_id:
             await session.execute(
-                sa_text("SET LOCAL app.current_employee_id = :eid"),
+                sa_text("SELECT set_config('app.current_employee_id', :eid, true)"),
                 {"eid": str(employee_id)},
             )
         if session_token:
             await session.execute(
-                sa_text("SET LOCAL app.current_session_token = :st"),
+                sa_text("SELECT set_config('app.current_session_token', :st, true)"),
                 {"st": session_token},
             )
         try:

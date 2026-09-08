@@ -80,6 +80,22 @@ _CONTINUATION = re.compile(
     re.IGNORECASE,
 )
 
+# Words that point back at what this conversation has already produced rather
+# than naming anything about pensions. "Put all four results in one comparison
+# table" contains no statutory vocabulary, no age and no section number, and was
+# refused outright -- after four turns of working those four results out. The
+# default-deny above exists to turn away a stranger's first question, not to
+# police a member mid-conversation, so these count only with history behind
+# them.
+_REFERS_BACK = re.compile(
+    r"\b(?:results?|figures?|numbers?|amounts?|estimates?|scenarios?|options?"
+    r"|table|breakdown|summary|those|these|them|both|all (?:four|three|two)"
+    r"|the (?:first|second|third|last|other) one|earlier|above|so far|instead"
+    r"|again|difference|changed?|why)\b",
+    re.IGNORECASE,
+)
+
+
 # Asks that are plainly somebody else's job. This list is a shortcut to a
 # clearer refusal, not the mechanism that keeps the assistant on topic — that
 # is the default below.
@@ -132,7 +148,7 @@ def classify_scope(question: str, *, has_history: bool = False) -> ScopeVerdict:
         return ScopeVerdict(True)
     if _TIMING_LANGUAGE.search(text) or _SECTION_REFERENCE.search(text):
         return ScopeVerdict(True)
-    if has_history and _CONTINUATION.search(text):
+    if has_history and (_CONTINUATION.search(text) or _REFERS_BACK.search(text)):
         return ScopeVerdict(True)
 
     # Short, term-free openers ("hi", "thanks") are conversational rather than

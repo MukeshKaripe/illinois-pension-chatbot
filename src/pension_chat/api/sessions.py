@@ -296,7 +296,13 @@ async def send_message(
                 question=body.content,
                 session_id=session_id,
                 employee_id=str(employee_id) if employee_id else None,
+                # Seeds a thread that predates checkpointing; a thread that has
+                # its own state ignores this rather than appending a second copy
+                # of the conversation to itself.
                 history=history,
+                # Names the thread's owner, which scopes its checkpoints to the
+                # same row-level policy as the transcript.
+                session_token=session.session_token if employee_id is None else None,
             ):
                 kind = event["type"]
                 if kind == "status":

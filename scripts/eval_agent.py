@@ -24,6 +24,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from pathlib import Path
 
 os.environ.setdefault("APP_ENV", "test")
@@ -36,7 +37,14 @@ from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 from pension_chat.agent.graph import run_agent_stream  # noqa: E402
 from pension_chat.agent.llm import close_clients  # noqa: E402
 
-SESSION = "00000000-0000-0000-0000-0000000000ev"
+
+# A fresh thread per case. The graph is checkpointed now, so a shared session id
+# would make all 25 cases one long conversation: each case would inherit the
+# last one's state and message history, which is both a false pass risk and a
+# steadily growing prompt. Cases that continue another still receive that turn
+# explicitly, through `history`, which seeds a thread that has none.
+def new_thread() -> str:
+    return str(uuid.uuid4())
 
 # The 12-case suite from test_questions.md, with the placeholder values filled in.
 CASES: list[dict] = [
@@ -304,7 +312,7 @@ async def run_case(case: dict, employee_id: str | None, history: list) -> dict:
     state: dict = {}
     error = None
 
-    async for event in run_agent_stream(case["q"], SESSION, employee_id, history):
+    async for event in run_agent_stream(case["q"], new_thread(), employee_id, history):
         kind = event["type"]
         if kind == "token":
             if ttft is None:
