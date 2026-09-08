@@ -304,6 +304,70 @@ async def triage(state: PensionAgentState) -> dict:
     }
 
 
+# Which benefit a question is about, read off the words the member used. The
+# planner model can do this too, and does it better on an unusual question --
+# but it costs a full round trip to the endpoint (~2.3s, the largest single item
+# on the critical path once the database is in the same region as the code), and
+# the overwhelming majority of questions here are about one benefit and say so
+# plainly.
+_BENEFIT_CUES: list[tuple[str, object]] = [
+    (
+        "survivor_annuity",
+        re.compile(
+            r"\b(?:widow(?:er)?|surviving spouse|survivors?|beneficiar|"
+            r"if i die|when i die|after my death|death benefit)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "disability_benefit",
+        re.compile(r"\b(?:disabilit\w*|disabled|injured on duty)\b", re.IGNORECASE),
+    ),
+    (
+        "refund_of_contributions",
+        re.compile(
+            r"\b(?:refund\w*|my contributions back|withdraw my contributions)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "retirement_annuity",
+        re.compile(
+            r"\b(?:retire\w*|retirement|annuity|pension|superannuat\w*)\b",
+            re.IGNORECASE,
+        ),
+    ),
+]
+
+# Written the way the statute writes it, which is what the planner was being
+# asked for. Retrieval is hybrid, so the member's own phrasing still runs as a
+# query alongside this one.
+_STATUTE_QUERY = {
+    "retirement_annuity": (
+        "retirement annuity minimum annuity highest average annual salary "
+        "years of service withdrawal from service age reduction"
+    ),
+    # The competing pathways, named so they are retrieved alongside the one
+    # that usually wins. Without them a fresh derivation cannot say why the
+    # provision it chose beats the annuity computed from accumulated
+    # contributions -- and saying so is most of the value of the answer.
+    "_retirement_alternatives": (
+        "annuity from accumulated employee and city contributions in lieu of "
+        "age and service annuity prior service annuity"
+    ),
+}
+
+
+def infer_formula_types(question: str) -> list[str]:
+    """Benefit types named in the question, or an empty list if it is unclear.
+
+    Empty means "ask the model": either nothing matched, or more than one
+    benefit did and choosing between them is a judgement rather than a lookup.
+    """
+    matched = [name for name, cue in _BENEFIT_CUES if cue.search(question or "")]
+    return matched if len(matched) == 1 else []
+
+
 async def plan_request(state: PensionAgentState) -> dict:
     """Classify intent and write statute-vocabulary search queries.
 
@@ -360,6 +424,29 @@ async def plan_request(state: PensionAgentState) -> dict:
             # Any section the user named is pinned by retrieval; the question
             # text runs as a query so neighbouring provisions surface too.
             "search_queries": [question],
+            "scenarios": extract_scenarios(question),
+            "timings": {"plan_request": time.perf_counter() - started},
+        }
+
+    # A question that names exactly one benefit needs nothing the planner
+    # supplies that cannot be read off it here: the benefit type, the statute
+    # vocabulary to search with, and the retirement timings, which
+    # `extract_scenarios` already finds without a model. The planner is kept for
+    # everything else -- several benefits at once, or none named clearly.
+    inferred = infer_formula_types(question) if settings.deterministic_planning else []
+    if inferred and inferred[0] in _STATUTE_QUERY:
+        return {
+            "requires_calculation": True,
+            "formula_types_needed": inferred,
+            "search_queries": [
+                question,
+                _STATUTE_QUERY[inferred[0]],
+                *(
+                    [_STATUTE_QUERY["_retirement_alternatives"]]
+                    if inferred[0] == "retirement_annuity"
+                    else []
+                ),
+            ],
             "scenarios": extract_scenarios(question),
             "timings": {"plan_request": time.perf_counter() - started},
         }

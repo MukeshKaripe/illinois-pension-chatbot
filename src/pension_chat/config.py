@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     # Conversation history carried into prompts (user+assistant turns)
     history_turns: int = 4
 
+    # Skip the planner round trip when the question names exactly one benefit
+    # and the timing scenarios can be read off it deterministically. Once the
+    # database sits in the same region as the code, that call is the single
+    # largest item left on time-to-first-token.
+    deterministic_planning: bool = True
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

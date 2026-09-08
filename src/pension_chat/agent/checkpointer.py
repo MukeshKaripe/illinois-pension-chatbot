@@ -59,6 +59,17 @@ from pension_chat.db.session import get_admin_session, get_db_session
 logger = logging.getLogger("pension_chat.agent.checkpointer")
 
 
+# Types from this project that may cross the serialisation boundary, named
+# explicitly. The default is to allow anything with a warning and to block
+# everything in a future version; neither is what we want. A derived recipe is
+# put on the blackboard by `resolve_recipes` and read by the persistence step in
+# the same turn, so it is genuinely part of a turn's state and has to survive a
+# round trip.
+_ALLOWED: tuple[tuple[str, ...], ...] = (
+    ("pension_chat.agent.derivation", "DerivedRecipe"),
+)
+
+
 def thread_config(
     thread_id: str,
     *,
@@ -105,7 +116,9 @@ class SqlAlchemyCheckpointSaver(BaseCheckpointSaver):
     """
 
     def __init__(self, serde: Any | None = None) -> None:
-        super().__init__(serde=serde or JsonPlusSerializer())
+        super().__init__(
+            serde=serde or JsonPlusSerializer(allowed_msgpack_modules=_ALLOWED)
+        )
 
     # ── Session scoping ───────────────────────────────────────────
 

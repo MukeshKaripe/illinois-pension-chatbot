@@ -33,8 +33,10 @@ import pytest
 
 from pension_chat.agent.nodes import (
     _CALCULATION_SIGNALS,
+    _STATUTE_QUERY,
     _stated_in,
     extract_scenarios,
+    infer_formula_types,
 )
 
 # One natural sentence per alternative in the pattern. The point is not the
@@ -175,3 +177,74 @@ class TestStatedIn:
     )
     def test_a_value_the_member_wrote_is_stated(self, value, text):
         assert _stated_in(value, text)
+
+
+# -- Skipping the planner round trip -------------------------------
+
+class TestBenefitInference:
+    """The planner call is the largest item on the critical path in production.
+
+    Once the database sits in the same region as the code its round trips fall
+    to single-digit milliseconds, and what is left before the first token is
+    two sequential model calls: planning, then answering. Planning exists to
+    name the benefit type, write statute-vocabulary queries, and pick apart
+    comparison scenarios -- and for a question that names one benefit plainly,
+    none of those needs a model. Scenarios were already deterministic.
+
+    The rule is deliberately conservative: one benefit named, or ask the model.
+    """
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            ("What would my pension be if I retire now?", "retirement_annuity"),
+            ("work out my annuity", "retirement_annuity"),
+            ("If I die before retiring, what does my spouse receive?", "survivor_annuity"),
+            ("what would my widow get", "survivor_annuity"),
+            ("can I get my contributions back", "refund_of_contributions"),
+            ("what is my duty disability benefit", "disability_benefit"),
+        ],
+    )
+    def test_a_question_naming_one_benefit_is_read_without_a_model(
+        self, question, expected
+    ):
+        assert infer_formula_types(question) == [expected]
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            # Two benefits: choosing between them is judgement, not lookup.
+            "What is my disability benefit and my retirement annuity?",
+            "compare my pension with what my widow would receive",
+            # "benefit" does not say which benefit, so it is not a name.
+            "Compare my benefit at 57 and at 60",
+            # None named at all -- the elliptical follow-up.
+            "Now calculate it at age 60.",
+            "what changes if I wait two more years",
+        ],
+    )
+    def test_anything_less_obvious_still_asks_the_model(self, question):
+        assert infer_formula_types(question) == []
+
+    def test_only_the_benefit_with_a_query_template_skips_planning(self):
+        """Survivor and refund questions are recognised but still planned.
+
+        Recognising the benefit is not the same as knowing how the statute
+        phrases it. Retirement is the pathway this pilot has exercised; the
+        others go to the model until they have a query written for them.
+        """
+        assert set(_STATUTE_QUERY) == {"retirement_annuity", "_retirement_alternatives"}
+
+    def test_the_competing_pathways_are_searched_for_by_name(self):
+        """A fresh derivation has to be able to say why the winner won.
+
+        Retrieval driven only by the member's phrasing surfaced 11-134 and its
+        neighbours but not 11-130 or 11-131, the annuity computed from
+        accumulated contributions -- so the derivation would have had no
+        alternative to weigh, and the answer would have asserted a provision
+        rather than chosen one.
+        """
+        alternatives = _STATUTE_QUERY["_retirement_alternatives"]
+
+        assert "accumulated" in alternatives
+        assert "in lieu of" in alternatives
