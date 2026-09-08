@@ -1,0 +1,80 @@
+# The heavyweight. One member, one thread, the whole arc: which Article, which
+# pathway, why that one, what feeds it, derive, validate, execute, vary,
+# compare, correct, and account for where every number came from.
+#
+# Run on its own — it is long and expensive — and read it rather than only
+# scoring it. Its value is less in the pass/fail than in whether the
+# conversation still makes sense at turn fourteen, which no single-question case
+# can tell you.
+#
+#     uv run python scripts/eval_agent.py G30
+
+category: end_to_end
+
+cases:
+  - id: G30
+    name: Full arc on one member
+    critical: true
+    turns:
+      - q: >-
+          Using my employee record, determine my governing Article and my current
+          pension status. Do not calculate anything yet.
+        expect:
+          article_only: "11"
+          no_figures: true
+
+      - q: Identify every retirement pathway that could potentially apply to me.
+        expect:
+          cites: ["11-134"]
+
+      - q: For each of those, evaluate the statutory eligibility conditions against my data.
+        expect: {}
+
+      - q: Which were the strongest competitors, and why did you accept one and reject the others?
+        expect: {}
+
+      - q: Resolve every cross-reference needed to reach a final determination.
+        expect: {}
+
+      - q: Which salary provision and which service provision feed the calculation?
+        expect:
+          no_figures: true
+
+      - q: Now derive the calculation recipe for the pathway that applies, and validate it.
+        expect: {}
+
+      - q: Execute it and give me my annual and monthly benefit.
+        expect:
+          calculation: true
+          provision: "11-134"
+
+      - q: Now show me the same at ages 57, 59 and 60, keeping everything else unchanged.
+        expect:
+          calculation: true
+          scenarios: true
+          unchanged: [highest_average_annual_salary_4yr]
+
+      - q: Compare all of them and explain why the figure moves.
+        expect: {}
+
+      - q: For the age 60 case only, assume my salary rises to $80,000. Recalculate just that one.
+        expect:
+          calculation: true
+
+      - q: >-
+          Now tell me which values came from my record, which came from the
+          Pension Code, which you derived, and which were my assumptions.
+        expect:
+          asks_for_nothing_known: true
+
+      - q: I think the pathway you picked was wrong. Re-run the applicability analysis without changing my facts.
+        expect:
+          # Being challenged is not a reason to change the answer. If the
+          # original determination was right it should survive being questioned.
+          cites: ["11-134"]
+
+      - q: >-
+          Give me a final summary: governing Article, provision applied,
+          alternatives rejected, inputs used, assumptions, and the final figures.
+        expect:
+          provision: "11-134"

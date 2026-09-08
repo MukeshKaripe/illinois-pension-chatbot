@@ -62,6 +62,8 @@ class PensionAgentState(TypedDict, total=False):
     assumptions: Annotated[dict[str, Any], merge_dicts]
     # Scenarios the member has built up by name, across turns.
     scenario_set: Annotated[dict[str, Any], merge_dicts]
+    # Sections this conversation has cited and had verified, section -> turn.
+    cited_sections: Annotated[dict[str, Any], merge_dicts]
 
     # ── Per-turn ──────────────────────────────────────────────────
     question: str
@@ -151,6 +153,7 @@ DURABLE_KEYS: frozenset[str] = frozenset({
     "baseline",
     "assumptions",
     "scenario_set",
+    "cited_sections",
 })
 
 # Merged keys need `CLEAR` rather than an empty value: `{}` merges to nothing
@@ -219,6 +222,7 @@ def initial_state(
         "baseline": None,
         "assumptions": {},
         "scenario_set": {},
+        "cited_sections": {},
         "in_scope": True,
         "out_of_scope_reason": "",
         "override_signal": {},

@@ -374,7 +374,20 @@ def turn_record(state: dict) -> dict[str, Any] | None:
     if not answer:
         return None
 
+    turn = state.get("turn_index")
     update: dict[str, Any] = {"messages": [AIMessage(content=answer)]}
+
+    # Sections this turn cited, once verification has accepted them. A later
+    # turn asking "why did you rule that one out?" retrieves on its own words,
+    # which need not surface the provision it is asking about.
+    if state.get("guardrail_passed", True):
+        cited = {
+            str(citation["section"]): turn
+            for citation in (state.get("citations") or [])
+            if citation.get("section")
+        }
+        if cited:
+            update["cited_sections"] = cited
 
     results = state.get("calculation_result") or {}
     for formula_type, entry in results.items():
@@ -389,12 +402,18 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             "selection_basis": entry.get("selection_basis"),
         }
         update["baseline"] = {
-            "turn": state.get("turn_index"),
+            "turn": turn,
             "formula_type": formula_type,
             "section": entry.get("section"),
             "annual_amount": base.get("annual_amount"),
             "monthly_amount": base.get("monthly_amount"),
             "inputs_used": base.get("inputs_used") or {},
+            # The rates the figure was built from, so a later turn explaining
+            # what changed can quote "2.40% a year" without it tracing to
+            # nothing. They came from the statute with a source section
+            # attached; carrying the amounts but not the rates that produced
+            # them left the follow-up unable to say why the number moved.
+            "statutory_values_used": base.get("statutory_values_used") or {},
         }
 
         # Results accumulate across turns under the label the member used, so
@@ -429,11 +448,22 @@ def turn_record(state: dict) -> dict[str, Any] | None:
                 "turn": state.get("turn_index"),
             }
         }
-        update["scenario_set"] = recorded
+        # A label reused with a different figure means the member corrected
+        # something. Overwriting silently leaves "which parts of the original
+        # changed?" with nothing to compare against, and the model then quotes
+        # a figure that traces to nothing and has the answer withdrawn. The
+        # superseded result is kept under its own name instead.
+        previous = state.get("scenario_set") or {}
+        superseded = {
+            f"{label} (before the correction on turn {was['turn']})": was
+            for label, was in previous.items()
+            if label in recorded
+            and str(was.get("annual_amount")) != str(recorded[label]["annual_amount"])
+        }
+        update["scenario_set"] = {**superseded, **recorded}
         break
 
     if state.get("resolved_inputs"):
-        turn = state.get("turn_index")
         question = state.get("question") or ""
         update["assumptions"] = {
             name: {
@@ -503,4 +533,5 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         facts=state.get("member_facts") or {},
         user_text=conversation or state.get("question", ""),
         check_numbers=settings.guardrail_numeric_provenance,
+        established_sections=(state.get("cited_sections") or {}),
     )

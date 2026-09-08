@@ -188,6 +188,12 @@ async def _embed(queries: list[str]) -> list[list[float] | None]:
     return [_EMBED_CACHE.get(q) for q in queries]
 
 
+# Reciprocal rank fusion constant. 60 is the value from the original paper and
+# the usual default; it damps the difference between the top few ranks, so a
+# section ranked second by one query still beats one ranked fifth by two.
+_RRF_K = 60
+
+
 def _article_filter(articles: Iterable[str] | None) -> str | None:
     values = [a for a in (articles or []) if a]
     if not values:
@@ -409,6 +415,7 @@ async def retrieve(
     pinned = list(dict.fromkeys(must_include_sections or []))
 
     section_scores: dict[str, float] = {}
+    fused: dict[str, float] = {}
 
     if queries:
         vectors = await _embed(queries)
@@ -424,18 +431,34 @@ async def retrieve(
                 for i, query in enumerate(queries)
             )
         )
+        # Ranked by reciprocal rank fusion across the queries rather than by
+        # best raw score. Taking a global maximum let one query drown the
+        # others: asked which salary definition applies, the member's own
+        # phrasing ranked Section 11-116 second, while the statute-vocabulary
+        # rewrites beside it scored higher across the board -- so 11-116 never
+        # appeared, and the answer said the Code provided no definition.
+        # Fusion lets every query put its best hit forward regardless of how
+        # its scores compare with another's.
         for docs in hits:
-            for doc in docs:
+            best_rank: dict[str, int] = {}
+            for rank, doc in enumerate(docs):
                 section_id = doc.get("section")
                 if not section_id:
                     continue
+                best_rank.setdefault(section_id, rank)
                 # A section's score is its best-scoring chunk: a long section
                 # should not be penalised for having many weak subsections.
                 score = _chunk_score(doc)
                 if score > section_scores.get(section_id, 0.0):
                     section_scores[section_id] = score
+            for section_id, rank in best_rank.items():
+                fused[section_id] = fused.get(section_id, 0.0) + 1.0 / (_RRF_K + rank + 1)
 
-    ranked = sorted(section_scores, key=lambda s: section_scores[s], reverse=True)
+    ranked = sorted(
+        section_scores,
+        key=lambda s: (fused.get(s, 0.0), section_scores[s]),
+        reverse=True,
+    )
     # Pinned sections come first and do not consume a ranked slot.
     chosen = pinned + [
         s for s in ranked if s not in pinned

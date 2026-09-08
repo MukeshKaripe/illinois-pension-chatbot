@@ -358,6 +358,21 @@ _STATUTE_QUERY = {
 }
 
 
+# Words that ask for a number, as opposed to naming a subject. The difference
+# decides whether planning can be skipped: "benefit", "annuity" and "annual" are
+# in the calculation-signal list because they usually accompany a request for a
+# figure, but on their own they are just the topic. "Which salary definition
+# applies to my benefit calculation" names a benefit and asks for no number at
+# all -- read as a calculation, it searched with annuity vocabulary and never
+# retrieved Section 11-116, the provision that actually defines salary.
+_FIGURE_REQUEST = re.compile(
+    r"\b(?:calculat\w*|recalculat\w*|comput\w*|estimat\w*|compar\w*|project\w*"
+    r"|how much|what would|what will|work(?: it)? out|my pension|per month|monthly"
+    r"|amount|scenario)\b",
+    re.IGNORECASE,
+)
+
+
 def infer_formula_types(question: str) -> list[str]:
     """Benefit types named in the question, or an empty list if it is unclear.
 
@@ -366,6 +381,14 @@ def infer_formula_types(question: str) -> list[str]:
     """
     matched = [name for name, cue in _BENEFIT_CUES if cue.search(question or "")]
     return matched if len(matched) == 1 else []
+
+
+def _continuing_formula_types(state: PensionAgentState, correcting: bool) -> list[str]:
+    """The benefit this conversation is already about, when a turn needs one."""
+    if not correcting:
+        return []
+    settled = (state.get("selected_provision") or {}).get("formula_type")
+    return [settled] if settled else []
 
 
 async def plan_request(state: PensionAgentState) -> dict:
@@ -434,7 +457,7 @@ async def plan_request(state: PensionAgentState) -> dict:
     # `extract_scenarios` already finds without a model. The planner is kept for
     # everything else -- several benefits at once, or none named clearly.
     inferred = infer_formula_types(question) if settings.deterministic_planning else []
-    if inferred and inferred[0] in _STATUTE_QUERY:
+    if inferred and inferred[0] in _STATUTE_QUERY and _FIGURE_REQUEST.search(question):
         return {
             "requires_calculation": True,
             "formula_types_needed": inferred,
@@ -472,15 +495,31 @@ async def plan_request(state: PensionAgentState) -> dict:
         logger.warning("Planning failed, falling back to literal query: %s", exc)
         plan = {}
 
-    queries = [q for q in (plan.get("search_queries") or []) if isinstance(q, str)]
-    if not queries:
-        queries = [question]
+    # The member's own words go in alongside the planner's rewrites, not
+    # instead of them. Retrieval is hybrid, and the raw question is often the
+    # better query: "which salary definition applies to my benefit calculation"
+    # returns Section 11-116 — the provision that defines salary — at rank two,
+    # while the statute-vocabulary rewrites of the same question did not return
+    # it at all, and the answer said the Code did not provide a definition.
+    queries = [question] + [
+        q for q in (plan.get("search_queries") or []) if isinstance(q, str)
+    ]
 
     return {
-        "requires_calculation": bool(plan.get("requires_calculation")),
+        # A member correcting one of their own numbers mid-conversation is
+        # asking for the figure again, whether or not they phrased it as a
+        # question. "My salary is actually $76,000, use that from here on" read
+        # to the planner as a preference rather than a request, so nothing was
+        # recomputed and the correction sat unused until the member happened to
+        # ask again. That is what `correcting` was for; it was only being used
+        # to decide whether to consult the planner, not to overrule it.
+        "requires_calculation": bool(plan.get("requires_calculation")) or correcting,
+        # Falling back to the provision this conversation already settled on:
+        # a correction is a correction *to something*, and requiring the
+        # calculation without naming what to calculate would skip it anyway.
         "formula_types_needed": [
             f for f in (plan.get("formula_types_needed") or []) if isinstance(f, str)
-        ],
+        ] or _continuing_formula_types(state, correcting),
         "search_queries": queries[:3],
         "scenarios": _merge_scenarios(
             extract_scenarios(question),

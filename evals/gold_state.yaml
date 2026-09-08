@@ -1,0 +1,126 @@
+# Conversation state: what the assistant is supposed to remember, and what it
+# is supposed to leave alone.
+#
+# None of this was testable before the graph was checkpointed. Every turn began
+# from a blank blackboard and carried only the text of earlier messages, so a
+# follow-up could not refer to a figure without the model reading it back out
+# of its own prose — and a figure sourced that way traces to nothing, so
+# verification withdrew the answer. The failure looked like a formatting
+# problem and was an architecture problem.
+#
+# These are the highest-value cases in the set, because the mistakes they catch
+# are invisible one question at a time.
+
+category: state
+
+cases:
+  - id: G13
+    name: Actual record versus a hypothetical
+    critical: true
+    turns:
+      - q: Using my actual employee information, what is my pension if I retire today?
+        expect:
+          calculation: true
+          uses_input: { creditable_service_years: "21.5" }
+      - q: For a hypothetical, suppose I had 25 years of service instead. What would it be?
+        expect:
+          calculation: true
+          uses_input: { creditable_service_years: "25" }
+      # The one that matters. A hypothetical must not become the member's
+      # record: the next real question has to come back to 21.5 years.
+      - q: Now go back to my actual record. What is my pension really?
+        expect:
+          calculation: true
+          uses_input: { creditable_service_years: "21.5" }
+
+  - id: G14
+    name: One variable moves, the rest hold still
+    turns:
+      - q: What would my pension be if I retire now?
+        expect: { calculation: true, provision: "11-134" }
+      - q: Keep everything the same but assume I retire at 60 instead.
+        expect:
+          calculation: true
+          scenarios: true
+          # Service and salary are the member's; only the timing was asked to
+          # move. A scenario that quietly re-derives everything is not a
+          # scenario, it is a second unrelated answer.
+          unchanged: [highest_average_annual_salary_4yr]
+
+  - id: G17
+    name: The provision chosen earlier is the provision used later
+    turns:
+      - q: Which retirement provision applies to me? Do not calculate anything yet.
+        expect:
+          no_figures: true
+          cites: ["11-134"]
+      - q: Why did you choose that one over the alternatives?
+        expect: {}
+      - q: Using the provision you selected earlier, calculate my benefit.
+        expect:
+          calculation: true
+          provision: "11-134"
+
+  - id: G18
+    name: A correction propagates
+    turns:
+      - q: What would my pension be if I retire now?
+        expect: { calculation: true }
+      # The record says 21.5. The member says otherwise, and their own words
+      # outrank the record.
+      - q: Actually I have 25 years of service, not 21.5. What changes?
+        expect:
+          calculation: true
+          stated_input: "25"
+      - q: Which parts of the original figure changed, and which did not?
+        expect: {}
+
+  - id: G19
+    name: A value the member restates replaces the earlier one
+    turns:
+      - q: What would my pension be if I retire now?
+        expect: { calculation: true }
+      # Their own words outrank the record, and must keep outranking it on the
+      # turn after the one that said them.
+      - q: My salary is actually $76,000 now. Use that from here on.
+        expect: { calculation: true }
+      - q: Which salary figure are you using?
+        expect: {}
+
+  - id: G15
+    name: Gathering up what has been worked out
+    turns:
+      - q: What would my pension be if I retire now?
+        expect: { calculation: true }
+      - q: Now do the same at age 59.
+        expect: { calculation: true, scenarios: true }
+      - q: And at age 60.
+        expect: { calculation: true, scenarios: true }
+      # The turn that could not be answered at all before checkpointing: the
+      # earlier figures existed only as sentences in the transcript.
+      - q: Put all of those in one comparison table and explain what changed between them.
+        expect: {}
+
+  - id: G16
+    name: Two named scenarios, one of them edited
+    # Written as a known gap on the assumption that "Scenario A" needed
+    # something to bind to. It does not: the edit works because the member
+    # writes the new salary in the message, and a value they state outranks the
+    # record whether or not the scenario has a name. Kept, with the assertion
+    # sharpened to check the figure is actually used rather than merely
+    # discussed — a case that passes for the wrong reason is worse than none.
+    turns:
+      - q: Create a baseline retirement scenario for me.
+        expect: { calculation: true }
+      - q: "Call this Scenario A: retire at 57."
+        expect: { calculation: true, scenarios: true }
+      - q: "Call this Scenario B: retire at 60."
+        expect: { calculation: true, scenarios: true }
+      # The claim being tested, sharply: the edited scenario must actually use
+      # $80,000, not merely produce a plausible answer about it.
+      - q: Change only Scenario A's salary assumption to $80,000.
+        expect:
+          calculation: true
+          uses_input: { highest_average_annual_salary_4yr: "80000.00" }
+      - q: Compare Scenario A, the modified Scenario A, and Scenario B.
+        expect: {}

@@ -49,6 +49,11 @@ _PENSION_TERMS = {
     "spouse", "disability", "refund", "ilcs", "article", "section", "vest",
     "vesting", "beneficiary", "cola", "eligib", "employee", "employer",
     "member", "tier", "years of service", "fund", "40 ilcs",
+    # The vocabulary of the question itself, not of the benefit. "Which
+    # provisions apply to me?" is close to this assistant's whole purpose and
+    # was being refused outright: it names no benefit, no age and no section.
+    "provision", "statute", "pension code", "the code", "govern", "qualify",
+    "entitled", "apply to me", "applies to me",
     # How members phrase the same thing
     "stop working", "stop work", "keep working", "carry on working",
     "keep on working", "stay in service", "worth it to retire",
@@ -346,6 +351,7 @@ def verify_answer(
     facts: dict[str, Any] | None = None,
     user_text: str = "",
     check_numbers: bool = True,
+    established_sections: Iterable[str] = (),
 ) -> GuardrailReport:
     """Verify a generated answer against the evidence it was given.
 
@@ -357,6 +363,9 @@ def verify_answer(
         user_text: The user's message, so figures they supplied are allowed.
         check_numbers: Disable for answers that legitimately contain no
             computed figures.
+        established_sections: Sections earlier turns of this conversation
+            already cited and had verified. "Why did you rule that one out?"
+            is about a provision the previous turn retrieved, not this one.
 
     Returns:
         A ``GuardrailReport``. ``passed`` is False only for hard failures —
@@ -366,6 +375,12 @@ def verify_answer(
     report = GuardrailReport()
     sections = list(retrieved_sections or [])
     available = {str(s.get("section")) for s in sections if s.get("section")}
+    # A follow-up asking about a provision the conversation has already been
+    # through retrieves on the follow-up's own words, which need not surface
+    # that provision again. Those sections were verified when they were first
+    # cited, so they stay available -- unlike a figure, a section id cannot be
+    # invented into existence by being repeated.
+    available |= {str(section) for section in established_sections if section}
     sections_text = "\n".join(str(s.get("text") or "") for s in sections)
 
     if not (answer or "").strip():
