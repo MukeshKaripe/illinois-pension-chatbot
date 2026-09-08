@@ -115,3 +115,52 @@ def test_the_retire_or_keep_working_question_is_in_scope():
         "is it worth it to retire now",
     ):
         assert classify_scope(question).in_scope is True, question
+
+
+# -- Refusals found by the fourteen-turn end-to-end case -----------
+
+class TestMidConversationRefusals:
+    """The deny-by-default kept turning members away mid-conversation.
+
+    Three separate refusals inside one fourteen-turn case, each of them a
+    question this assistant exists to answer, and each phrased without a single
+    word from the benefit vocabulary:
+
+      * "Which provisions apply to me?" — names no benefit, age or section.
+      * "Now show me the same at ages 57, 59 and 60" — the timing pattern
+        matched "age 60" but not the plural "ages 60".
+      * "Re-run the applicability analysis" — the member replying in the words
+        the assistant had just used at them.
+
+    The default is right for a stranger's first question and wrong as a way to
+    police a conversation already under way. What it needed was the vocabulary
+    of the *question*, not more vocabulary of the benefit.
+    """
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Which provisions apply to me?",
+            "Which provisions could you calculate, and which actually govern my case?",
+            "Now show me the same at ages 57, 59 and 60, keeping everything unchanged.",
+            "I think the pathway you picked was wrong. Re-run the applicability analysis.",
+            "Am I eligible to retire?",
+            "What is your determination, and what assumptions did it rest on?",
+        ],
+    )
+    def test_a_member_continuing_the_conversation_is_not_turned_away(self, question):
+        assert classify_scope(question, has_history=True).in_scope
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "write me a poem about it",
+            "i want an ice cream",
+            "can you help me sleep",
+            "what is the weather like today",
+            "who won the game last night",
+        ],
+    )
+    def test_and_the_widening_did_not_let_these_back_in(self, question):
+        """The complaint that started the deny-by-default, still answered."""
+        assert not classify_scope(question, has_history=True).in_scope

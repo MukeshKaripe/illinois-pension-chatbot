@@ -151,8 +151,16 @@ _OFFSET_PATTERNS = [
     re.compile(rf"\b{_COUNT}\s+(?:more\s+)?years?\s+from\s+now\b", re.I),
 ]
 # Absolute ages: "at age 60", "when I reach 62", "at 57, at 59 and at 60".
+# A list of ages in one breath: "at ages 57, 59 and 60". Written as separate
+# single-age patterns this matched nothing at all (the plural "ages" was not
+# covered) and, once it was, matched only the first -- so a member nine turns
+# into a comparison asking for three more got none of them.
+_AGE_LIST = re.compile(
+    r"\bages?\s+(\d{2}(?:\s*(?:,|and|or|/|through|to)\s*(?:ages?\s+)?\d{2})+)", re.I
+)
+
 _AGE_PATTERNS = [
-    re.compile(r"\b(?:at|until|to|reach(?:ing|es)?|turn(?:ing|s)?)\s+age\s+(\d{2})\b", re.I),
+    re.compile(r"\b(?:at|until|to|reach(?:ing|es)?|turn(?:ing|s)?)\s+ages?\s+(\d{2})\b", re.I),
     re.compile(r"\b(?:reach(?:ing|es)?|turn(?:ing|s)?)\s+(\d{2})\b", re.I),
     re.compile(r"\bat\s+(\d{2})\b", re.I),
 ]
@@ -238,6 +246,12 @@ def extract_scenarios(question: str) -> list[dict]:
             if count is not None and 0 < count <= 40:
                 label = "in 1 year" if count == 1 else f"in {count} years"
                 add({"label": label, "years_from_now": count}, ("offset", count))
+
+    for match in _AGE_LIST.finditer(text):
+        for value in re.findall(r"\d{2}", match.group(1)):
+            age = int(value)
+            if age in _PLAUSIBLE_AGE:
+                add({"label": f"at age {age}", "retirement_age": age}, ("age", age))
 
     for pattern in _AGE_PATTERNS:
         for match in pattern.finditer(text):
@@ -383,9 +397,9 @@ def infer_formula_types(question: str) -> list[str]:
     return matched if len(matched) == 1 else []
 
 
-def _continuing_formula_types(state: PensionAgentState, correcting: bool) -> list[str]:
+def _continuing_formula_types(state: PensionAgentState, continuing: bool) -> list[str]:
     """The benefit this conversation is already about, when a turn needs one."""
-    if not correcting:
+    if not continuing:
         return []
     settled = (state.get("selected_provision") or {}).get("formula_type")
     return [settled] if settled else []
@@ -513,13 +527,22 @@ async def plan_request(state: PensionAgentState) -> dict:
         # recomputed and the correction sat unused until the member happened to
         # ask again. That is what `correcting` was for; it was only being used
         # to decide whether to consult the planner, not to overrule it.
-        "requires_calculation": bool(plan.get("requires_calculation")) or correcting,
+        # Two deterministic signals overrule the planner, for the same reason.
+        # A member correcting one of their own numbers, or naming retirement
+        # ages mid-conversation, is asking for the figure again whether or not
+        # they phrased it as a question -- "show me the same at ages 57, 59 and
+        # 60" produced no comparison at all, nine turns into a conversation
+        # about exactly that. Both signals were only deciding whether to consult
+        # the planner; neither was allowed to overrule it.
+        "requires_calculation": bool(plan.get("requires_calculation"))
+        or correcting
+        or continuing_a_comparison,
         # Falling back to the provision this conversation already settled on:
         # a correction is a correction *to something*, and requiring the
         # calculation without naming what to calculate would skip it anyway.
         "formula_types_needed": [
             f for f in (plan.get("formula_types_needed") or []) if isinstance(f, str)
-        ] or _continuing_formula_types(state, correcting),
+        ] or _continuing_formula_types(state, correcting or continuing_a_comparison),
         "search_queries": queries[:3],
         "scenarios": _merge_scenarios(
             extract_scenarios(question),

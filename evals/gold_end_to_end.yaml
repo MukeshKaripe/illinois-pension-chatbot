@@ -36,9 +36,12 @@ cases:
       - q: Resolve every cross-reference needed to reach a final determination.
         expect: {}
 
+      # No `no_figures` here: naming the salary that feeds the calculation is
+      # answering the question, and $69,956.40 is the member's own salary, not
+      # a benefit quoted before it was worked out.
       - q: Which salary provision and which service provision feed the calculation?
         expect:
-          no_figures: true
+          cites: ["11-215|11-216"]
 
       - q: Now derive the calculation recipe for the pathway that applies, and validate it.
         expect: {}
@@ -77,4 +80,6 @@ cases:
           Give me a final summary: governing Article, provision applied,
           alternatives rejected, inputs used, assumptions, and the final figures.
         expect:
-          provision: "11-134"
+          # A summary turn recalls; it does not re-resolve a recipe, so asking
+          # for `provision` here tested the wrong thing.
+          cites: ["11-134"]

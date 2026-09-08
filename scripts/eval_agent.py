@@ -356,13 +356,26 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
 # ── Reporting ─────────────────────────────────────────────────────
 
 
-def _print_case(case: dict, turns: list[dict], verdict: str, quiet: bool) -> None:
+def _print_case(
+    case: dict,
+    turns: list[dict],
+    verdict: str,
+    quiet: bool,
+    position: int,
+    total: int,
+    started: float,
+) -> None:
     ttfts = [t["ttft"] for t in turns if t["ttft"]]
     tokens = sum(t["tokens"].get("total_tokens", 0) for t in turns)
     flag = "  CRITICAL" if case["critical"] else ""
+    # Elapsed and projected, because the useful question halfway through a long
+    # run is how much longer it will be.
+    elapsed = time.perf_counter() - started
+    projected = elapsed / position * total
     print(
-        f"[{verdict:9}] {case['id']:>4}  turns={len(turns)}  "
+        f"[{verdict:9}] {position:>2}/{total}  {case['id']:>4}  turns={len(turns)}  "
         f"ttft={(max(ttfts) if ttfts else 0):5.2f}s  tok={tokens:>6}  "
+        f"[{elapsed / 60:4.1f}/{projected / 60:4.1f}m]  "
         f"{case['category']:<16} {case['name']}{flag}"
     )
     for turn in turns:
@@ -395,6 +408,11 @@ async def main() -> int:
     )
     args = parser.parse_args()
 
+    # Redirected to a file, Python buffers stdout and a twenty-minute run shows
+    # nothing at all until it exits. Progress on a long run is most of what the
+    # output is for, so each case is flushed as it finishes.
+    sys.stdout.reconfigure(line_buffering=True)
+
     cases = load_cases()
     if args.ids:
         cases = [c for c in cases if c["id"] in args.ids]
@@ -410,7 +428,8 @@ async def main() -> int:
     surprises: list[dict] = []
     by_category: dict[str, list[bool]] = defaultdict(list)
 
-    for case in runnable:
+    started = time.perf_counter()
+    for position, case in enumerate(runnable, start=1):
         turns = await run_case(case, None if args.anon else TEST_EMPLOYEE)
         for index, turn in enumerate(turns):
             turn["problems"] = check(turn, turns[:index])
@@ -429,7 +448,7 @@ async def main() -> int:
                 if case["critical"]:
                     criticals.append(case)
 
-        _print_case(case, turns, verdict, args.quiet)
+        _print_case(case, turns, verdict, args.quiet, position, len(runnable), started)
         report.append({**case, "verdict": verdict, "turns": turns})
 
     for case in blocked:

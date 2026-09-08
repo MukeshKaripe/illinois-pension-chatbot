@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage
@@ -492,6 +493,22 @@ async def _record_turn(config: dict, state: dict) -> None:
         logger.exception("Could not record turn state for session %s", config)
 
 
+def _pairwise_differences(scenarios: dict) -> list[str]:
+    """Every gap between two carried figures, annual and monthly."""
+    gaps: list[str] = []
+    for field in ("annual_amount", "monthly_amount"):
+        amounts = []
+        for result in scenarios.values():
+            try:
+                amounts.append(Decimal(str(result.get(field))))
+            except (InvalidOperation, TypeError):
+                continue
+        for i, first in enumerate(amounts):
+            for second in amounts[i + 1 :]:
+                gaps.append(str(abs(first - second)))
+    return gaps
+
+
 def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
     """Run post-generation verification, honouring the config switches."""
     if not settings.guardrail_enabled:
@@ -525,6 +542,13 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         if result.get("turn") != turn
     }:
         computed["_carried_scenarios"] = carried
+        # "Compare all of them and explain why the figure moves" is answered
+        # with the gaps between the figures, and a gap between two engine
+        # results is as traceable as the results themselves -- the same
+        # reasoning that already allows a monthly figure derived from an annual
+        # one. Without this the comparison turn had its answer withdrawn for
+        # doing arithmetic the previous turns had made unavoidable.
+        computed["_carried_differences"] = _pairwise_differences(carried)
 
     return guardrails.verify_answer(
         answer,

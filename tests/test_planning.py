@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import pytest
 
+from pension_chat.agent.guardrails import classify_scope
 from pension_chat.agent.nodes import (
     _CALCULATION_SIGNALS,
     _STATUTE_QUERY,
@@ -248,3 +249,50 @@ class TestBenefitInference:
 
         assert "accumulated" in alternatives
         assert "in lieu of" in alternatives
+
+
+# -- A list of retirement ages -------------------------------------
+
+class TestAgeLists:
+    """"Show me the same at ages 57, 59 and 60" produced no comparison at all.
+
+    Two independent reasons, nine turns into a conversation about exactly that.
+    The scope gate's timing pattern matched "age 60" but not the plural "ages
+    60", so the message was refused before any planning happened. And scenario
+    extraction, once reached, read only the first age of a list.
+    """
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            ("Now show me the same at ages 57, 59 and 60.", [57, 59, 60]),
+            ("Now show me the same at age 57, age 59 and age 60.", [57, 59, 60]),
+            ("compare ages 55 and 62", [55, 62]),
+            ("Now do the same at age 59.", [59]),
+        ],
+    )
+    def test_every_age_in_a_list_becomes_a_scenario(self, question, expected):
+        found = [s["retirement_age"] for s in extract_scenarios(question)]
+
+        assert sorted(found) == expected
+
+    def test_a_list_of_numbers_that_are_not_ages_is_left_alone(self):
+        assert extract_scenarios("I have 21.5 years of service and earn $72,000") == []
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Now show me the same at ages 57, 59 and 60, keeping everything else unchanged.",
+            "Now do the same at age 59.",
+            "show me the same again",
+        ],
+    )
+    def test_a_follow_up_naming_ages_is_in_scope(self, question):
+        assert classify_scope(question, has_history=True).in_scope
+
+    @pytest.mark.parametrize(
+        "question",
+        ["write me a poem about it", "i want an ice cream", "what is the weather like today"],
+    )
+    def test_widening_that_did_not_let_the_off_topic_back_in(self, question):
+        assert not classify_scope(question, has_history=True).in_scope

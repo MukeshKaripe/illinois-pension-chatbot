@@ -54,6 +54,12 @@ _PENSION_TERMS = {
     # was being refused outright: it names no benefit, no age and no section.
     "provision", "statute", "pension code", "the code", "govern", "qualify",
     "entitled", "apply to me", "applies to me",
+    # And the vocabulary the assistant itself uses in its answers. A member who
+    # replies in the words they were just given -- "re-run the applicability
+    # analysis", "I think the pathway you picked was wrong" -- is continuing the
+    # conversation, and was being refused for it.
+    "applicability", "applicable", "pathway", "determination", "assumption",
+    "analysis", "eligibility",
     # How members phrase the same thing
     "stop working", "stop work", "keep working", "carry on working",
     "keep on working", "stay in service", "worth it to retire",
@@ -67,7 +73,7 @@ _PENSION_TERMS = {
 # Retirement-timing language, which is a pension question even with none of the
 # vocabulary above: "what happens if I wait 2 more years", "and at age 60?".
 _TIMING_LANGUAGE = re.compile(
-    r"\b(?:age\s+\d{2}|at\s+\d{2}\b|\d{1,2}\s+(?:more\s+)?years?"
+    r"\b(?:ages?\s+\d{2}|at\s+\d{2}\b|\d{1,2}\s+(?:more\s+)?years?"
     r"|wait(?:ing)?\s+\d|turn(?:ing|s)?\s+\d{2})",
     re.IGNORECASE,
 )
@@ -79,7 +85,7 @@ _SECTION_REFERENCE = re.compile(r"\b\d{1,2}-\d{1,3}(?:\.\d{1,2})?\b")
 # Without this, flipping the default below would refuse "and what about at 60?"
 # in the middle of a conversation about exactly that.
 _CONTINUATION = re.compile(
-    r"^\s*(?:and|but|so|then|also|ok(?:ay)?|yes|no|thanks?|thank you"
+    r"^\s*(?:and|but|so|then|also|now|next|again|ok(?:ay)?|yes|no|thanks?|thank you"
     r"|what about|how about|what if|why|why not|and what|what else"
     r"|can you explain|explain that|tell me more|go on)\b",
     re.IGNORECASE,
@@ -96,7 +102,7 @@ _REFERS_BACK = re.compile(
     r"\b(?:results?|figures?|numbers?|amounts?|estimates?|scenarios?|options?"
     r"|table|breakdown|summary|those|these|them|both|all (?:four|three|two)"
     r"|the (?:first|second|third|last|other) one|earlier|above|so far|instead"
-    r"|again|difference|changed?|why)\b",
+    r"|again|difference|chang(?:e|ed|es|ing)|unchanged|the same|why)\b",
     re.IGNORECASE,
 )
 
