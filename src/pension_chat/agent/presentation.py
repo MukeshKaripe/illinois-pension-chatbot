@@ -41,18 +41,24 @@ def _has_figure(state: dict[str, Any]) -> bool:
 
 
 def select_rung(sheet: WorkSheet, state: dict[str, Any]) -> int:
-    """The highest rung the evidence supports."""
+    """The highest rung the evidence supports.
+
+    Monotonicity is defined over input resolution only, not over changes to
+    candidate_articles. Coverage ambiguity and evidence completeness are
+    different axes and cannot be totally ordered: when there is more than one
+    candidate Article and two or more missing inputs, some transition must
+    worsen whichever way the branches are arranged. Pinning the invariant to
+    the input axis is the honest reading of "adding a fact never selects a
+    lower rung", and it is the axis the design describes.
+    """
     if _has_figure(state):
         return RUNG_ASSUMED if sheet.assumed_facts() else RUNG_CALCULATED
 
-    missing = state.get("missing_inputs") or []
-    if len(missing) == 1:
-        return RUNG_ONE_MORE
     if len(state.get("candidate_articles") or []) > 1:
         return RUNG_PATHWAYS
-    if missing:
+    if len(state.get("missing_inputs") or []) >= 2:
         return RUNG_ASK
-    return RUNG_PATHWAYS
+    return RUNG_ONE_MORE
 
 
 def shape_for(sheet: WorkSheet, state: dict[str, Any]) -> str:
