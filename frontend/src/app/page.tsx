@@ -1,29 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 
+/**
+ * The front door, and it does not require an account.
+ *
+ * This used to redirect anyone without a token straight to `/login`, which made
+ * the anonymous path unreachable despite being fully built on the server —
+ * nullable `Session.employee_id`, `session_token`, the `X-Session-Token` branch
+ * in `send_message`, its own row-level security predicate, and the agent's
+ * whole no-record path.
+ *
+ * Leading with it is also the honest arrangement. Most of what this assistant
+ * answers well — what a provision says, who an Article covers, what changes at
+ * 60 — needs no record at all, and a member who states their own age and
+ * service gets a figure whose every input traces to their own message. Signing
+ * in adds a member record and conversation history, which is what the sign-up
+ * prompt should say rather than pretending it is the price of entry.
+ */
 export default function Home() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const router = useRouter();
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-    } else {
-      setIsAuthenticated(true);
-    }
-  }, [router]);
-
-  if (isAuthenticated === null) {
-    return (
-      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return <ChatInterface />;
 }

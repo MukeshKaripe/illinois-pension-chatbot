@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { API_BASE_URL } from "@/lib/api";
+import Link from "next/link";
+import { API_BASE_URL, auth } from "@/lib/api";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -35,7 +36,7 @@ export default function LoginPage() {
       }
 
       const data = await response.json();
-      localStorage.setItem("token", data.access_token);
+      auth.signIn(data.access_token);
       router.push("/");
     } catch (err: any) {
       setError(err.message || "An error occurred during login");
@@ -78,7 +79,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all text-neutral-100"
-                placeholder="pen_test_1@yopmail.com"
+                placeholder="you@example.com"
                 required
               />
             </div>
@@ -110,6 +111,17 @@ export default function LoginPage() {
               <span>Sign In</span>
             )}
           </button>
+
+          <p className="text-center text-sm text-neutral-500">
+            No account?{" "}
+            <Link href="/signup" className="text-blue-400 hover:text-blue-300">
+              Create one
+            </Link>
+            {" · "}
+            <Link href="/" className="text-blue-400 hover:text-blue-300">
+              Continue without an account
+            </Link>
+          </p>
         </form>
       </div>
     </div>

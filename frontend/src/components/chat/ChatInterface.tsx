@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchWithAuth, API_BASE_URL } from "@/lib/api";
+import {
+  API_BASE_URL,
+  anonymousSession,
+  auth,
+  credentialHeaders,
+  fetchWithAuth,
+} from "@/lib/api";
 import { ChatMessage } from "./ChatMessage";
 import { Sidebar } from "./Sidebar";
 import { Send, Menu } from "lucide-react";
@@ -15,11 +21,53 @@ export function ChatInterface() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [agentStatus, setAgentStatus] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
   const router = useRouter();
 
-  // Load sessions on mount
+  const createNewSession = async () => {
+    try {
+      const res = await fetchWithAuth("/sessions", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        // The backend returns a session_token only for an anonymous session,
+        // and it is the only thing that will ever reach this conversation
+        // again — row-level security scopes it by nothing else.
+        if (data.session_token) {
+          anonymousSession.remember(data.session_id, data.session_token);
+        }
+        const newSession = {
+          id: data.session_id,
+          title: "New Conversation",
+          started_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString()
+        };
+        setSessions([newSession, ...sessions]);
+        setSessionId(newSession.id);
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error("Failed to create session", err);
+    }
+  };
+
+  // Pick up where this browser left off.
+  //
+  // Signed in, that means the session list. Anonymous, it means the one
+  // conversation whose token this browser is holding: `GET /sessions` returns
+  // an empty list without an identity by design (architecture doc 8), so the
+  // stored token is the only way back to a conversation after a reload.
   useEffect(() => {
-    const loadSessions = async () => {
+    const restore = async () => {
+      const isSignedIn = auth.isSignedIn();
+      setSignedIn(isSignedIn);
+
+      if (!isSignedIn) {
+        const existing = anonymousSession.id();
+        if (existing) setSessionId(existing);
+        else createNewSession();
+        return;
+      }
+
       try {
         const res = await fetchWithAuth("/sessions");
         if (res.ok) {
@@ -35,7 +83,7 @@ export function ChatInterface() {
         console.error("Failed to load sessions", err);
       }
     };
-    loadSessions();
+    restore();
   }, []);
 
   // Load messages when session changes
@@ -54,26 +102,6 @@ export function ChatInterface() {
     };
     loadMessages();
   }, [sessionId]);
-
-  const createNewSession = async () => {
-    try {
-      const res = await fetchWithAuth("/sessions", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        const newSession = {
-          id: data.session_id,
-          title: "New Conversation",
-          started_at: new Date().toISOString(),
-          last_active_at: new Date().toISOString()
-        };
-        setSessions([newSession, ...sessions]);
-        setSessionId(newSession.id);
-        setMessages([]);
-      }
-    } catch (err) {
-      console.error("Failed to create session", err);
-    }
-  };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,13 +134,15 @@ export function ChatInterface() {
     ]);
 
     try {
-      const token = localStorage.getItem("token");
-      
+      // Not fetchWithAuth: this needs the raw stream body. The credential
+      // headers still have to come from the same place, because a tokenless
+      // browser here used to send the literal string "Bearer null" — which is
+      // a token as far as the header is concerned, fails to decode, and 401s.
       const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...credentialHeaders(),
         },
         body: JSON.stringify({ content: userMessage.content }),
       });
@@ -233,8 +263,9 @@ export function ChatInterface() {
           currentSessionId={sessionId}
           onSelectSession={setSessionId}
           onNewSession={createNewSession}
+          signedIn={signedIn}
           onLogout={() => {
-            localStorage.removeItem("token");
+            auth.signOut();
             router.push("/login");
           }}
         />
