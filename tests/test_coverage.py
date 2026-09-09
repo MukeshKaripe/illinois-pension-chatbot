@@ -446,14 +446,14 @@ _TURN_ONE = (
 
 
 def test_the_original_sentence_is_now_a_hard_failure():
-    report = _verify(_TURN_ONE, {"basis": cov.BASIS_RECORD})
+    report = _verify(_TURN_ONE, {"basis": cov.BASIS_RECORD, "described_as": "park employee"})
     assert not report.passed
     assert [f["code"] for f in report.hard_failures] == ["UNSUPPORTED_COVERAGE"]
 
 
 @pytest.mark.parametrize("basis", sorted(cov.ESTABLISHED_BASES))
 def test_the_same_sentence_is_fine_once_the_evidence_supports_it(basis):
-    assert _verify(_TURN_ONE, {"basis": basis}).passed
+    assert _verify(_TURN_ONE, {"basis": basis, "described_as": "park employee"}).passed
 
 
 def test_describing_who_an_article_covers_is_always_allowed():
@@ -466,7 +466,7 @@ def test_describing_who_an_article_covers_is_always_allowed():
     report = _verify(
         "Article 12 covers employees of a board of park commissioners. Your file "
         "records you under Article 11. [40 ILCS 5/11-134]",
-        {"basis": cov.BASIS_RECORD},
+        {"basis": cov.BASIS_RECORD, "described_as": "park employee"},
     )
     assert report.passed
 
@@ -474,7 +474,7 @@ def test_describing_who_an_article_covers_is_always_allowed():
 def test_a_supposition_answered_as_fact_is_a_hard_failure():
     report = _verify(
         "Your pension is calculated under Section 11-134(a). [40 ILCS 5/11-134]",
-        {"basis": cov.BASIS_HYPOTHETICAL},
+        {"basis": cov.BASIS_HYPOTHETICAL, "described_as": "park employee"},
     )
     assert not report.passed
     assert [f["code"] for f in report.hard_failures] == ["UNMARKED_HYPOTHETICAL"]
@@ -484,7 +484,7 @@ def test_a_supposition_answered_conditionally_passes():
     report = _verify(
         "If you were an employee of a board of park commissioners, Article 12 "
         "would apply instead. [40 ILCS 5/11-134]",
-        {"basis": cov.BASIS_HYPOTHETICAL},
+        {"basis": cov.BASIS_HYPOTHETICAL, "described_as": "park employee"},
     )
     assert report.passed
 
@@ -558,7 +558,7 @@ def test_saying_where_a_belief_came_from_is_allowed():
         "covers employees of a board of park commissioners. [40 ILCS 5/11-134]",
         "Your pension is currently recorded under Article 11. [40 ILCS 5/11-134]",
     ):
-        report = _verify(answer, {"basis": cov.BASIS_RECORD})
+        report = _verify(answer, {"basis": cov.BASIS_RECORD, "described_as": "park employee"})
         assert report.passed, answer
 
 
@@ -603,7 +603,7 @@ def test_quoting_a_wrong_sentence_in_order_to_disown_it_is_allowed():
         "pension is calculated under Section 11-134(a)”. Your record places "
         "you in Article 11, but your job description alone does not establish "
         "that. [40 ILCS 5/11-134]",
-        {"basis": cov.BASIS_RECORD},
+        {"basis": cov.BASIS_RECORD, "described_as": "park employee"},
     )
     assert report.passed
 
@@ -618,7 +618,7 @@ def test_a_quotation_does_not_launder_an_assertion():
         'You asked why I said "As a park employee covered by Article 11". You '
         "are covered by Article 11 because you are a park employee. "
         "[40 ILCS 5/11-134]",
-        {"basis": cov.BASIS_RECORD},
+        {"basis": cov.BASIS_RECORD, "described_as": "park employee"},
     )
     assert not report.passed
     assert [f["code"] for f in report.hard_failures] == ["UNSUPPORTED_COVERAGE"]
@@ -741,3 +741,80 @@ def test_an_unanswered_question_stops_being_live():
 def test_a_question_with_no_recorded_turn_stays_live():
     """Older threads have no `asked_turn`; they must not silently stop binding."""
     assert cov.question_is_live({"about": "coverage", "options": [{"article": "12"}]}, 9)
+
+
+# ── Rates the statute writes as fractions ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("the annuity is reduced 1/4 of 1% for each month", "0.25"),
+        ("reduced by 1/2 of 1% per month", "0.5"),
+        ("3/4 of 1% for each full month", "0.75"),
+        ("an additional 1 1/2% for each year", "1.5"),
+    ],
+)
+def test_a_fraction_of_a_percent_reads_as_its_decimal(text, expected):
+    from decimal import Decimal
+
+    from pension_chat.agent.guardrails import _fractional_percentages
+
+    assert Decimal(expected) in _fractional_percentages(text)
+
+
+def test_a_bare_fraction_is_not_a_percentage():
+    """"2/3 of the annuity" is a share of an amount, not a rate."""
+    from pension_chat.agent.guardrails import _fractional_percentages
+
+    assert _fractional_percentages("2/3 of the annuity") == set()
+
+
+def test_restating_a_statutory_fraction_in_decimal_is_not_an_invented_figure():
+    """The false positive that withdrew a correct Article 12 answer.
+
+    Article 12 writes the early-retirement reduction as "1/4 of 1%"; Article 11
+    writes the identical rule as "0.25%". An answer that restates the fraction
+    the way members read rates has introduced nothing — but 0.25 appears nowhere
+    in Article 12's text, so numeric provenance rejected it. It could only ever
+    bite on Article 12, which is why it surfaced the moment a second Article
+    became reachable.
+    """
+    sections = [
+        {
+            "section": "12-133",
+            "text": (
+                "the annuity shall be reduced 1/4 of 1% for each month or "
+                "fraction of a month that the employee's age is less than 60."
+            ),
+        }
+    ]
+    report = verify_answer(
+        "The annuity is reduced by 0.25% for each month before age 60. "
+        "[40 ILCS 5/12-133]",
+        retrieved_sections=sections,
+        check_numbers=True,
+    )
+    assert report.passed, report.unverified_numbers
+
+
+def test_an_ordinary_member_is_still_told_which_article_governs_them():
+    """The regression this check caused, and the reason it is gated.
+
+    "I am 56 years old with 21.5 years of service. Which retirement provision
+    applies to me?" describes no job, so there is no bridge to build — and the
+    answer to it is, unavoidably, which Article governs them. Ungated, the check
+    fired on `basis: record`, which is every member who never mentioned their
+    employer, and withdrew an answer to close to this assistant's whole purpose.
+    """
+    answer = (
+        "You are covered by Article 11, and Section 11-134(a) is the provision "
+        "that applies to you. [40 ILCS 5/11-134]"
+    )
+    assert _verify(answer, {"basis": cov.BASIS_RECORD, "described_as": None}).passed
+    assert _verify(answer, {"basis": cov.BASIS_RECORD}).passed
+
+    # But the moment they have described themselves, it is armed again.
+    assert not _verify(
+        answer, {"basis": cov.BASIS_RECORD, "described_as": "park employee"}
+    ).passed

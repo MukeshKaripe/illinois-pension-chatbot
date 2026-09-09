@@ -286,6 +286,41 @@ def _decimals_in(text: str) -> set[Decimal]:
     return found
 
 
+# Rates the statute writes as fractions of a percent. Older Articles are drafted
+# this way throughout — Article 12 reduces an early annuity by "1/4 of 1%" per
+# month where Article 11 says "0.25%" for the identical rule.
+_FRACTIONAL_PERCENT = re.compile(
+    r"(?:(\d+)\s+)?(\d+)\s*/\s*(\d+)\s*(?:of\s+(\d+(?:\.\d+)?)\s*)?(?:%|percent)",
+    re.IGNORECASE,
+)
+
+
+def _fractional_percentages(text: str) -> set[Decimal]:
+    """Decimal readings of percentages the statute states as fractions.
+
+    An answer that restates "1/4 of 1%" as "0.25%" has not introduced a figure —
+    it has written the same rate the way a member reads rates. But 0.25 appears
+    nowhere in the text, so numeric provenance rejected it and withdrew an
+    otherwise correct answer. This only ever bit on Article 12, because Article
+    11 happens to write the same reduction in decimal, which is why it surfaced
+    the moment a second Article became reachable.
+    """
+    found: set[Decimal] = set()
+    for match in _FRACTIONAL_PERCENT.finditer(text or ""):
+        whole, numerator, denominator, of = match.groups()
+        try:
+            value = Decimal(numerator) / Decimal(denominator)
+            if whole:
+                value += Decimal(whole)
+            if of:
+                value *= Decimal(of)
+        except (InvalidOperation, TypeError, ValueError, ZeroDivisionError):
+            continue
+        found.add(value)
+        found.add(value / 100)
+    return found
+
+
 def _collect_allowed_numbers(
     calculation_result: dict | None,
     sections_text: str,
@@ -322,6 +357,7 @@ def _collect_allowed_numbers(
     walk(facts)
     allowed |= _decimals_in(sections_text)
     allowed |= _decimals_in(user_text)
+    allowed |= _fractional_percentages(sections_text)
 
     # Percentages are written both ways: a 0.024 parameter is stated as "2.4%",
     # and an 80% cap is stored as 0.8. Admit both readings of every value.
@@ -576,7 +612,17 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
             )
         return
 
-    if asserted and basis not in ESTABLISHED_BASES:
+    # Only where the member has actually described themselves. The failure being
+    # caught is a *bridge* — "as a park employee, you are covered by Article 11"
+    # — and with nothing on one side of it there is nothing to weld: an answer
+    # telling an ordinary member which Article governs them is reporting their
+    # record, which is correct and is usually the question.
+    #
+    # Without this gate the check fires on `basis: record`, which is every
+    # member who never mentioned their job — so "which retirement provision
+    # applies to me?", close to this assistant's whole purpose, had its answer
+    # withdrawn.
+    if asserted and coverage.get("described_as") and basis not in ESTABLISHED_BASES:
         # Attribution is the whole difference. "Your record places you under
         # Article 11" is a true statement about the file and is exactly what the
         # answer is asked to say; "as a park employee you are covered by Article
