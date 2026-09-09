@@ -375,7 +375,11 @@ checks and quoted-span stripping all stay as they are.
 
 **What `prepare_answer` gains,** all from the sheet and all deterministic: the
 selected rung's shape only, the assumption block, and the filtered ask-list. The
-prompt gets shorter.
+prompt gets shorter - and shorter again under §6, which moves the computed blocks
+out of the model's hands entirely and so retires absolute rule 2 (transcribing
+interpreter output into the table) and the formatting half of rule 4. Rule 1, the
+arithmetic prohibition, stays exactly as it is: it governs what the model may
+compute, not what it may format.
 
 **Repair replaces withdrawal.**
 
@@ -403,7 +407,118 @@ and a check that the out-of-Code portion of a two-part answer was referred rathe
 than answered. Both are string-and-state work; no model grades another model's
 output.
 
-### 6. Testing
+### 6. Presentation
+
+#### What is wrong in the render path
+
+Four defects, found by reading `frontend/src/components/chat/ChatMessage.tsx`,
+`ChatInterface.tsx` and the citation payload built in `prepare_answer`.
+
+1. **Tables have no horizontal escape.** The answer sits in a `max-w-[80%]`
+   bubble with no `overflow-x-auto` anywhere. The four-column comparison table
+   this design produces most often squashes on a laptop and breaks the layout on
+   a phone.
+2. **Streaming re-parses partial markdown.** `setContent(aiContent)` fires on
+   every token, so ReactMarkdown re-renders mid-table and the member watches
+   literal `|---|---:|` pipes assemble before the row completes.
+3. **The citation chips are dishonest, and partly dead.** They are built from
+   *every retrieved section*, so an answer that cited two sections shows six
+   chips, implying reliance the answer does not have. `ChatMessage.tsx` renders
+   `cite.relevance_score` as a percentage, but `prepare_answer` never puts that
+   key in the payload, so it silently never renders - dead code carrying a bad
+   idea, since a retrieval score is not a confidence figure and must never be
+   shown to a member as one. The chips are `cursor-pointer` with no click
+   handler. The correct source already exists:
+   `guardrail_report.verified_citations` holds exactly the sections the answer
+   relied on and that passed verification.
+4. **Pseudo-headings and one overloaded closing block.** `**How that is worked
+   out**` is bold text, not a heading. The comparison sample ends with a single
+   paragraph carrying projection assumptions, the election note, the §11-130
+   disposition and two citations at once.
+
+#### Python renders what Python computed
+
+Today the model transcribes interpreter output into a markdown table, and
+`ANSWER_SYSTEM` spends an entire absolute rule insisting that transcription is
+not calculation. That request is withdrawn. The worked-steps table, the
+comparison table, the assumptions block and the legal-basis footer are pure
+functions of the working sheet: **Python renders them, the model writes prose
+only.**
+
+This extends the architecture's founding split by one step - the LLM plans and
+writes, code calculates, and code formats what it calculated. Three consequences:
+a table can never be malformed or mistranscribed; absolute rule 2 and half of
+rule 4 leave the prompt; and the same figures can later be rendered differently
+per device without touching the model.
+
+**Streaming survives.** A template is an ordered list of slots, each `model` or
+`computed`. The model emits a marker such as `<<<WORKED_STEPS>>>` where a
+computed block belongs, and the streaming layer substitutes the rendered block as
+it passes - so prose still streams token by token and the table appears instantly
+and whole. If the marker never arrives, the block is appended after the opening
+paragraph. Deterministic recovery, no lost data, and the fallback is a unit test.
+
+#### The template registry
+
+Not one universal format. The rungs from §4 supply the axis, and **the rung is
+the status**:
+
+| rung | status chip | slots |
+|---|---|---|
+| 1 | Calculated | lede, worked-steps, why-this-provision, alternatives, basis |
+| 2 | Calculated, with assumptions | lede including the spread, worked-steps, what I assumed, why, basis |
+| 3 | Needs one more detail | lede, the formula with the gap shown, what is needed, basis |
+| 4 | More than one pathway | lede, each pathway and where the member stands against it, what would settle it, basis |
+| 5 | Needs information | what is established, the one question |
+
+Three further shapes carry no figure and so are not rungs: **legal explanation**
+(plain-English answer, then what it includes and excludes, then basis),
+**comparison** (lede naming the range, table, what changes, what is held
+constant), and **partial** (the pension half answered, then the one-line referral
+for the rest).
+
+The registry lives in one module, one template per shape, each declaring its slot
+order and which slots are optional. Adding a shape is adding an entry rather than
+editing a 200-line prompt, and it is unit-testable without a network: a template
+applied to a fixed sheet must produce a fixed slot list.
+
+Real `###` headings replace the bold pseudo-headings, with the bubble's prose
+heading scale tuned down so they read as section labels rather than billboards.
+
+**The status chip is shown to the member**, at the top of the answer. The
+difference between a settled figure and an assumption-backed one is exactly the
+trust problem the external review raised, and it should be legible without
+reading a paragraph.
+
+#### Citations
+
+- Inline brackets stay but thin out: one per claim that actually rests on a
+  provision, never one per sentence.
+- The chip row is rebuilt from `verified_citations`, so it shows what the answer
+  relied on and what passed verification, and nothing else.
+- The relevance percentage is removed. Each chip shows the section number and
+  title, and expands to the quoted span the answer leaned on - which is what
+  `cursor-pointer` has been promising and not delivering.
+
+One constraint: `rehype-raw` is not installed, so raw HTML such as `<details>`
+will not render. The collapsible "view the calculation" block therefore uses a
+marker-driven component rather than widening the HTML surface.
+
+#### Frontend work
+
+Four contained changes, no new dependencies: wrap tables in `overflow-x-auto`;
+render everything up to the last blank line as markdown and the streaming tail as
+plain text so partial tables never render as pipes; rebuild the chip row from
+verified citations; tune the prose heading scale. `npm run build` type-checks and
+`npm run lint` currently sits at 7 pre-existing `any` problems - the bar is not to
+add to that count.
+
+Deliberately not done: no per-viewport card fallback for tables
+(`overflow-x-auto` first, revisit only if it proves insufficient), and no
+structured JSON answer envelope replacing markdown - the marker approach gets the
+guarantees without giving up streaming or rebuilding the message renderer.
+
+### 7. Testing
 
 Unit tests, no network:
 
@@ -418,6 +533,17 @@ Unit tests, no network:
   monotone: adding a fact never selects a lower rung.
 - `test_guardrails.py` additions - `ASSUMPTION_NOT_DISCLOSED` fires and does not;
   out-of-Code referral.
+- `test_templates.py` - a template applied to a fixed sheet produces a fixed slot
+  list; every rung and every non-rung shape has a template; every `computed` slot
+  has a renderer; and the marker-recovery path places an orphaned computed block
+  after the opening paragraph when the model omits its marker.
+- `test_presentation.py` - the rendered worked-steps and comparison tables are
+  well-formed GFM with the money columns right-aligned, and every figure in them
+  comes from the sheet rather than from a string the model produced.
+
+Frontend, via `npm run build` (type-check) and manual check of the four changes;
+there is no test setup in `frontend/` today and this design does not add one.
+`npm run lint` must not exceed its current 7 pre-existing problems.
 
 Evals, against the live index:
 
@@ -432,7 +558,7 @@ Evals, against the live index:
   let "I am a park employee" bypass the coverage layer once already, and a
   model-driven router is a fresh opportunity for the same mistake.
 
-### 7. Rollout
+### 8. Rollout
 
 Ordered so the risky step follows the safe ones and the irreversible step follows
 proof.
@@ -446,10 +572,16 @@ proof.
 | 5 | delete the dead regexes | irreversible, so only after 4 wins |
 | 6 | assumption policy, materiality spread, disclosure check | moderate |
 | 7 | degradation ladder, prompt slimming | measurable against the shape checks |
+| 8 | frontend render fixes: table overflow, streaming tail, chips from `verified_citations`, heading scale | low, and independent of everything above |
+| 9 | template registry, computed-block rendering, status chip | moderate - changes every answer's composition |
 
-Steps 1-3 are worth shipping on their own even if step 4 never lands.
+Steps 1-3 are worth shipping on their own even if step 4 never lands, and step 8
+is independent of all of them: the four render fixes are worth doing whatever
+happens to the rest of this design, because three of them are defects rather than
+improvements. Step 9 depends on the working sheet (step 1) and the degradation
+ladder (step 7), because the template registry is keyed on the rung.
 
-### 8. Risks
+### 9. Risks
 
 - **Latency.** +2.3s on turns where the planner call is currently skipped.
   Mitigated by keeping the concurrent pair, skipping `resolve_inputs`' extraction
@@ -464,8 +596,18 @@ Steps 1-3 are worth shipping on their own even if step 4 never lands.
   revert if it does.
 - **Deleting the regexes gives up a free fast path.** Accepted: that fast path
   refused 3 of 8 turns in a plausible conversation.
+- **The computed-block marker can go missing or land in the wrong place.** The
+  model may omit `<<<WORKED_STEPS>>>`, emit it twice, or put it before the lede.
+  Recovery is deterministic - first occurrence wins, duplicates are dropped, and
+  an omitted marker appends the block after the opening paragraph - and each of
+  those three cases is a unit test rather than a hope.
+- **Rendering the streaming tail as plain text changes how an answer looks while
+  it arrives.** Emphasis and headings in the final sentence will pop into place
+  when the block closes. That is a smaller cost than watching table pipes
+  assemble, but it is a visible change and worth checking on a real device before
+  step 8 lands.
 
-### 9. Explicitly out of scope
+### 10. Explicitly out of scope
 
 - No re-chunking and no re-ingestion. Retrieval is not the problem and there is no
   evidence that it is.
@@ -473,4 +615,10 @@ Steps 1-3 are worth shipping on their own even if step 4 never lands.
 - No separate "legal critic" layer. The external review's proposal there is
   already served by `applicability.py` plus `alternatives_considered`, both of
   which the probes showed working correctly.
-- No frontend work. SSE `replace` already exists and is already handled.
+- No new frontend dependencies, no message-renderer rewrite, and no structured
+  JSON answer envelope replacing markdown. The frontend work is the four
+  contained changes in §6; SSE `replace` already exists and is already handled.
+- No per-viewport card fallback for wide tables. `overflow-x-auto` first, and
+  revisit only if it proves insufficient on a real device.
+- No `rehype-raw`. The collapsible "view the calculation" block uses a
+  marker-driven component rather than widening the rendered HTML surface.
