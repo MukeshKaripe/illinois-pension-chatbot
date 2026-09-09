@@ -123,6 +123,13 @@ class Settings(BaseSettings):
     # It costs nothing on the path that passes.
     answer_repair_enabled: bool = True
 
+    # How many values one figure may rest on that nobody supplied. Past two, the
+    # figure stops being an estimate of this member and the turn should ask.
+    assumption_ceiling: int = 2
+    # How far an assumption must move the figure before it belongs in the
+    # opening sentence rather than only in the assumptions block.
+    materiality_threshold: float = 0.02
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

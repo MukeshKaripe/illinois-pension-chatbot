@@ -53,10 +53,15 @@ from pension_chat.agent.retrieval import (
     retrieve_coverage,
 )
 from pension_chat.agent.state import PensionAgentState
-from pension_chat.agent.worksheet import WorkSheet
+from pension_chat.agent.worksheet import SOURCE_ASSUMED, WorkSheet
 from pension_chat.calculation.applicability import (
     evaluate_predicates,
     facts_for_evaluation,
+)
+from pension_chat.calculation.assumption_policy import (
+    default_for,
+    is_assumable,
+    rule_for,
 )
 from pension_chat.calculation.dsl_interpreter import DSLExecutionError, DSLInterpreter
 from pension_chat.calculation.risk_assessor import RiskAssessor
@@ -1324,6 +1329,37 @@ Money as a plain number (72000, not "$72,000"). Dates as YYYY-MM-DD.
 Anything you cannot source from the conversation goes in "unresolved"."""
 
 
+def apply_assumptions(
+    sheet: WorkSheet,
+    missing: list[dict[str, Any]],
+    known: dict[str, Any],
+    ceiling: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Fill what policy allows, record why, and return what still has to be asked.
+
+    Order is the order `missing` arrives in, so the ceiling bites the least
+    important inputs rather than an arbitrary set of them.
+    """
+    filled: dict[str, Any] = {}
+    still_missing: list[dict[str, Any]] = []
+
+    for item in missing:
+        name = str(item.get("name") or "")
+        if len(filled) >= ceiling or not is_assumable(name):
+            still_missing.append(item)
+            continue
+        value = default_for(name, known)
+        if value is None:
+            still_missing.append(item)
+            continue
+        rule = rule_for(name)
+        basis = rule.basis if rule else ""
+        sheet.record_fact(name, value, SOURCE_ASSUMED, basis=basis)
+        filled[name] = value
+
+    return filled, still_missing
+
+
 async def resolve_inputs(state: PensionAgentState) -> dict:
     """Assemble the values each recipe needs, and report what is missing.
 
@@ -1444,6 +1480,9 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
 
     sheet = WorkSheet.from_state(state)
     filtered = sheet.filter_asks(missing)
+    settings_ceiling = settings.assumption_ceiling
+    assumed, still_missing = apply_assumptions(sheet, filtered, facts, settings_ceiling)
+    resolved.update(assumed)
 
     return {
         "resolved_inputs": resolved,
@@ -1451,8 +1490,9 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         # cannot use under this premise is not missing either -- it is withheld,
         # and saying so is the difference between "tell me your age" and "your
         # file has your age, but I am not using it while we talk about Article 12".
-        "missing_inputs": filtered,
+        "missing_inputs": still_missing,
         "input_overrides": overrides,
+        **sheet.to_state_update(),
         "timings": {"resolve_inputs": time.perf_counter() - started},
     }
 

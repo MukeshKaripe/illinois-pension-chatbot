@@ -131,3 +131,38 @@ def test_salary_aliases_are_in_never_assumable() -> None:
 def test_an_unknown_input_is_not_assumable_by_default() -> None:
     assert rule_for("favourite_colour") is None
     assert not is_assumable("favourite_colour")
+
+
+def test_assumptions_fill_only_what_policy_allows() -> None:
+    from pension_chat.agent.nodes import apply_assumptions
+    from pension_chat.agent.worksheet import SOURCE_ASSUMED, WorkSheet
+
+    sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": KNOWN, "assumptions": {}})
+    missing = [
+        {"name": "withdrawal_date", "ask_for": "the date you plan to stop working"},
+        {"name": "final_average_salary", "ask_for": "your salary history"},
+    ]
+    filled, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=2)
+
+    assert filled["withdrawal_date"] == "2026-09-09"
+    assert [item["name"] for item in still_missing] == ["final_average_salary"]
+    fact = sheet.fact("withdrawal_date")
+    assert fact is not None
+    assert fact.source == SOURCE_ASSUMED
+    assert fact.basis
+
+
+def test_the_ceiling_stops_a_figure_resting_on_too_much_guesswork() -> None:
+    from pension_chat.agent.nodes import apply_assumptions
+    from pension_chat.agent.worksheet import WorkSheet
+
+    sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": KNOWN, "assumptions": {}})
+    missing = [
+        {"name": "withdrawal_date", "ask_for": "..."},
+        {"name": "annuity_start_date", "ask_for": "..."},
+        {"name": "months_before_age_60", "ask_for": "..."},
+    ]
+    filled, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=2)
+
+    assert len(filled) == 2
+    assert [item["name"] for item in still_missing] == ["months_before_age_60"]
