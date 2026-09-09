@@ -193,3 +193,51 @@ async def test_an_ordinary_turn_carries_no_such_note():
     prompt = "\n".join(m["content"] for m in (await prepare_answer(state))["answer_messages"])
 
     assert "DIFFERENT PART OF THE CODE" not in prompt
+
+
+# ── Which Article a recipe is filed under ─────────────────────────
+
+
+def test_the_governing_article_follows_coverage_not_the_record():
+    """A conversation that has moved Articles must look up recipes there.
+
+    Once a member confirms their file is wrong, or asks to suppose a different
+    job, the record's Article number stops describing what is being read. Left
+    unchanged, an Article 12 provision derived in that conversation is filed
+    against Article 11 and handed to the next Article 11 member who asks.
+    """
+    record_only = {"employee_record": {"article_number": 11, "tier": 1}}
+    assert nodes._governing_article(record_only) == 11
+
+    confirmed_elsewhere = {
+        "employee_record": {"article_number": 11, "tier": 1},
+        "coverage": {"article": "12", "basis": "member_confirmed", "record_article": "11"},
+    }
+    assert nodes._governing_article(confirmed_elsewhere) == 12
+
+    supposed = {
+        "employee_record": {"article_number": 11, "tier": 1},
+        "coverage": {"article": "12", "basis": "hypothetical", "record_article": "11"},
+    }
+    assert nodes._governing_article(supposed) == 12
+
+
+def test_an_anonymous_member_falls_back_to_the_article_they_named():
+    assert nodes._governing_article({"explicit_articles": ["12"]}) == 12
+    assert nodes._governing_article({}) == 11
+
+
+def test_a_recipe_is_filed_under_the_article_its_text_came_from():
+    """Section ids carry their Article, and that beats the member's record.
+
+    `_follow_references` crosses Article boundaries deliberately — cross-article
+    references are legitimate law — so a recipe can be derived from text the
+    member's own Article does not contain. At two Articles this could not go far
+    wrong. At twenty it files the recipe in the wrong drawer.
+    """
+    assert nodes._article_of_sections(["11-134", "11-216"]) == 11
+    assert nodes._article_of_sections(["12-133", "12-101"]) == 12
+    # Sections from two Articles say nothing definite, so the caller's fallback
+    # decides rather than one of them winning by sort order.
+    assert nodes._article_of_sections(["11-134", "12-133"]) is None
+    assert nodes._article_of_sections([]) is None

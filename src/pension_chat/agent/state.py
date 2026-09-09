@@ -64,6 +64,25 @@ class PensionAgentState(TypedDict, total=False):
     scenario_set: Annotated[dict[str, Any], merge_dicts]
     # Sections this conversation has cited and had verified, section -> turn.
     cited_sections: Annotated[dict[str, Any], merge_dicts]
+    # Which Article covers this member and on what evidence:
+    # {article, basis, record_article, candidates, conflict, described_as}.
+    # `basis` is the single thing downstream code reads, so a supposed premise
+    # reaches retrieval, the answer prompt and the guardrail through the same
+    # channel as a real one -- the difference lives in one enum value rather
+    # than in a parallel code path.
+    coverage: dict | None
+    # A premise the member asked us to suppose, and how long it has been held.
+    # "If I were a park employee" is not a hedged "I am": it needs no
+    # confirmation, it moves retrieval, and it has to survive the follow-ups
+    # that explore it until the member steps back out.
+    hypothetical_frame: dict | None
+    # What was put to the member last turn, so their reply can be bound to it.
+    # Without this a question is worse than useless -- the member answers, the
+    # answer lands nowhere, and the next turn asks again.
+    open_question: dict | None
+    # How many turns this conversation has spent asking. Budgeted, because an
+    # assistant that keeps asking is its own kind of not listening.
+    clarifications_asked: Annotated[int, operator.add]
 
     # ── Per-turn ──────────────────────────────────────────────────
     question: str
@@ -89,6 +108,21 @@ class PensionAgentState(TypedDict, total=False):
     salary_history: list[dict]
     # Deterministic facts computed from the record (age, service, FAS, ...)
     member_facts: Annotated[dict[str, Any], merge_dicts]
+
+    # What the member said about who they are this turn, and which act it was:
+    # {text, act: asserted|stipulated|doubted, kind: coverage|status}
+    self_reference: dict | None
+    # Articles this turn should read from, when coverage put them in play.
+    # Distinct from `explicit_articles`, which means "the user named it".
+    candidate_articles: list[str]
+    # The coverage sections a candidate rests on, pinned into this turn's
+    # retrieval so the answer can quote the test rather than assert it. They
+    # come from a separate search, so without pinning them the answer cites
+    # text that was never retrieved and verification withdraws it -- which is
+    # exactly what happened to the first clarifying question ever asked.
+    coverage_sections: list[str]
+    # Set when this turn asks rather than answers.
+    clarification: dict | None
 
     retrieved_sections: list[dict]
     # The question named an Article that is not the member's own, so it is
@@ -154,6 +188,15 @@ DURABLE_KEYS: frozenset[str] = frozenset({
     "assumptions",
     "scenario_set",
     "cited_sections",
+    # Coverage is durable for the same reason a chosen provision is: the member
+    # answered a question about who they are, and an answer that has to be
+    # re-established every turn was never really taken. That was the fourth turn
+    # of the conversation this work came from -- they restated their coverage in
+    # the statute's own words and got the same wrong figure back.
+    "coverage",
+    "hypothetical_frame",
+    "open_question",
+    "clarifications_asked",
 })
 
 # Merged keys need `CLEAR` rather than an empty value: `{}` merges to nothing
@@ -223,6 +266,14 @@ def initial_state(
         "assumptions": {},
         "scenario_set": {},
         "cited_sections": {},
+        "coverage": None,
+        "hypothetical_frame": None,
+        "open_question": None,
+        "clarifications_asked": 0,
+        "self_reference": None,
+        "candidate_articles": [],
+        "coverage_sections": [],
+        "clarification": None,
         "in_scope": True,
         "out_of_scope_reason": "",
         "override_signal": {},

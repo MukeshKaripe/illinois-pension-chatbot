@@ -1,0 +1,110 @@
+# A premise the member supposed, and how long it survives.
+#
+# "If I were a park employee" is not a hedged "I am a park employee". It is a
+# different speech act, and each is a distinct bug when handled as the other:
+# asking someone to confirm a premise they just stipulated is the same deafness
+# as ignoring one they asserted, wearing the opposite coat.
+#
+# The half that only multi-turn cases can catch is the lifetime. A follow-up
+# exploring a supposition carries none of its words — "and what if I had 30
+# years?" is still a question about being a park employee — so the frame has to
+# hold by default and be left explicitly. Nothing tries to detect that a
+# scenario has been "fully answered": that is not computable, and guessing it
+# wrong strands the member mid-exploration.
+#
+# `assumptions` has carried `source: hypothetical` for the numbers going *into*
+# a formula since G13. This is the same idea for the facts that choose the
+# formula, which is where it was missing.
+
+category: hypothetical
+
+cases:
+  - id: G38
+    name: A supposition is adopted, not interrogated
+    critical: true
+    turns:
+      - q: if I were a park employee, how would my pension be calculated?
+        expect:
+          act: stipulated
+          # The member stipulated it. There is nothing to confirm.
+          asks: false
+          hypothetical: true
+          coverage_basis: hypothetical
+          coverage_article: "12"
+          cites: ["12-133|12-101|12-118"]
+          # Their salary and service are administered under Article 11 and are
+          # not available to an Article 12 provision. Everything becomes a
+          # missing input, which is what keeps the useful case working — see
+          # G40, where the member supplies the numbers themselves.
+          no_figures: true
+
+  - id: G39
+    name: The supposition survives the turns that explore it
+    critical: true
+    turns:
+      - q: if I were a park employee, how would my pension be calculated?
+        expect: { hypothetical: true, coverage_article: "12" }
+      # Carries no coverage vocabulary at all. Before the frame existed this
+      # turn fell straight back to the member's own Article and answered a
+      # question nobody asked.
+      - q: and what if I had 30 years of service?
+        expect:
+          hypothetical: true
+          coverage_article: "12"
+          asks: false
+          no_figures: true
+      - q: what about the early retirement reduction?
+        expect:
+          hypothetical: true
+          coverage_article: "12"
+
+  - id: G40
+    name: A figure is allowed once nothing is borrowed
+    # The line the whole rule turns on: a figure is computable exactly when no
+    # input came from a record filed under another Article. Here every value is
+    # the member's own, so nothing is being borrowed and the arithmetic is
+    # honest.
+    status: expected_fail
+    gap: >-
+      Needs a retirement annuity recipe derived from Article 12 text with every
+      input supplied in the message. The derive path has only ever been
+      exercised on Article 11, so this is new ground rather than a regression —
+      authored deliberately, because it is the highest-information case here.
+    turns:
+      - q: >-
+          If I were a park employee with 25 years of service and a highest
+          average salary of $70,000, retiring at 60, what would my pension be?
+        expect:
+          hypothetical: true
+          coverage_article: "12"
+          calculation: true
+
+  - id: G41
+    name: Stepping back out
+    critical: true
+    # G13 tests exactly this for a hypothetical *value* — "now go back to my
+    # actual record" after supposing 25 years. The same words have to work on
+    # the fact that chooses the formula, because members do not use one
+    # vocabulary for numbers and another for facts.
+    turns:
+      - q: if I were a park employee, how would my pension be calculated?
+        expect: { hypothetical: true, coverage_article: "12" }
+      - q: Now go back to my actual record. What is my pension really?
+        expect:
+          hypothetical: false
+          coverage_article: "11"
+          coverage_basis: record
+          calculation: true
+          provision: "11-134"
+
+  - id: G42
+    name: A supposition inside a sentence that also asserts
+    # "I am a park employee. What if I retire at 60?" is an assertion followed
+    # by a question about timing. The "what if" governs the retirement age, not
+    # the coverage, and without a sentence boundary every assertion followed by
+    # a hypothetical would be silently downgraded to a supposition.
+    turns:
+      - q: I am a park employee. What if I retire at 60?
+        expect:
+          act: asserted
+          hypothetical: false

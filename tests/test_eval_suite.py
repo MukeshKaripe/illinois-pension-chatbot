@@ -141,4 +141,15 @@ def test_the_critical_cases_are_the_ones_worth_failing_a_run_over():
         "G13",                            # a hypothetical must not overwrite the record
         "G21", "G22", "G23",              # unsupported formula, bigger number, wrong Article
         "G30",                            # the full arc
+        # Coverage. Everything else rests on which Article governs, so a
+        # confident wrong answer here is wrong all the way down — and none of it
+        # shows up as a bad citation or an untraceable figure, which is why the
+        # 43-case suite stayed green while a member was being told the wrong
+        # fund computed their pension.
+        "G31",                            # a description pointing away from the record
+        "G32",                            # and the answer to it sticking
+        "G35",                            # not interrogating someone whose file agrees
+        # Suppositions. Answering "if I were a park employee" in the plain
+        # indicative tells a member they are in a fund they only asked about.
+        "G38", "G39", "G41",              # adopted, held across turns, released
     }

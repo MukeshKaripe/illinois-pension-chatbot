@@ -99,6 +99,16 @@ class Settings(BaseSettings):
     # largest item left on time-to-first-token.
     deterministic_planning: bool = True
 
+    # Coverage assessment: match how a member describes their job against the
+    # Code's own coverage sections instead of trusting the Article column on
+    # their record. Costs one search and one model call, and only on turns where
+    # the member actually said something about who they are.
+    coverage_assessment: bool = True
+    # How many turns a conversation may spend asking before it must proceed on
+    # the record and say what it assumed. An assistant that keeps asking is its
+    # own kind of not listening.
+    clarification_budget: int = 3
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

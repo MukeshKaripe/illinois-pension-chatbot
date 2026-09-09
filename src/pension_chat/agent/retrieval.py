@@ -558,3 +558,83 @@ async def _follow_references(
             [s.section for s in extra],
         )
     return extra
+
+
+# The Azure filter for the coverage lane. `calculation_relevance` is a filterable
+# collection on every chunk, so restricting to it costs nothing extra.
+_COVERAGE_FILTER = "calculation_relevance/any(t: t eq 'coverage_rule')"
+
+
+async def retrieve_coverage(
+    description: str,
+    *,
+    top_sections: int = 8,
+    char_budget: int = 12000,
+) -> list[RetrievedSection]:
+    """Find the sections that say who each Article covers.
+
+    Deliberately unfiltered by Article -- the only query in the system where
+    that is right, because the question being asked *is* which Article. Every
+    other retrieval path filters to the member's own Article precisely so that
+    Article 12 text cannot leak into an Article 11 answer; here the whole point
+    is to let every Article's coverage test compete on the member's own words.
+
+    The corpus makes this cheap. Coverage sections are a tiny, stable slice of
+    each Article -- 6 of 169 in Article 11, 5 of 114 in Article 12 -- and every
+    Article carries its own, so this scales to the full Code with no per-Article
+    maintenance. Nothing here needs the member's record, so nothing here can
+    quietly confirm it.
+
+    Args:
+        description: How the member described themselves, in their own words.
+        top_sections: Distinct sections to assemble.
+        char_budget: Total character budget across them.
+
+    Returns:
+        Assembled coverage sections, best first. Empty if the corpus has not
+        been re-indexed since ``coverage_rule`` was added, which is a normal
+        outcome and not an error -- the caller falls back to the record.
+    """
+    description = (description or "").strip()
+    if not description:
+        return []
+
+    settings = get_settings()
+    vectors = await _embed([description])
+    docs = await _search_one(
+        description,
+        vectors[0] if vectors else None,
+        _COVERAGE_FILTER,
+        settings.retrieval_per_query_top,
+    )
+
+    section_scores: dict[str, float] = {}
+    for doc in docs:
+        section_id = doc.get("section")
+        if not section_id:
+            continue
+        score = _chunk_score(doc)
+        if score > section_scores.get(section_id, 0.0):
+            section_scores[section_id] = score
+
+    if not section_scores:
+        return []
+
+    chosen = sorted(section_scores, key=section_scores.get, reverse=True)[:top_sections]
+    grouped = await fetch_sections(chosen)
+
+    assembled: list[RetrievedSection] = []
+    remaining = char_budget
+    for section_id in chosen:
+        chunks = grouped.get(section_id)
+        if not chunks or remaining <= 0:
+            continue
+        section = _assemble(
+            section_id, chunks, section_scores.get(section_id, 0.0), remaining
+        )
+        if not section.text:
+            continue
+        remaining -= len(section.text)
+        assembled.append(section)
+
+    return assembled

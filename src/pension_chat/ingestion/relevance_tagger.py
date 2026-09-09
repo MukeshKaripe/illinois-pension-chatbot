@@ -3,7 +3,7 @@
 Tags sections with calculation_relevance roles based on content analysis.
 Roles: eligibility_rule, input_definition, service_calculation,
        benefit_formula, reduction, limit, parameter, actuarial_method,
-       refund, cross_system_rule
+       refund, cross_system_rule, coverage_rule
 """
 
 from __future__ import annotations
@@ -59,6 +59,36 @@ _RELEVANCE_PATTERNS: dict[str, list[re.Pattern]] = {
     "refund": [
         re.compile(r"refund|withdrawal|separation.*benefit", re.I),
         re.compile(r"return of contributions|repay|repayment", re.I),
+    ],
+    "coverage_rule": [
+        # Who an Article covers is the determination every other determination
+        # rests on, and it is written the same way in every Article: a "Creation
+        # of fund" section naming the employer, and a definition section saying
+        # who counts as an "Employee". Article 11 and Article 12 differ by
+        # exactly these sections -- 11-110 says labor-service employees of a
+        # city over 500,000, 12-118 says anyone in the service of a board of
+        # park commissioners -- and nothing in the pilot ever consulted either.
+        #
+        # Titles are matched anchored, because a title match alone earns the tag
+        # and the corpus is full of "Employee contributions" and "Employee
+        # annuity" sections that are about money, not about coverage.
+        re.compile(r'^"?employees?"?\s*(?:[",:]|or\b|$)', re.I),
+        re.compile(r"^(?:creation|establishment) of (?:the )?fund", re.I),
+        re.compile(r"^transferred employee", re.I),
+        re.compile(r"^employer\s*$", re.I),
+        re.compile(r'^"?(?:present employee|future entrant|re-?entrant)', re.I),
+        re.compile(r"^persons? (?:included|covered|excluded|eligible)", re.I),
+        re.compile(r"^(?:applicability|application) of (?:this )?article", re.I),
+        # Body cues. Two must hit, so a passing mention of "employer" is not
+        # enough on its own.
+        re.compile(r'"employees?"\s*(?:[,:]|means|shall mean|includes)', re.I),
+        re.compile(r"\bany person (?:employed|in the service of)\b", re.I),
+        re.compile(r"\bany employee (?:of an employer|in the service of|employed)\b", re.I),
+        re.compile(r"\bin each (?:city|county|village|town|municipality) of (?:more than|over)\b", re.I),
+        re.compile(r"\bfor the benefit of the .{0,80}?employees\b", re.I),
+        re.compile(r"\bboard of park commissioners\b", re.I),
+        re.compile(r"\bshall not be included as being\b", re.I),
+        re.compile(r"\balready a member of the fund\b", re.I),
     ],
     "cross_system_rule": [
         re.compile(r"reciproc(?:al|ity)|transfer.*(?:credit|service)", re.I),

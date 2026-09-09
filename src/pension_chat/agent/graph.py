@@ -8,7 +8,9 @@ Flow::
 
     triage
       ├─(out of scope / greeting)─────────────────> decline ──> END
-      └─> [plan_request ∥ fetch_employee_record] ──> retrieve_policy ──> resolve_recipes
+      └─> [plan_request ∥ fetch_employee_record] ──> assess_coverage ──> retrieve_policy
+                                                                              │
+                                                                       resolve_recipes
                                                             │
                                               (no calculation needed)
                                                             │
@@ -16,8 +18,9 @@ Flow::
                                                             │
                                           execute_calculations ──> prepare_answer ──> END
 
-Ordering is a correctness constraint, not a style choice. ``retrieve_policy``
-needs the employee record to know which Article to filter to; ``resolve_recipes``
+Ordering is a correctness constraint, not a style choice. ``assess_coverage``
+needs the record in order to have something to disagree with, and
+``retrieve_policy`` needs its verdict to know which Article to filter to; ``resolve_recipes``
 needs the retrieved text to derive from; ``resolve_inputs`` needs the recipe to
 know which inputs exist. The first implementation fanned these out concurrently
 from ``plan_request`` and every one of those dependencies was violated.
@@ -43,7 +46,9 @@ from pension_chat.agent.checkpointer import (
 from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
 from pension_chat.agent.nodes import (
+    _available_facts,
     _stated_in,
+    assess_coverage,
     execute_calculations,
     fetch_employee_record,
     plan_request,
@@ -136,6 +141,7 @@ def build_graph(checkpointer: Any | None = None):
     workflow.add_node("plan_request", plan_request)
     workflow.add_node("decline", decline)
     workflow.add_node("fetch_employee_record", fetch_employee_record)
+    workflow.add_node("assess_coverage", assess_coverage)
     workflow.add_node("retrieve_policy", retrieve_policy)
     workflow.add_node("resolve_recipes", resolve_recipes)
     workflow.add_node("resolve_inputs", resolve_inputs)
@@ -156,7 +162,13 @@ def build_graph(checkpointer: Any | None = None):
     # services, so running them concurrently takes one of them off the critical
     # path entirely. Retrieval waits for both: it needs the queries from one and
     # the member's Article number from the other.
-    workflow.add_edge(["plan_request", "fetch_employee_record"], "retrieve_policy")
+    workflow.add_edge(["plan_request", "fetch_employee_record"], "assess_coverage")
+    # Coverage decides which Article this turn reads from, so it has to settle
+    # before retrieval filters on one. It joins after the record fetch because
+    # it needs something to disagree with, and it returns immediately on any
+    # turn where the member said nothing about who they are -- which is nearly
+    # all of them.
+    workflow.add_edge("assess_coverage", "retrieve_policy")
     workflow.add_edge("retrieve_policy", "resolve_recipes")
     workflow.add_conditional_edges(
         "resolve_recipes",
@@ -554,8 +566,15 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         answer,
         retrieved_sections=state.get("retrieved_sections") or [],
         calculation_result=computed or None,
-        facts=state.get("member_facts") or {},
+        # Withheld when the conversation is reading an Article this member's
+        # record is not filed under. Their figures are perfectly traceable --
+        # that is the problem. Tracing to the member's record is not enough when
+        # the record belongs to a different fund, so for these turns the record
+        # stops being an allowed source and a figure from it is caught rather
+        # than blessed.
+        facts=_available_facts(state),
         user_text=conversation or state.get("question", ""),
         check_numbers=settings.guardrail_numeric_provenance,
         established_sections=(state.get("cited_sections") or {}),
+        coverage=state.get("coverage"),
     )

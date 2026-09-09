@@ -65,15 +65,34 @@ A recipe's `rule_specification` is a JSON operation tree (`calculation/dsl_types
 triage                                   (deterministic: scope, adversarial-instruction scan, section refs)
   ├─(out of scope / greeting)─> decline ─> END          (no model call, no DB call)
   └─> [plan_request ∥ fetch_employee_record]            (independent; run concurrently)
-            └─> retrieve_policy                          (hybrid search, article-filtered, cross-references followed)
-                  └─> resolve_recipes                    (registry lookup, else derive from statute)
-                        ├─(no calculation)──────────────────────────┐
-                        └─> resolve_inputs ─> validate_recipes ─> execute_calculations
+            └─> assess_coverage                          (which Article governs, and on what evidence)
+                  └─> retrieve_policy                    (hybrid search, article-filtered, cross-references followed)
+                        └─> resolve_recipes              (registry lookup, else derive from statute)
+                              ├─(no calculation)────────────────────┐
+                              └─> resolve_inputs ─> validate_recipes ─> execute_calculations
                                                                      │
                                                               prepare_answer ─> END
 ```
 
-**Node order encodes hard data dependencies** — `retrieve_policy` needs the member's Article number to filter on, `resolve_recipes` needs the retrieved text to derive from, and `resolve_inputs` needs the recipe to know which inputs exist. Only `plan_request` and `fetch_employee_record` are genuinely independent, and those two are the concurrent pair.
+**Node order encodes hard data dependencies** — `assess_coverage` needs the employee record in order to have something to disagree with, `retrieve_policy` needs coverage's verdict to know which Article to filter on, `resolve_recipes` needs the retrieved text to derive from, and `resolve_inputs` needs the recipe to know which inputs exist. Only `plan_request` and `fetch_employee_record` are genuinely independent, and those two are the concurrent pair.
+
+### Coverage: the record is a prior, not an oracle (`agent/coverage.py`)
+
+Which Article covers a member decides the retrieval filter, which decides the recipe, which decides the figure — and it used to be read straight off `employees.article_number` with no way to be contradicted. A member who wrote "i am a park employee" was told "As a park employee **covered by Article 11**…", welding their description to their record and asserting a connection the Code does not make (park employees are generally Article 12).
+
+So a self-description is evidence, checked against the Code's own coverage sections rather than assumed. `classify_self_reference` reads which of three acts the member performed, and each is a distinct bug when handled as another:
+
+| the member writes | act | behaviour |
+|---|---|---|
+| "I am a park employee" | **asserted** | check it against the corpus; ask on conflict |
+| "if I were a park employee" | **stipulated** | adopt the premise, never ask, hold it across turns |
+| "I think I'm a park employee" | **doubted** | *they* are unsure — always ask |
+
+`retrieve_coverage()` is the **only query in the system that is deliberately not article-filtered** (the question being asked *is* which Article), searching sections tagged `coverage_rule` by the ingestion tagger. `assess()` does the semantic work — no keyword table survives "a worker who works at the park" — but every candidate must name a section that was actually retrieved, or it is dropped; `adjudicate()` then decides in pure Python, and the record wins unless a *better-supported* Article outranks it. `bind_reply()` makes an answer stick, durably: without it a question is worse than none.
+
+Two rules that are easy to get backwards. **A conflict in a routing field (`article_number`, `employment_status`) is a question; a conflict in a value (salary, service) stays an override-with-note** via the existing `input_overrides` path. And **a figure is computable exactly when no input is borrowed from a record filed under another Article** — enforced by starving record-derived facts in `resolve_inputs`, so everything becomes a missing input rather than a plausible wrong number.
+
+The clarification budget (`config.clarification_budget`, default 3) is enforced: at the cap the agent proceeds on the record and says what it assumed. The fast exit matters as much as the feature — a turn where nobody described themselves costs no search and no model call.
 
 `prepare_answer` assembles the prompt but makes **no model call**. Answer generation lives outside the graph in `graph.py::run_agent_stream()`, which streams tokens to the client as they arrive and then runs post-generation verification. `run_agent()` is the non-streaming wrapper used by tests and `scripts/eval_agent.py`. State defaults live in one place, `state.py::initial_state()` — add a new state key there as well as to the TypedDict.
 
@@ -81,9 +100,13 @@ triage                                   (deterministic: scope, adversarial-inst
 
 All deterministic Python; no model grades another model's output. Before generation: scope classification and detection of "apply my formula, skip the Code" instructions (which annotate the answer prompt rather than refusing). After generation: every cited section must be one that was retrieved, and every money/percentage figure must trace to a calculation result, the retrieved statute text, the member's record, or the member's own messages. A hard failure replaces the streamed answer via the SSE `replace` event.
 
+Coverage is checked the same way, and in both directions. An answer may state which Article covers the member only when `coverage.basis` is `member_confirmed` or `statutory_match` — *attributing* it ("your record places you in Article 11") is always fine, since the distinction being policed is a claim about the law versus a statement about the file. Conversely, an answer to a stipulated premise must stay visibly conditional: answering "if I were a park employee" in the plain indicative tells a member they are in a fund they only asked about. Quoted spans are stripped before both checks — an answer explaining its own earlier mistake has to be able to repeat it.
+
 ### Evaluation
 
-`scripts/eval_agent.py` runs the 16-case regression suite (the 12 from `test_questions.md` plus 4 safety cases) against the live index and model, reporting pass/fail, time-to-first-token, and token cost per turn. `uv run python scripts/eval_agent.py --help` for options. Unit tests in `tests/` cover the deterministic layers (facts, guardrails, DSL interpreter, validator) and need no network.
+`scripts/eval_agent.py` runs the benchmark in `evals/*.yaml` against the live index and model. **A case is a conversation on one thread**, with per-turn expectations — the graph is checkpointed, so turn two resumes from what turn one established rather than being handed a transcript to re-read. Reports per-category pass rates, time-to-first-token and tokens per turn, plus a CRITICAL block that fails the run whatever the overall score says. `--category <name>` runs one family; `--help` for the rest. `scripts/replay_coverage.py` replays the conversation that motivated the coverage layer, printing the per-turn state beside each answer.
+
+Unit tests in `tests/` cover the deterministic layers (facts, guardrails, coverage, DSL interpreter, validator) and need no network. Two of them guard a *bug class* rather than a behaviour, by parsing the alternatives out of a regex and requiring every one to have a worked example — `test_planning.py` for `_CALCULATION_SIGNALS` and `test_coverage.py` for the act governors. That pattern exists because three alternatives in the planner's signal regex were dead for as long as they had existed (a trailing `\b` could never match after them) and reading the regex did not reveal it; the same guard later caught a coverage governor that no frame could ever reach.
 
 ### API / streaming (`api/`)
 

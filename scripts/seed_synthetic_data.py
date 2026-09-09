@@ -22,7 +22,7 @@ load_dotenv()
 from sqlalchemy import select
 
 from pension_chat.db.models import Employee, EmployeeSalaryHistory, PensionArticle
-from pension_chat.db.session import async_session_factory
+from pension_chat.db.session import get_admin_session
 
 # ── Seed data ─────────────────────────────────────────────────────
 
@@ -62,12 +62,45 @@ EMPLOYEES = [
             (date(2026, 1, 1), Decimal("72000.00")),
         ],
     },
+    # An Article 12 member, so that the *agreeing* case can be tested at all.
+    # With only the Article 11 employee above, every question from someone who
+    # describes themselves as a park employee is a coverage conflict, and a
+    # check that can only ever fire one way proves nothing. This member says
+    # "I am a park employee" and their record agrees — the assistant must
+    # recognise that and answer, not ask.
+    {
+        "email": "pen_test_2@yopmail.com",
+        "article_number": 12,
+        "tier": 1,
+        "birth_date": date(1968, 9, 2),
+        "hire_date": date(2001, 7, 16),
+        "employment_status": "active",
+        "total_service_years": Decimal("25.00"),
+        "current_annual_salary": Decimal("68000.00"),
+        "salary_history": [
+            (date(2018, 1, 1), Decimal("55000.00")),
+            (date(2019, 1, 1), Decimal("56650.00")),
+            (date(2020, 1, 1), Decimal("58349.50")),
+            (date(2021, 1, 1), Decimal("60099.99")),
+            (date(2022, 1, 1), Decimal("61902.98")),
+            (date(2023, 1, 1), Decimal("63760.07")),
+            (date(2024, 1, 1), Decimal("65672.87")),
+            (date(2025, 1, 1), Decimal("67643.06")),
+            (date(2026, 1, 1), Decimal("68000.00")),
+        ],
+    },
 ]
 
 
 async def seed():
     """Seed the database with articles and synthetic employees."""
-    async with async_session_factory() as db:
+    # Row-level security is enforced on `employees` (migration 003), and
+    # seeding is by definition an operation with no member to be scoped to.
+    # The raw session factory sets no identity, so every insert here failed
+    # the policy -- and so did the SELECT that checks whether a row already
+    # exists, which is why a re-run tried to insert a duplicate rather than
+    # skipping.
+    async with get_admin_session() as db:
         # ── Seed pension articles ─────────────────────────────────
         for article_data in ARTICLES:
             existing = await db.execute(

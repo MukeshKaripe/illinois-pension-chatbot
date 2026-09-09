@@ -121,6 +121,12 @@ async def run_turn(question: str, thread: str, employee_id: str | None) -> dict:
         "validation_errors": state.get("validation_errors") or [],
         "missing_inputs": [m["name"] for m in state.get("missing_inputs") or []],
         "member_facts": state.get("member_facts") or {},
+        "coverage": state.get("coverage") or {},
+        "hypothetical_frame": state.get("hypothetical_frame") or {},
+        "self_reference": state.get("self_reference") or {},
+        "clarification": state.get("clarification") or {},
+        "clarifications_asked": state.get("clarifications_asked") or 0,
+        "candidate_articles": state.get("candidate_articles") or [],
         "can_execute": state.get("can_execute"),
         "execution_blocked": state.get("execution_blocked"),
         "calculation": state.get("calculation_result") or {},
@@ -343,6 +349,39 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
             problems.append(
                 f"did not refuse on applicability grounds (blocked={result['execution_blocked']})"
             )
+
+    # ── Coverage ──────────────────────────────────────────────────
+    # Asserted separately from `no_figures` because the failure being caught is
+    # not that a figure appeared — it is that the assistant answered at all,
+    # when the one thing everything rests on was still open.
+    if (asks := expect.get("asks")) is not None:
+        asked = bool(result["clarification"])
+        if asks and not asked:
+            problems.append("answered where it should have asked")
+        if not asks and asked:
+            problems.append("asked where it should have answered")
+
+    if (basis := expect.get("coverage_basis")) is not None:
+        actual = (result["coverage"] or {}).get("basis")
+        if actual != basis:
+            problems.append(f"coverage basis {actual!r}, expected {basis!r}")
+
+    if (article := expect.get("coverage_article")) is not None:
+        actual = (result["coverage"] or {}).get("article")
+        if str(actual) != str(article):
+            problems.append(f"coverage article {actual!r}, expected {article!r}")
+
+    if (frame := expect.get("hypothetical")) is not None:
+        held = bool(result["hypothetical_frame"])
+        if frame and not held:
+            problems.append("dropped the supposition the member was still exploring")
+        if not frame and held:
+            problems.append("still inside a supposition the member left")
+
+    if expect.get("act"):
+        actual = (result["self_reference"] or {}).get("act")
+        if actual != expect["act"]:
+            problems.append(f"read the member's words as {actual!r}, expected {expect['act']!r}")
 
     if not result["guardrail_passed"]:
         problems.append(

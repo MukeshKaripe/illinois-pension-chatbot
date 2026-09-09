@@ -32,6 +32,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent import guardrails
 from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import build_member_facts
@@ -48,6 +49,7 @@ from pension_chat.agent.retrieval import (
     extract_article_references,
     extract_section_references,
     retrieve,
+    retrieve_coverage,
 )
 from pension_chat.agent.state import PensionAgentState
 from pension_chat.calculation.applicability import (
@@ -556,6 +558,242 @@ async def plan_request(state: PensionAgentState) -> dict:
     }
 
 
+# ── 2a. Coverage ──────────────────────────────────────────────────
+
+
+def _record_coverage(record_article: str | None, turn: int) -> dict:
+    """What we believe when the member has said nothing about themselves."""
+    return {
+        "article": record_article,
+        "basis": (
+            coverage_mod.BASIS_RECORD if record_article else coverage_mod.BASIS_UNRESOLVED
+        ),
+        "record_article": record_article,
+        "candidates": [],
+        "conflict": False,
+        "turn": turn,
+        "described_as": None,
+    }
+
+
+# Words that mean the same thing as an `employment_status` value on file. Only a
+# disagreement matters here, so a description matching nothing agrees with
+# everything rather than manufacturing a conflict out of unfamiliar wording.
+_STATUS_SYNONYMS = {
+    "active": ("still working", "working", "active", "employed"),
+    "retired": ("retired", "retiring", "no longer working", "no longer employed"),
+    "on_leave": ("leave", "leave of absence", "unpaid leave"),
+    "disabled": ("disability", "out on disability", "disabled"),
+}
+
+
+def _status_agrees(described: str, on_file: str) -> bool:
+    """Whether what the member said matches the status on their record."""
+    described = (described or "").lower()
+    on_file = (on_file or "").lower()
+    known = _STATUS_SYNONYMS.get(on_file)
+    if known and any(term in described for term in known):
+        return True
+    for status, terms in _STATUS_SYNONYMS.items():
+        if any(term in described for term in terms):
+            return status == on_file
+    return True
+
+
+def _coverage_elsewhere(state: PensionAgentState) -> bool:
+    """Is this turn reading an Article the member's record is not filed under?
+
+    True only for a coverage belief the member themselves created — a premise
+    they supposed, or an Article they confirmed against their record. A `record`
+    basis is never "elsewhere", because it *is* the record.
+    """
+    coverage = state.get("coverage") or {}
+    article = coverage.get("article")
+    on_file = coverage.get("record_article")
+    if not article or not on_file or article == on_file:
+        return False
+    return coverage.get("basis") in {
+        coverage_mod.BASIS_HYPOTHETICAL,
+        coverage_mod.BASIS_CONFIRMED,
+    }
+
+
+async def assess_coverage(state: PensionAgentState) -> dict:
+    """Decide which Article this turn reads from, and on what evidence.
+
+    Sits between the record fetch and retrieval, because it needs the record in
+    order to have something to disagree with, and retrieval needs its verdict.
+
+    **The fast exit carries the latency budget.** A turn where the member said
+    nothing about who they are, and did not answer an open question, returns from
+    here without a search or a model call — which is nearly every turn, including
+    almost all of the regression suite. The cost is paid only where it buys
+    something.
+    """
+    started = time.perf_counter()
+    if not state.get("in_scope", True):
+        return {}
+
+    settings = get_settings()
+    question = state["question"]
+    turn = state.get("turn_index") or 0
+    employee = state.get("employee_record")
+    record_article = str(employee["article_number"]) if employee else None
+
+    reference = coverage_mod.classify_self_reference(question)
+    frame = state.get("hypothetical_frame")
+    established = state.get("coverage")
+
+    # ── Did they answer what we asked last turn? ──────────────────
+    # Checked before anything else. A member who has just been asked a question
+    # and answered it must not be asked it again — and this is the exact turn
+    # that failed in the conversation this work came from: they restated their
+    # coverage in the statute's own words and got the same figure back.
+    open_question = state.get("open_question")
+    if coverage_mod.question_is_live(open_question, turn):
+        bound = coverage_mod.bind_reply(question, open_question)
+        if bound:
+            settled = {
+                **bound,
+                "record_article": record_article,
+                "candidates": open_question.get("options") or [],
+                "turn": turn,
+                "described_as": open_question.get("described_as"),
+            }
+            logger.info(
+                "Coverage settled by the member: article=%s (%s)",
+                settled.get("article"),
+                bound.get("confirmed_by"),
+            )
+            return {
+                "coverage": settled,
+                "open_question": None,
+                "candidate_articles": (
+                    [settled["article"]] if settled.get("article") else []
+                ),
+                "timings": {"assess_coverage": time.perf_counter() - started},
+            }
+
+    # ── Are they stepping out of a supposition? ───────────────────
+    leaving = bool(frame) and (
+        coverage_mod.leaves_hypothetical(question)
+        or (reference is not None and reference.act == coverage_mod.ASSERTED)
+    )
+    if leaving:
+        frame = None
+
+    # ── Still inside one? ─────────────────────────────────────────
+    # A follow-up exploring a premise carries none of its words: "and at 60?" is
+    # still a question about being a park employee. So the frame holds by
+    # default and is left explicitly. Nothing here tries to detect that a
+    # scenario has been "fully answered" — that is not computable, and guessing
+    # it wrong strands the member mid-exploration. Every answer under a frame
+    # says which frame it is under instead, which makes a stale one visible on
+    # the turn it goes stale.
+    if frame and reference is None:
+        return {
+            "coverage": {**(established or {}), "turn": turn},
+            "hypothetical_frame": {**frame, "last_used_turn": turn},
+            "candidate_articles": [frame["article"]] if frame.get("article") else [],
+            "timings": {"assess_coverage": time.perf_counter() - started},
+        }
+
+    # ── The fast exit ─────────────────────────────────────────────
+    if reference is None:
+        update: dict[str, Any] = {}
+        if leaving:
+            update["hypothetical_frame"] = None
+            update["coverage"] = _record_coverage(record_article, turn)
+        elif not established:
+            update["coverage"] = _record_coverage(record_article, turn)
+        return update
+
+    # ── A claim about employment status ───────────────────────────
+    # Settled by looking at the row rather than by reading the statute, so it
+    # never touches the corpus.
+    if reference.kind == coverage_mod.STATUS:
+        update = {"self_reference": reference.to_dict()}
+        on_file = (employee or {}).get("employment_status")
+        if (
+            reference.act == coverage_mod.ASSERTED
+            and on_file
+            and not _status_agrees(reference.text, on_file)
+        ):
+            update["clarification"] = {
+                "about": "employment_status",
+                "described_as": reference.text,
+                "on_file": on_file,
+            }
+        return update
+
+    # ── A claim about coverage ────────────────────────────────────
+    if not settings.coverage_assessment:
+        return {"self_reference": reference.to_dict()}
+
+    sections = await retrieve_coverage(reference.text)
+    report = await coverage_mod.assess(reference.text, sections)
+    verdict = coverage_mod.adjudicate(reference, report, record_article, turn=turn)
+
+    update = {
+        "self_reference": reference.to_dict(),
+        "coverage": verdict,
+        # Whatever the verdict, the sections it rests on go into this turn's
+        # retrieval. An answer that names Section 12-101 without its text in
+        # front of it is citing from memory.
+        "coverage_sections": [
+            c["section"] for c in verdict.get("candidates") or [] if c.get("section")
+        ][:3],
+        "timings": {"assess_coverage": time.perf_counter() - started},
+    }
+
+    if verdict["basis"] == coverage_mod.BASIS_HYPOTHETICAL:
+        # Adopted whole: no question, no budget spent. Retrieval moves to the
+        # supposed Article. Whether a figure may be produced under it is decided
+        # separately, by whether every input came from the member rather than
+        # from a record filed under a different Article.
+        article = verdict.get("article")
+        update["hypothetical_frame"] = {
+            "premise": reference.text,
+            "article": article,
+            "entered_turn": turn,
+            "last_used_turn": turn,
+        }
+        update["candidate_articles"] = [article] if article else []
+        return update
+
+    if leaving:
+        update["hypothetical_frame"] = None
+
+    if not verdict.get("conflict"):
+        return update
+
+    # ── It is a question, unless the budget is spent ──────────────
+    asked = state.get("clarifications_asked") or 0
+    if asked >= settings.clarification_budget:
+        # Proceed on the record and say so. Asking a fourth time is its own
+        # failure, and one the member has no way out of.
+        update["coverage"] = {**verdict, "conflict": False, "why": "budget_spent"}
+        return update
+
+    asking = coverage_mod.open_question_for(verdict)
+    update["clarification"] = asking
+    update["open_question"] = asking
+    update["clarifications_asked"] = 1
+    # No figure this turn. The Article is precisely what is in doubt, and a
+    # pension worked out from the wrong one is worse than one turn's delay.
+    update["requires_calculation"] = False
+    # Every candidate and the record's own Article, so the question can quote
+    # the coverage test it turns on instead of merely asserting it.
+    update["candidate_articles"] = [
+        a
+        for a in dict.fromkeys(
+            str(o.get("article")) for o in asking.get("options") or []
+        )
+        if a and a != "None"
+    ]
+    return update
+
+
 # ── 2a. Retrieval ─────────────────────────────────────────────────
 
 
@@ -580,7 +818,18 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
     # 12". Whichever Article the member asked about is the one to read from.
     employee = state.get("employee_record")
     named = state.get("explicit_articles") or []
-    articles = named or ([str(employee["article_number"])] if employee else None)
+    # Coverage sits between the two. A member who named an Article outright has
+    # said which law they want read; a member who described their job has said
+    # something the Code itself can be asked about, and `assess_coverage` has
+    # already asked it. Only when neither happened does the record's column
+    # decide, which is where it belongs -- as the fallback rather than the
+    # unfalsifiable default it used to be.
+    candidates = state.get("candidate_articles") or []
+    articles = (
+        named
+        or candidates
+        or ([str(employee["article_number"])] if employee else None)
+    )
 
     # A question about someone else's Article is a question about the law, not
     # about this member's benefit. Their salary and service belong to Article 11
@@ -604,10 +853,20 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
         else settings.retrieval_top_sections
     )
 
+    # The coverage sections behind this turn's candidates are pinned in. They
+    # were found by a separate, unfiltered search, so nothing else would bring
+    # them back -- and an answer that names Section 12-101 without its text in
+    # front of it is citing from memory, which verification rejects outright.
+    pinned = list(
+        dict.fromkeys(
+            (state.get("explicit_sections") or []) + (state.get("coverage_sections") or [])
+        )
+    )
+
     sections = await retrieve(
         state.get("search_queries") or [state["question"]],
         articles=articles,
-        must_include_sections=state.get("explicit_sections"),
+        must_include_sections=pinned,
         top_sections=top,
         char_budget=budget,
     )
@@ -694,6 +953,61 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
 _MAX_PINNED_SECTIONS = 6
 
 
+def _available_facts(state: PensionAgentState) -> dict:
+    """The member facts this turn is allowed to use.
+
+    Empty when the conversation is reading an Article the member's record is not
+    filed under. Their salary and service are administered by the fund named on
+    that record, so under another Article they are not merely unhelpful -- they
+    are the wrong basis, and every use of them is wrong in the same way: as a
+    calculation input, as a fact an applicability predicate is tested against,
+    as a figure the answer may quote, and as a source verification will accept.
+    Single-sourced here so those four cannot drift apart.
+    """
+    if _coverage_elsewhere(state):
+        return {}
+    return dict(state.get("member_facts") or {})
+
+
+def _governing_article(state: PensionAgentState) -> int:
+    """The Article this turn is actually operating under.
+
+    Coverage first, the record second. A conversation that has moved to another
+    Article -- because the member confirmed their file is wrong, or asked to
+    suppose a different job -- must look its recipes up under the Article it is
+    reading, not under the one on the record. Otherwise an Article 12 provision
+    is filed against an Article 11 member and handed to the next Article 11
+    member who asks.
+    """
+    coverage = state.get("coverage") or {}
+    article = coverage.get("article")
+    if article is not None and str(article).isdigit():
+        return int(article)
+    employee = state.get("employee_record")
+    if employee:
+        return int(employee["article_number"])
+    named = [a for a in (state.get("explicit_articles") or []) if a.isdigit()]
+    return int(named[0]) if named else 11
+
+
+def _article_of_sections(sections) -> int | None:
+    """The Article a set of section ids belongs to, when they agree.
+
+    Section ids carry their Article as a prefix ("11-134"), so this is the
+    strongest available statement of where a derived recipe actually came from
+    -- stronger than the member's record, which is what used to stamp it. At two
+    Articles that mattered little. At twenty, a recipe derived partly from
+    another Article's cross-referenced text would be filed under the wrong one
+    and reused there.
+    """
+    articles = {
+        str(section).split("-")[0]
+        for section in (sections or [])
+        if str(section).split("-")[0].isdigit()
+    }
+    return int(articles.pop()) if len(articles) == 1 else None
+
+
 async def resolve_recipes(state: PensionAgentState) -> dict:
     """Reuse a registry recipe where one exists; derive from statute otherwise.
 
@@ -711,17 +1025,9 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
 
     sections = [_section_from_dict(s) for s in state.get("retrieved_sections", [])]
     employee = state.get("employee_record")
-    # Without a record, the Article the member named is the one the recipe was
-    # read from. Defaulting to 11 would file an Article 12 provision under
-    # Article 11 and hand it to the next Article 11 member who asks.
-    named = [a for a in (state.get("explicit_articles") or []) if a.isdigit()]
-    article = (
-        employee["article_number"]
-        if employee
-        else (int(named[0]) if named else 11)
-    )
+    article = _governing_article(state)
     tier = employee["tier"] if employee else None
-    facts = dict(state.get("member_facts") or {})
+    facts = _available_facts(state)
 
     recipes: dict[str, dict] = {}
     provenance: list[dict] = []
@@ -931,12 +1237,19 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     if not recipes:
         return {"resolved_inputs": {}, "missing_inputs": []}
 
-    facts = dict(state.get("member_facts") or {})
-
     declared: dict[str, dict] = {}
     for recipe in recipes.values():
         for spec in (recipe.get("spec") or {}).get("inputs", []):
             declared.setdefault(spec["name"], spec)
+
+    # Empty when the conversation has moved to another Article. Starving the
+    # record rather than refusing outright is what keeps the useful case
+    # working: everything simply becomes a missing input, so a member who asks
+    # "if I were a park employee, what would I get?" is told what Article 12
+    # provides and what would be needed, while one who writes "if I were a park
+    # employee with 25 years and $70,000" gets a figure -- because by then every
+    # input is theirs and none of it was borrowed.
+    facts = _available_facts(state)
 
     from_record = {name: facts[name] for name in declared if name in facts}
     resolved = dict(from_record)
@@ -1058,8 +1371,7 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         }
 
     indexed = {s["section"] for s in state.get("retrieved_sections", [])}
-    employee = state.get("employee_record")
-    article_default = employee["article_number"] if employee else 11
+    article_default = _governing_article(state)
     validator = RecipeValidator()
     assessor = RiskAssessor()
 
@@ -1067,7 +1379,7 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     # stated themselves, so an anonymous user who supplies their age and service
     # gets the same applicability test a signed-in member does.
     checkable_facts = facts_for_evaluation(
-        state.get("member_facts"), state.get("resolved_inputs")
+        _available_facts(state), state.get("resolved_inputs")
     )
 
     errors: list[dict] = []
@@ -1472,7 +1784,7 @@ async def _persist_new_recipes(state: PensionAgentState, results: dict) -> None:
         return
 
     employee = state.get("employee_record")
-    article = employee["article_number"] if employee else 11
+    fallback_article = _governing_article(state)
     tier = employee["tier"] if employee else None
     section_texts = await canonical_section_texts(
         s["section"] for s in state.get("retrieved_sections", [])
@@ -1490,6 +1802,14 @@ async def _persist_new_recipes(state: PensionAgentState, results: dict) -> None:
         relevant = {
             s: t for s, t in section_texts.items() if s in (derived.source_sections or [])
         }
+        # Filed under the Article its own source sections belong to, not the one
+        # on the member's record. Those were the same thing while only two
+        # Articles existed and the filter kept them apart; they stop being the
+        # same as soon as a conversation reads another Article -- a supposed one,
+        # or a corrected one -- and `_follow_references` deliberately crosses
+        # Article boundaries, so a recipe can legitimately be derived from text
+        # the member's own Article does not contain.
+        article = _article_of_sections(derived.source_sections) or fallback_article
         try:
             await persist_recipe(
                 derived,
@@ -1529,6 +1849,12 @@ something, tell them plainly and without jargon.
 
 Never open with a preamble, an apology, or a restatement of the question. Never
 close by offering further help — just stop.
+
+One exception, and it is not chattiness. Where an answer rests on what their
+file says rather than on anything they told you, say so in one line and invite
+them to correct it: "I'm going by your record, which places you in Article 11 —
+tell me if that's not right." A member who has just described their job and is
+answered as though they had not is entitled to know which of the two you used.
 
 
 SHAPE
@@ -1583,6 +1909,43 @@ A comparison of retirement dates
   up and has to take the reason on trust. Then a sentence or two on what else
   drives the difference, and the line about what the projection holds constant.
   Show the worked-out steps for one option only if the member asks for them.
+
+A question whose premise you cannot confirm
+  Sometimes the honest answer is a question. When you are told one is needed,
+  do not answer around it and do not produce a figure.
+
+  Open by naming what is unclear and why it matters to them — one sentence.
+  Then put the options side by side with what each rests on in the Code, so the
+  question explains itself: "Article 12 covers employees of a board of park
+  commissioners [40 ILCS 5/12-101], while your file records you under Article
+  11." Then ask the one thing that would settle it, in the plainest form it
+  takes — usually who pays them.
+
+  Ask closed questions where the Code allows. "Do you work for the Park
+  District, or for the City in a laborer role?" can be answered in four words
+  and shows the member what turns on it; "tell me more about your job" is
+  homework. Ask everything you need in this one turn — two short questions
+  together, never a second turn of interrogation. Never more than two.
+
+  Prose, never a table. This is a short exchange between two people, and four
+  sentences ending in a question is the whole answer: what is unclear, what each
+  possibility rests on in the Code, the question. A member who describes their
+  job and receives a grid of options has been handed a form to fill in.
+
+  Say what you already know as well, in the same breath — "your file records you
+  under Article 11" — so it is plain you read what they told you and are asking
+  about the one thing that is genuinely open.
+
+A question resting on something they supposed
+  They asked you to assume something. Assume it, and never ask them to confirm
+  a premise they have just stipulated.
+
+  Say which supposition you are working under, in the opening line — "If you
+  were an employee of a board of park commissioners…", "Still assuming you work
+  for the Park District…" — and keep the whole answer conditional. A follow-up
+  that does not repeat the supposition is still inside it; carry it until they
+  step out. They have not told you they are anything, and an answer written in
+  the plain indicative tells them they are.
 
 A question you cannot answer with a figure
   Say so in the first sentence, and say why in plain terms. Then, when the
@@ -1679,7 +2042,16 @@ ABSOLUTE RULES
 10. Do not volunteer where a figure came from, whether it was worked out fresh,
    or that it was checked. If the member asks, tell them plainly.
 11. Answer the question in front of you. Do not carry a comparison or a scenario
-   over from an earlier turn unless this question calls for it."""
+   over from an earlier turn unless this question calls for it.
+12. Never give what the member told you about their job as the REASON for the
+   Article they are in. "As a park employee covered by Article 11" welds their
+   description to their file and asserts a connection the Pension Code does not
+   make — and park employees are generally covered by a different Article
+   altogether. Their coverage comes from their record unless you are told
+   otherwise; say what the record shows, and say what the Code's own test is,
+   and never present one as the other. Describing who an Article covers is
+   always fine. Telling this member which one covers *them* needs evidence
+   about them."""
 
 
 def _format_calculation(results: dict | None) -> str:
@@ -1758,7 +2130,87 @@ async def prepare_answer(state: PensionAgentState) -> dict:
             "helps, say plainly which fund the member's own pension comes under."
         )
 
+    # Coverage comes first, because it decides how everything after it may be
+    # spoken about. An answer that gets the figures right and the fund wrong is
+    # not partly right.
+    coverage = state.get("coverage") or {}
+    basis = coverage.get("basis")
+    described_as = coverage.get("described_as")
+    frame = state.get("hypothetical_frame")
+
+    if frame:
+        context_parts.append(
+            "THE MEMBER ASKED YOU TO SUPPOSE SOMETHING, and this answer is about "
+            f"that supposition: {json.dumps(frame.get('premise'))}. They have not "
+            "told you they are this, so nothing here is established about them. "
+            "Open by naming the supposition and keep the whole answer "
+            "conditional. Do not ask them to confirm it — they stipulated it. "
+            "Their own salary and service are not available to it, so give no "
+            "figure unless one was worked out for you below."
+        )
+    elif basis == coverage_mod.BASIS_CONFIRMED and _coverage_elsewhere(state):
+        context_parts.append(
+            "THE MEMBER HAS CONFIRMED THEY ARE COVERED BY A DIFFERENT PART OF THE "
+            f"CODE from the one their file records (Article {coverage.get('article')}, "
+            f"where the file says Article {coverage.get('record_article')}). Answer "
+            "with what that Article provides, using the statute below, and say "
+            "plainly that a figure needs their fund to correct the record first. "
+            "Give no figures: the salary and service on file are administered "
+            "under the other Article and are not the right basis here."
+        )
+    elif described_as and basis == coverage_mod.BASIS_RECORD:
+        context_parts.append(
+            "THE MEMBER DESCRIBED THEIR JOB, and what they said is NOT why they "
+            f"are in the Article they are in — they described themselves as "
+            f"{json.dumps(described_as)}, and their coverage here rests on their "
+            "record alone. Do not connect the two. You may say what their record "
+            "shows, and you may say what the Code's coverage test is, but never "
+            "give one as the reason for the other, and add one line inviting them "
+            "to correct the record if it is wrong."
+        )
+    elif basis == coverage_mod.BASIS_STATUTORY and described_as:
+        context_parts.append(
+            "WHAT THE MEMBER TOLD YOU ABOUT THEIR JOB MATCHES THEIR RECORD, and "
+            "matches the Code's own coverage test for that Article. This is the "
+            "one case where you may say plainly that they are covered by it."
+        )
+
+    if coverage.get("why") == "budget_spent":
+        context_parts.append(
+            "YOU HAVE ALREADY ASKED THIS MEMBER AS MANY QUESTIONS AS YOU MAY. "
+            "Answer on their record, and say in one line which reading you went "
+            "with and that they can correct it. Do not ask again."
+        )
+
     facts = state.get("member_facts") or {}
+
+    # A conversation reading another Article does not get to see this member's
+    # salary and service at all. Starving the *calculation* of them (see
+    # `resolve_inputs`) is not enough on its own: left in the prompt under "what
+    # you know about this member", they get quoted into the prose instead. One
+    # answer to "if I were a park employee" set out the Article 12 formula
+    # correctly and then named $69,956.40 — the member's Article 11 salary basis
+    # — as the salary it would run on. The model reaches for what it is handed,
+    # which is the same mechanism as the bug this whole layer exists to fix.
+    #
+    # Verification could not catch it either: those figures trace to the
+    # member's record, so they are traceable. They are simply not the right
+    # basis, and only the prompt knows that.
+    if facts and not _available_facts(state):
+        context_parts.append(
+            "THIS MEMBER'S OWN SALARY AND SERVICE ARE NOT AVAILABLE TO THIS "
+            "ANSWER. Their record is administered under a different Article from "
+            "the one you are reading, so none of their figures is the right basis "
+            "here — not their salary, not their service, not their averages.\n"
+            "STATE NO DOLLAR AMOUNT AND NO PERCENTAGE OF SALARY, and do not "
+            "arrive at one. Not as an estimate, not as an illustration, not as "
+            "'roughly'. A rate or a ceiling quoted from the statute is fine "
+            "(\"2.40% for each year of service\", \"capped at 80%\"); a total, an "
+            "annual figure or a monthly figure is not. Say what the Code provides "
+            "and what would be needed to put a number to it."
+        )
+        facts = {}
+
     if facts:
         shown = {
             k: facts[k]
@@ -1819,6 +2271,28 @@ async def prepare_answer(state: PensionAgentState) -> dict:
             "numbers above. Answer what was asked without a figure, and say what "
             "you would need in order to work one out — but only ever ask for "
             "something that is not already listed above."
+        )
+
+    clarification = state.get("clarification")
+    if clarification and clarification.get("about") == "coverage":
+        context_parts.append(
+            "ASK, DO NOT ANSWER. What this member described about their job does "
+            "not settle which part of the Code governs their pension, and that is "
+            "the one thing everything else depends on — so the honest answer this "
+            "turn is a question, and there is no figure in it.\n"
+            "Name what is unclear in a sentence, set the options side by side "
+            "with the coverage test each rests on (their text is below — cite "
+            "it), and ask the single thing that would settle it. Ask it closed if "
+            "the Code allows: something they can answer in a few words. Ask "
+            "everything you need now; do not come back for a second round.\n"
+            + json.dumps(clarification, indent=1)
+        )
+    elif clarification and clarification.get("about") == "employment_status":
+        context_parts.append(
+            "WHAT THE MEMBER SAID ABOUT THEIR EMPLOYMENT DOES NOT MATCH THEIR "
+            "FILE. Their pension turns on this, so say what the file shows, say "
+            "what they told you, and ask which is right before treating either as "
+            "settled:\n" + json.dumps(clarification, indent=1)
         )
 
     provenance = state.get("recipe_provenance") or []

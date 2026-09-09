@@ -33,6 +33,10 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+# The coverage vocabulary lives with the module that produces it, so the
+# check here and the adjudication there cannot drift apart.
+from pension_chat.agent.coverage import ESTABLISHED_BASES
+
 logger = logging.getLogger("pension_chat.agent.guardrails")
 
 
@@ -358,6 +362,7 @@ def verify_answer(
     user_text: str = "",
     check_numbers: bool = True,
     established_sections: Iterable[str] = (),
+    coverage: dict | None = None,
 ) -> GuardrailReport:
     """Verify a generated answer against the evidence it was given.
 
@@ -372,6 +377,9 @@ def verify_answer(
         established_sections: Sections earlier turns of this conversation
             already cited and had verified. "Why did you rule that one out?"
             is about a provision the previous turn retrieved, not this one.
+        coverage: What this conversation believes about which Article covers
+            the member, and on what evidence. Governs whether the answer may
+            state that coverage as a fact about them.
 
     Returns:
         A ``GuardrailReport``. ``passed`` is False only for hard failures —
@@ -469,7 +477,124 @@ def verify_answer(
             "The answer makes statements about the Pension Code without citing a section.",
         )
 
+    # 4. Coverage may only be asserted on evidence that supports it.
+    _verify_coverage(report, answer, coverage)
+
     return report
+
+
+# Frames that tell a member which fund they belong to, as opposed to describing
+# what an Article provides. "Article 12 covers employees of a board of park
+# commissioners" is a statement about the law; "you are covered by Article 12"
+# is a statement about them, and only one of the two needs evidence about them.
+_COVERAGE_ASSERTION = re.compile(
+    r"\b(?:you(?:'re| are)?|your)\b[^.?!]{0,80}?"
+    r"\b(?:covered by|come under|comes under|fall under|falls under|"
+    r"governed by|belong to|belongs to|a member of|participate in)\b"
+    r"[^.?!]{0,40}?\b(?:article|section)\s*\d{1,2}\b"
+    r"|\bas an?\b[^.?!]{0,60}?\bcovered by\b[^.?!]{0,30}?\barticle\s*\d{1,2}\b"
+    r"|\byour pension is (?:an? )?article\s*\d{1,2}\b",
+    re.IGNORECASE,
+)
+
+# Saying where the belief came from. An answer that names its source is making a
+# statement about the file, which is true and is what it was asked to do.
+_ATTRIBUTED_TO_RECORD = re.compile(
+    r"\b(?:your (?:record|file|records|account|membership record)|on file|"
+    r"according to (?:your|the) (?:record|file|records)|"
+    r"(?:is |are |been )?(?:currently )?(?:record|registr|regist|list|treat|hold|"
+    r"administer)(?:ed|s)?\b|"
+    r"what (?:your|the) (?:record|file) shows|the record (?:says|shows|places))\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_around(text: str, index: int) -> str:
+    """The sentence containing ``index``, so attribution is judged in context."""
+    start = max(
+        (text.rfind(mark, 0, index) for mark in (". ", "? ", "! ", "\n")), default=-1
+    )
+    end = min(
+        (pos for pos in (text.find(mark, index) for mark in (". ", "? ", "!", "\n")) if pos != -1),
+        default=len(text),
+    )
+    return text[start + 1 : end + 1]
+
+
+# A quoted span, straight or curly. Used to take quotations out of the answer
+# before judging what the answer claims.
+_QUOTED_SPAN = re.compile(r"[\"“‘][^\"“”]{4,600}?[\"”’]", re.DOTALL)
+
+# Markers that keep a supposition visibly a supposition.
+_CONDITIONAL_MARKER = re.compile(
+    r"\b(?:if you (?:were|are|had|worked)|assuming|were you |on that assumption|"
+    r"in that (?:case|scenario)|under that (?:scenario|assumption|premise)|"
+    r"hypothetical\w*|supposing|as you describe|on the supposition|"
+    r"that would|you would be|would apply)\b",
+    re.IGNORECASE,
+)
+
+
+def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None) -> None:
+    """Check what the answer claims about which fund the member is in.
+
+    Two directions, and the second is the one that bites hardest.
+
+    **An answer may not assert coverage the evidence does not support.** The
+    conversation that prompted this opened with *"As a park employee covered by
+    Article 11, your pension is calculated under Section 11-134(a)"* — a causal
+    claim welded out of the member's description of their job and a column on
+    their record, which nothing in the Pension Code connects. Every other check
+    here passed it, because it contains no bad citation and no untraceable
+    figure. It was simply not true.
+
+    **An answer to a supposition may not read as fact.** The converse costs more
+    than it looks: a member who asks "if I were a park employee" and is answered
+    in the plain indicative has been told they are in a fund they were only
+    asking about.
+    """
+    if not coverage:
+        return
+
+    basis = coverage.get("basis")
+
+    # Quoting a sentence is not asserting it, and this check would otherwise
+    # punish the assistant for repeating its own error in order to disown it.
+    # The whole subject of that turn is the wrong sentence — a member asks "why
+    # did you say 'As a park employee covered by Article 11…'" — so an answer
+    # that cannot repeat the words cannot explain them.
+    plain = _QUOTED_SPAN.sub(" ", answer or "")
+    asserted = _COVERAGE_ASSERTION.search(plain)
+
+    if basis == "hypothetical":
+        opening = " ".join(plain.split()[:120])
+        if not _CONDITIONAL_MARKER.search(opening):
+            report.fail(
+                "UNMARKED_HYPOTHETICAL",
+                "The member asked about a supposed situation and the answer states it "
+                "as fact. It has to stay visibly conditional.",
+            )
+        return
+
+    if asserted and basis not in ESTABLISHED_BASES:
+        # Attribution is the whole difference. "Your record places you under
+        # Article 11" is a true statement about the file and is exactly what the
+        # answer is asked to say; "as a park employee you are covered by Article
+        # 11" is a claim about the law that nothing supports. Both mention the
+        # member and an Article in one breath, so only the attribution separates
+        # them — and an answer that attributes correctly must not be withdrawn
+        # for it, or the honest phrasing becomes the punished one.
+        sentence = _sentence_around(plain, asserted.start())
+        if _ATTRIBUTED_TO_RECORD.search(sentence):
+            return
+
+        report.fail(
+            "UNSUPPORTED_COVERAGE",
+            "The answer tells the member which Article covers them, but that rests "
+            "only on the Article recorded against their file — not on anything they "
+            "said or on a coverage test in the Code. Say what the record shows and "
+            "what the Code's test is, rather than presenting one as the other.",
+        )
 
 
 def fallback_answer(report: GuardrailReport) -> str:
