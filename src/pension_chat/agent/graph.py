@@ -38,6 +38,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
+from pension_chat.agent.blocks import MarkerSubstituter
 from pension_chat.agent.checkpointer import (
     SqlAlchemyCheckpointSaver,
     thread_config,
@@ -336,6 +337,7 @@ async def run_agent_stream(
 
     chunks: list[str] = []
     first_token_at: float | None = None
+    substituter = MarkerSubstituter(state.get("answer_blocks") or {})
     try:
         async for delta in stream_llm(
             node="generate_answer",
@@ -344,8 +346,10 @@ async def run_agent_stream(
         ):
             if first_token_at is None:
                 first_token_at = time.perf_counter() - started
-            chunks.append(delta)
-            yield {"type": "token", "text": delta}
+            text = substituter.feed(delta)
+            if text:
+                chunks.append(text)
+                yield {"type": "token", "text": text}
     except Exception as exc:
         logger.exception("Answer generation failed")
         yield {
@@ -357,6 +361,17 @@ async def run_agent_stream(
             "detail": str(exc),
         }
         return
+
+    if tail := substituter.flush():
+        chunks.append(tail)
+        yield {"type": "token", "text": tail}
+
+    # A block whose marker never arrived is appended rather than lost. The
+    # member must never be short a table because the model forgot to ask for it.
+    for block in substituter.unused():
+        addition = f"\n\n{block}"
+        chunks.append(addition)
+        yield {"type": "token", "text": addition}
 
     answer = "".join(chunks)
     state["final_answer"] = answer

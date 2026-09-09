@@ -114,3 +114,15 @@ def test_an_unknown_marker_is_removed_rather_than_shown_to_the_member() -> None:
     out = sub.feed("Text <<<NOT_A_BLOCK>>> more.") + sub.flush()
     assert "<<<" not in out
     assert "NOT_A_BLOCK" not in out
+
+
+def test_a_missing_marker_leaves_its_block_to_be_appended() -> None:
+    """The recovery path: the member never loses the table because the model
+    forgot to ask for it."""
+    sub = MarkerSubstituter({"WORKED_STEPS": "TABLE", "BASIS": "BASIS-BLOCK"})
+    streamed = sub.feed("Here is your pension. <<<BASIS>>>") + sub.flush()
+    assert "BASIS-BLOCK" in streamed
+    assert sub.unused() == ["TABLE"]
+
+    recovered = streamed + "\n\n" + "\n\n".join(sub.unused())
+    assert "TABLE" in recovered
