@@ -19,7 +19,13 @@ import re
 import pytest
 
 from pension_chat.agent import coverage as cov
+from pension_chat.agent import retrieval
 from pension_chat.agent.guardrails import verify_answer
+
+async def _resolved(value):
+    """A coroutine returning `value`, for monkeypatching an async helper."""
+    return value
+
 
 # ── The three acts ────────────────────────────────────────────────
 
@@ -904,3 +910,72 @@ def test_a_member_with_a_record_is_unaffected():
         {"basis": cov.BASIS_RECORD, "record_article": "11", "described_as": None},
     )
     assert report.passed
+
+
+# ── Both sides of the comparison ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_record_s_own_article_is_always_put_in_front_of_the_model(monkeypatch):
+    """Coverage weighs a description against a record, and needs to read both.
+
+    Searching "park employee" ranks Sections 12-118, 12-120, 12-101 and 12-119 —
+    every one of them Article 12, which is correct ranking and also the entire
+    list. Section 11-110, the test the member's own record rests on, does not
+    appear at all, so the assessment is handed a one-sided brief and
+    `adjudicate` ends up comparing a description against an Article number with
+    no text behind it.
+    """
+    calls: list[str | None] = []
+
+    async def fake_search(query, vector, filter_expr, top):
+        calls.append(filter_expr)
+        # The description's own search finds only Article 12; the second,
+        # filtered call is what brings the record's Article back.
+        if filter_expr and "article eq" in filter_expr:
+            return [{"section": "11-110", "@search.score": 1.0}]
+        return [{"section": "12-118", "@search.score": 9.0}]
+
+    async def fake_fetch(section_ids):
+        return {
+            section: [{"section": section, "article": section.split("-")[0],
+                       "section_title": "", "content": "text", "subsection_id": ""}]
+            for section in section_ids
+        }
+
+    monkeypatch.setattr(retrieval, "_search_one", fake_search)
+    monkeypatch.setattr(retrieval, "fetch_sections", fake_fetch)
+    monkeypatch.setattr(retrieval, "_embed", lambda queries: _resolved([None]))
+
+    sections = await retrieval.retrieve_coverage("park employee", also_covering="11")
+
+    assert [s.section for s in sections] == ["12-118", "11-110"]
+    # The description keeps its ranking; the record's Article is added, not
+    # promoted over what the member's own words actually matched.
+    assert any(f and "article eq '11'" in f for f in calls)
+
+
+@pytest.mark.asyncio
+async def test_without_a_record_only_the_description_is_searched(monkeypatch):
+    """An anonymous member has no Article to put the other side of."""
+    calls: list[str | None] = []
+
+    async def fake_search(query, vector, filter_expr, top):
+        calls.append(filter_expr)
+        return [{"section": "12-118", "@search.score": 9.0}]
+
+    async def fake_fetch(section_ids):
+        return {
+            section: [{"section": section, "article": "12", "section_title": "",
+                       "content": "text", "subsection_id": ""}]
+            for section in section_ids
+        }
+
+    monkeypatch.setattr(retrieval, "_search_one", fake_search)
+    monkeypatch.setattr(retrieval, "fetch_sections", fake_fetch)
+    monkeypatch.setattr(retrieval, "_embed", lambda queries: _resolved([None]))
+
+    sections = await retrieval.retrieve_coverage("park employee", also_covering=None)
+
+    assert [s.section for s in sections] == ["12-118"]
+    assert len(calls) == 1

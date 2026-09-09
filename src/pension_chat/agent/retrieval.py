@@ -627,6 +627,7 @@ _COVERAGE_FILTER = "calculation_relevance/any(t: t eq 'coverage_rule')"
 async def retrieve_coverage(
     description: str,
     *,
+    also_covering: str | int | None = None,
     top_sections: int = 8,
     char_budget: int = 12000,
 ) -> list[RetrievedSection]:
@@ -653,6 +654,12 @@ async def retrieve_coverage(
 
     Args:
         description: How the member described themselves, in their own words.
+        also_covering: An Article whose own coverage sections must be included
+            whatever the description ranked. Passed the member's Article, so
+            that the assessment reads the test their record rests on and not
+            only the tests their words matched. Searching "park employee"
+            returns four Article 12 sections and nothing from Article 11, which
+            is correct ranking and a one-sided brief.
         top_sections: Distinct sections to assemble.
         char_budget: Total character budget across them.
 
@@ -683,10 +690,27 @@ async def retrieve_coverage(
         if score > section_scores.get(section_id, 0.0):
             section_scores[section_id] = score
 
-    if not section_scores:
+    # The record's own Article, fetched by its filter rather than ranked, so it
+    # is present however poorly the member's wording happens to match it.
+    home: list[str] = []
+    if also_covering:
+        home_docs = await _search_one(
+            description or "coverage",
+            None,
+            f"{_COVERAGE_FILTER} and article eq '{also_covering}'",
+            4,
+        )
+        home = list(
+            dict.fromkeys(
+                doc["section"] for doc in home_docs if doc.get("section")
+            )
+        )
+
+    if not section_scores and not home:
         return []
 
-    chosen = sorted(section_scores, key=section_scores.get, reverse=True)[:top_sections]
+    ranked = sorted(section_scores, key=lambda s: section_scores[s], reverse=True)
+    chosen = list(dict.fromkeys(ranked[:top_sections] + home))
     grouped = await fetch_sections(chosen)
 
     assembled: list[RetrievedSection] = []

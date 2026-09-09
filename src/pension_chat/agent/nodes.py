@@ -742,7 +742,20 @@ async def assess_coverage(state: PensionAgentState) -> dict:
     if not settings.coverage_assessment:
         return {"self_reference": reference.to_dict()}
 
-    sections = await retrieve_coverage(reference.text)
+    # The member's own Article goes in alongside whatever their description
+    # ranked, because the assessment is being asked to weigh a description
+    # against a record and cannot do that having read only one side.
+    #
+    # It is not there by default. Searching "park employee" returns Sections
+    # 12-118, 12-120, 12-101 and 12-119 — every one of them Article 12, which
+    # is correct and is also the entire top of the list. Section 11-110, the
+    # test the record's own Article applies, does not appear at all, so the
+    # model cannot say what the record would have to be right about, and
+    # `adjudicate` compares a description against an Article number with no
+    # text behind it.
+    sections = await retrieve_coverage(
+        reference.text, also_covering=record_article
+    )
     report = await coverage_mod.assess(reference.text, sections)
     verdict = coverage_mod.adjudicate(reference, report, record_article, turn=turn)
 
