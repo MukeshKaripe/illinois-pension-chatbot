@@ -850,3 +850,57 @@ def test_an_ordinary_member_is_still_told_which_article_governs_them():
     assert not _verify(
         answer, {"basis": cov.BASIS_RECORD, "described_as": "park employee"}
     ).passed
+
+
+# ── Nobody at all ─────────────────────────────────────────────────
+
+
+def test_an_anonymous_member_is_not_told_which_article_covers_them():
+    """The gate above lets this through, and it is the worse case of the two.
+
+    `UNSUPPORTED_COVERAGE` only fires when the member described themselves,
+    because with an ordinary member an answer naming their Article is reporting
+    their file — correct, and usually the question. An anonymous member has no
+    file to report, and says nothing, so `described_as` is empty and the check
+    never runs: the answer invents a fund for someone who never named one and
+    passes every provenance check on the way out.
+    """
+    report = _verify(
+        "You are covered by Article 11, so your annuity is computed under "
+        "Section 11-134(a). [40 ILCS 5/11-134]",
+        {
+            "basis": cov.BASIS_UNRESOLVED,
+            "record_article": None,
+            "described_as": None,
+        },
+    )
+    assert not report.passed
+    assert [f["code"] for f in report.hard_failures] == ["UNSUPPORTED_COVERAGE"]
+
+
+def test_an_anonymous_member_may_still_be_told_what_an_article_provides():
+    """Explaining the law is the anonymous mode's whole purpose.
+
+    The check is on telling someone which Article covers *them*, not on naming
+    an Article at all — otherwise every educational answer is withdrawn.
+    """
+    report = _verify(
+        "Article 11 computes the minimum annuity at 2.40% of final average "
+        "salary for each year of service. [40 ILCS 5/11-134]",
+        {
+            "basis": cov.BASIS_UNRESOLVED,
+            "record_article": None,
+            "described_as": None,
+        },
+    )
+    assert report.passed
+
+
+def test_a_member_with_a_record_is_unaffected():
+    """The new gate must not catch the case the old one deliberately spares."""
+    report = _verify(
+        "Your record places you under Article 11, so Section 11-134(a) applies. "
+        "[40 ILCS 5/11-134]",
+        {"basis": cov.BASIS_RECORD, "record_article": "11", "described_as": None},
+    )
+    assert report.passed

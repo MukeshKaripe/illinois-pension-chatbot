@@ -1038,7 +1038,27 @@ def _governing_article(state: PensionAgentState) -> int:
     if employee:
         return int(employee["article_number"])
     named = [a for a in (state.get("explicit_articles") or []) if a.isdigit()]
-    return int(named[0]) if named else 11
+    if named:
+        return int(named[0])
+
+    # Nobody said, and there is no record. Ask the text that was actually
+    # retrieved rather than reaching for a default: with no record, retrieval
+    # ran unfiltered, so the sections that came back are the closest thing to
+    # evidence of which Article the question was about. Falling straight to 11
+    # picked one fund for an anonymous member on no evidence at all, and then
+    # used it as the registry lookup key.
+    from_sections = _article_of_sections(
+        [s["section"] for s in state.get("retrieved_sections") or []]
+    )
+    if from_sections is not None:
+        return from_sections
+
+    # Nothing agrees, so this is a guess and stays one. Article 11 is the pilot's
+    # own fund and the only one with a validated recipe, which makes it the least
+    # bad default -- but validation still has to catch a recipe whose sections do
+    # not match, and it is the thing to revisit first if that ever slips.
+    logger.info("No evidence of a governing Article this turn; defaulting to 11")
+    return 11
 
 
 def _article_of_sections(sections) -> int | None:

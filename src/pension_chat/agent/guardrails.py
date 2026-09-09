@@ -35,7 +35,7 @@ from typing import Any
 
 # The coverage vocabulary lives with the module that produces it, so the
 # check here and the adjudication there cannot drift apart.
-from pension_chat.agent.coverage import ESTABLISHED_BASES
+from pension_chat.agent.coverage import BASIS_UNRESOLVED, ESTABLISHED_BASES
 
 logger = logging.getLogger("pension_chat.agent.guardrails")
 
@@ -622,6 +622,21 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
     # member who never mentioned their job — so "which retirement provision
     # applies to me?", close to this assistant's whole purpose, had its answer
     # withdrawn.
+    # With no record at all the justification above disappears. There is no file
+    # to be reporting, so an answer naming an Article as the member's is not
+    # attributing anything — it is inventing a fund for someone who never said
+    # which one they are in, and `described_as` is empty precisely because they
+    # said nothing. That is the case the gate above lets through untouched.
+    if asserted and not coverage.get("record_article") and basis == BASIS_UNRESOLVED:
+        report.fail(
+            "UNSUPPORTED_COVERAGE",
+            "The answer tells the member which Article covers them, but there is "
+            "no record for this member and they have not said which fund they are "
+            "in. Ask which fund or employer they are under before treating any "
+            "Article as theirs.",
+        )
+        return
+
     if asserted and coverage.get("described_as") and basis not in ESTABLISHED_BASES:
         # Attribution is the whole difference. "Your record places you under
         # Article 11" is a true statement about the file and is exactly what the
