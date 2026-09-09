@@ -46,6 +46,28 @@ def nth_birthday(birth_date: date, age: int) -> date:
         return birth_date.replace(year=birth_date.year + age, day=28)
 
 
+# Tier 2 is Section 1-160's "new hires" rule, and it names Articles 8 through 12
+# outright. The date is the whole test.
+TIER_2_FROM = date(2011, 1, 1)
+
+
+def derive_tier(first_participation: date) -> int:
+    """Which tier a member falls in, from the date they first participated.
+
+    Tier is never asked for. It follows from one date, the `CHECK (tier IN
+    (1,2))` on the column means a wrong answer is silently *accepted*, and tier
+    selects the accrual rule via Section 1-160 as well as keying the recipe
+    registry lookup — so a wrong tier is a wrong pension with nothing on screen
+    to say so.
+
+    The approximation worth being honest about: the statute turns on first
+    participation in *any* covered system, not on the hire date into this one. A
+    member with pre-2011 reciprocal service who joined this fund in 2015 is Tier
+    1, and a hire date alone gets them wrong.
+    """
+    return 2 if first_participation >= TIER_2_FROM else 1
+
+
 def highest_average_salary(
     salary_history: list[tuple[date, Decimal]],
     consecutive_years: int,

@@ -100,7 +100,7 @@ cases:
     # every coverage check could only ever fire one way. This member says the
     # same words as G31 and their record agrees — so the assistant must
     # recognise that and answer, not ask.
-    employee: "8b33966a-8d4d-47e5-8fbf-fc950239f111"
+    employee: article-12-standard
     turns:
       - q: i am a park employee, how is my pension calculated?
         expect:

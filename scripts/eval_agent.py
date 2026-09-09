@@ -57,12 +57,20 @@ os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from pension_chat import personas  # noqa: E402
 from pension_chat.agent.graph import run_agent_stream  # noqa: E402
 from pension_chat.agent.llm import close_clients  # noqa: E402
 from pension_chat.calculation.applicability import normalize_fact_name  # noqa: E402
 
 EVALS = Path(__file__).resolve().parents[1] / "evals"
-TEST_EMPLOYEE = "de75c498-20cc-446d-8858-ec26303349fa"
+
+# The default member every case runs as unless it names another. Taken from
+# `personas.py` rather than pasted, because it used to be pasted: the column
+# defaulted to gen_random_uuid(), so a freshly seeded database produced an id
+# this constant did not match, and every case then ran anonymously -- passing or
+# failing on the wrong footing, without anything reporting that the member was
+# missing.
+TEST_EMPLOYEE = str(personas.ARTICLE_11_STANDARD.id)
 
 
 # ── Loading ───────────────────────────────────────────────────────
@@ -147,6 +155,20 @@ async def run_turn(question: str, thread: str, employee_id: str | None) -> dict:
     }
 
 
+def resolve_employee(employee: str, default_employee: str | None) -> str | None:
+    """Turn a case's `employee:` into an id.
+
+    A case may name a persona key (`article-12-standard`), which is what new
+    cases should do — a failure report then says which member it ran as instead
+    of a UUID nobody can place. Raw ids still resolve, since older cases carry
+    them, and `default` is whichever persona the run was started with.
+    """
+    if employee == "default":
+        return default_employee
+    persona = personas.by_key(employee)
+    return str(persona.id) if persona else employee
+
+
 async def run_case(case: dict, default_employee: str | None) -> list[dict]:
     """Run every turn of one case, on one thread.
 
@@ -155,11 +177,7 @@ async def run_case(case: dict, default_employee: str | None) -> list[dict]:
     turn one established instead of being handed a transcript to re-read.
     """
     employee = case.get("employee", "default")
-    employee_id = (
-        None
-        if employee == "anon"
-        else (default_employee if employee == "default" else employee)
-    )
+    employee_id = None if employee == "anon" else resolve_employee(employee, default_employee)
     thread = str(uuid.uuid4())
 
     turns: list[dict] = []

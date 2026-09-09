@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from pension_chat import personas
+
 ROOT = Path(__file__).resolve().parents[1]
 EVALS = ROOT / "evals"
 HARNESS = ROOT / "scripts" / "eval_agent.py"
@@ -103,6 +105,27 @@ def test_every_case_has_the_shape_the_runner_expects(case):
     assert case.get("status", "active") in {"active", "expected_fail", "blocked"}
     assert case.get("employee", "default") == "anon" or isinstance(
         case.get("employee", "default"), str
+    )
+
+
+@pytest.mark.parametrize("case", ALL_CASES, ids=lambda c: str(c["id"]))
+def test_every_case_names_a_member_that_exists(case):
+    """The failure this catches is silent, which is why it is worth a test.
+
+    A case naming an employee id that no longer exists does not error — the
+    agent simply finds no record and answers as though the member were
+    anonymous, so the case passes or fails on the wrong footing with nothing
+    reporting that its member was missing. That was live: both seeded members
+    took `gen_random_uuid()`, while this suite and `eval_agent.py` each pinned
+    one of the ids a particular database happened to generate.
+    """
+    employee = case.get("employee", "default")
+    if employee in {"default", "anon"}:
+        return
+    assert personas.by_key(employee) is not None, (
+        f"{case['id']} names employee {employee!r}, which is not a persona key. "
+        "New cases should use a key from personas.py so the member is defined "
+        "somewhere rather than pinned to one database's generated id."
     )
 
 

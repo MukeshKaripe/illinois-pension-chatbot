@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import date
-from decimal import Decimal
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -19,10 +17,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from sqlalchemy import select
+# Imported after load_dotenv() on purpose: pension_chat.config reads the
+# environment, so the .env file has to be in place before these bind.
+from sqlalchemy import select  # noqa: E402
 
-from pension_chat.db.models import Employee, EmployeeSalaryHistory, PensionArticle
-from pension_chat.db.session import get_admin_session
+from pension_chat import personas  # noqa: E402
+from pension_chat.db.models import (  # noqa: E402
+    Employee,
+    EmployeeSalaryHistory,
+    PensionArticle,
+)
+from pension_chat.db.session import get_admin_session  # noqa: E402
 
 # ── Seed data ─────────────────────────────────────────────────────
 
@@ -34,60 +39,6 @@ ARTICLES = [
     {
         "article_number": 12,
         "system_name": "Park Employees' & Retirement Board Employees' Annuity and Benefit Fund",
-    },
-]
-
-
-# Single test employee as requested
-EMPLOYEES = [
-    {
-        "email": "pen_test_1@yopmail.com",
-        "article_number": 11,
-        "tier": 1,
-        "birth_date": date(1970, 5, 15),
-        "hire_date": date(2005, 3, 1),
-        "employment_status": "active",
-        "total_service_years": Decimal("21.50"),
-        "current_annual_salary": Decimal("72000.00"),
-        "salary_history": [
-            # 8 years of salary history for FAS calculation
-            (date(2018, 1, 1), Decimal("58000.00")),
-            (date(2019, 1, 1), Decimal("59740.00")),
-            (date(2020, 1, 1), Decimal("61532.20")),
-            (date(2021, 1, 1), Decimal("63378.17")),
-            (date(2022, 1, 1), Decimal("65279.51")),
-            (date(2023, 1, 1), Decimal("67237.89")),
-            (date(2024, 1, 1), Decimal("69255.03")),
-            (date(2025, 1, 1), Decimal("71332.68")),
-            (date(2026, 1, 1), Decimal("72000.00")),
-        ],
-    },
-    # An Article 12 member, so that the *agreeing* case can be tested at all.
-    # With only the Article 11 employee above, every question from someone who
-    # describes themselves as a park employee is a coverage conflict, and a
-    # check that can only ever fire one way proves nothing. This member says
-    # "I am a park employee" and their record agrees — the assistant must
-    # recognise that and answer, not ask.
-    {
-        "email": "pen_test_2@yopmail.com",
-        "article_number": 12,
-        "tier": 1,
-        "birth_date": date(1968, 9, 2),
-        "hire_date": date(2001, 7, 16),
-        "employment_status": "active",
-        "total_service_years": Decimal("25.00"),
-        "current_annual_salary": Decimal("68000.00"),
-        "salary_history": [
-            (date(2018, 1, 1), Decimal("55000.00")),
-            (date(2019, 1, 1), Decimal("56650.00")),
-            (date(2020, 1, 1), Decimal("58349.50")),
-            (date(2021, 1, 1), Decimal("60099.99")),
-            (date(2022, 1, 1), Decimal("61902.98")),
-            (date(2023, 1, 1), Decimal("63760.07")),
-            (date(2024, 1, 1), Decimal("65672.87")),
-            (date(2025, 1, 1), Decimal("67643.06")),
-            (date(2026, 1, 1), Decimal("68000.00")),
-        ],
     },
 ]
 
@@ -117,34 +68,35 @@ async def seed():
         await db.flush()
 
         # ── Seed employees ────────────────────────────────────────
-        for emp_data in EMPLOYEES:
+        #
+        # The two pilot members come from `personas.py`, which is also what the
+        # signup picker and the eval harness read. They carry explicit ids on
+        # purpose: `eval_agent.py` and `gold_coverage.yaml` name those ids
+        # outright, and while the column defaulted to `gen_random_uuid()` a
+        # freshly seeded database bound both cases to nothing at all -- without
+        # failing, because a case with no such employee simply runs anonymous.
+        for persona in personas.SEEDED:
             existing = await db.execute(
-                select(Employee).where(Employee.email == emp_data["email"])
+                select(Employee).where(Employee.id == persona.id)
             )
             if existing.scalar_one_or_none() is not None:
-                print(f"  · Employee {emp_data['email']} already exists, skipping")
+                print(f"  · Employee {persona.email} already exists, skipping")
                 continue
 
-            salary_history = emp_data.pop("salary_history", [])
-            employee = Employee(**emp_data)
-            db.add(employee)
+            db.add(Employee(email=persona.email, **personas.to_employee_kwargs(persona)))
             await db.flush()
-            await db.refresh(employee)
 
-            # Add salary history
-            for eff_date, salary in salary_history:
+            for eff_date, salary in persona.salary_history:
                 db.add(EmployeeSalaryHistory(
-                    employee_id=employee.id,
+                    employee_id=persona.id,
                     effective_date=eff_date,
                     annual_salary=salary,
                 ))
 
-            print(f"  ✓ Created employee: {emp_data['email']} "
-                  f"(Article {emp_data['article_number']}, Tier {emp_data['tier']}, "
-                  f"hired {emp_data['hire_date']}, "
-                  f"salary ${emp_data['current_annual_salary']:,.2f})")
-            # Restore for potential re-run
-            emp_data["salary_history"] = salary_history
+            print(f"  ✓ Created employee: {persona.email} "
+                  f"(Article {persona.article_number}, Tier {persona.tier}, "
+                  f"hired {persona.hire_date}, "
+                  f"salary ${persona.current_annual_salary:,.2f})")
 
         await db.commit()
         print("\n✅ Seed complete!")
