@@ -28,7 +28,9 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "bcrypt==4.0.1",
     # Config & utils
-    "pydantic>=2.9.0",
+    # `pydantic[email]` rather than plain pydantic: signup takes EmailStr, and
+    # email is the account identity, so a bare `str` there is not a field type.
+    "pydantic[email]>=2.9.0",
     "pydantic-settings>=2.6.0",
     "python-dotenv>=1.0.1",
     "httpx>=0.27.0",

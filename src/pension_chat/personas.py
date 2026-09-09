@@ -375,10 +375,18 @@ def validate(persona: Persona, today: date | None = None) -> list[str]:
     return problems
 
 
-def to_employee_kwargs(persona: Persona) -> dict[str, object]:
-    """The column values for an `employees` row, tier derived rather than given."""
+def to_employee_kwargs(
+    persona: Persona, employee_id: uuid.UUID | None = None
+) -> dict[str, object]:
+    """The column values for an `employees` row, tier derived rather than given.
+
+    `employee_id` overrides the persona's own id, and signup always passes one:
+    a persona is a template, and two people picking the same one are two members
+    with two records, not one row with two passwords. The persona's id is used
+    only for the seeded pilot members, where it is what the benchmark binds to.
+    """
     return {
-        "id": persona.id,
+        "id": employee_id or persona.id,
         "article_number": persona.article_number,
         "tier": persona.tier,
         "birth_date": persona.birth_date,

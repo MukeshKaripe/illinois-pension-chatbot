@@ -23,8 +23,14 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
-from pension_chat.api.auth import TokenData, require_admin
+from pension_chat import personas
+from pension_chat.api.auth import (
+    SignupRequest,
+    TokenData,
+    require_admin,
+)
 from pension_chat.config import (
     MIN_JWT_SECRET_LENGTH,
     PLACEHOLDER_JWT_SECRET,
@@ -169,3 +175,78 @@ def test_production_refuses_a_short_secret():
 def test_production_accepts_a_real_secret():
     secret = "a" * MIN_JWT_SECRET_LENGTH
     assert _settings(app_env="production", jwt_secret_key=secret).jwt_secret_key == secret
+
+
+# ── Signup validation ─────────────────────────────────────────────
+
+
+def _signup(**overrides) -> dict:
+    return {
+        "email": "New.Member@Example.com",
+        "password": "a-long-enough-passphrase",
+        "persona": "article-11-standard",
+    } | overrides
+
+
+def test_the_email_is_lowercased_to_match_the_index():
+    """The unique index is on lower(email), so the payload has to agree.
+
+    Otherwise a duplicate arrives as a constraint violation naming a value the
+    member would not recognise, instead of a clean 409.
+    """
+    assert SignupRequest(**_signup()).email == "new.member@example.com"
+    assert SignupRequest(**_signup(email="  Spaced@Example.com  ")).email == (
+        "spaced@example.com"
+    )
+
+
+def test_an_unparseable_email_is_refused():
+    with pytest.raises(ValidationError):
+        SignupRequest(**_signup(email="not-an-address"))
+
+
+@pytest.mark.parametrize(
+    ("password", "why"),
+    [
+        ("short", "at least"),
+        ("a" * 129, "at most 128"),
+        # bcrypt truncates at 72 *bytes* without saying so, and a
+        # length-over-composition rule is exactly what encourages a long
+        # passphrase. Refusing beats silently shortening.
+        ("é" * 40, "bytes"),
+    ],
+)
+def test_a_password_bcrypt_would_mangle_is_refused(password, why):
+    with pytest.raises(ValidationError, match=why):
+        SignupRequest(**_signup(password=password))
+
+
+def test_a_password_of_exactly_seventy_two_bytes_is_accepted():
+    """The bound is bcrypt's, so the last byte that survives must be allowed."""
+    assert len(SignupRequest(**_signup(password="a" * 72)).password) == 72
+
+
+def test_signup_cannot_set_the_fields_that_would_matter():
+    """An open endpoint plus a permissive schema is a privilege-escalation path.
+
+    `extra="forbid"` is what makes an `is_admin` in the payload a 422 rather
+    than a field silently ignored today and silently honoured the first time
+    somebody builds the row by splatting the request.
+    """
+    for smuggled in ({"is_admin": True}, {"tier": 1}, {"id": "x"}, {"is_synthetic": False}):
+        with pytest.raises(ValidationError):
+            SignupRequest(**_signup(**smuggled))
+
+    with pytest.raises(ValidationError):
+        SignupRequest(**_signup(edits={"tier": 2}))
+
+
+def test_edits_are_limited_to_the_editable_fields():
+    request = SignupRequest(**_signup(edits={"current_annual_salary": "90000.00"}))
+    assert set(request.edits.model_dump(exclude_none=True)) == {"current_annual_salary"}
+    assert set(request.edits.model_dump()) <= set(personas.EDITABLE_FIELDS)
+
+
+def test_an_employment_status_outside_the_check_constraint_is_refused():
+    with pytest.raises(ValidationError):
+        SignupRequest(**_signup(edits={"employment_status": "on sabbatical"}))
