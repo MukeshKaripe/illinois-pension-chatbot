@@ -19,8 +19,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from pension_chat.agent.llm import complete
+from pension_chat.agent.worksheet import WorkSheet
+from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.understanding")
 
@@ -149,3 +154,79 @@ def parse_understanding(raw: str) -> TurnUnderstanding:
         answers_open_question=_as_bool(data.get("answers_open_question"), False),
         search_queries=_as_str_list(data.get("search_queries")),
     )
+
+
+def _context(sheet: WorkSheet, state: dict[str, Any]) -> str:
+    """What the model needs to know about this member and this conversation."""
+    known = ", ".join(
+        f"{name}={value}" for name, value in sorted(sheet.usable_values().items())
+    )
+    figures = "; ".join(
+        f"{label}: {figure.result} from {list(figure.rests_on)} "
+        f"under {figure.provision.get('section')}"
+        for label, figure in sheet.figures.items()
+    )
+    open_items = "; ".join(item.what for item in sheet.open_items)
+
+    lines = [f"What is known about this member: {known or 'nothing yet'}"]
+    if figures:
+        lines.append(f"Worked out earlier in this conversation: {figures}")
+    if open_items:
+        lines.append(f"Put to the member last turn: {open_items}")
+    return "\n".join(lines)
+
+
+async def understand_turn(state: dict[str, Any]) -> dict[str, Any]:
+    """Decide what this turn is, and what an earlier turn's figures owe it.
+
+    Runs concurrently with the record fetch. That is safe because the sheet is
+    durable: from the second turn onwards the member's facts are already in the
+    checkpoint, and on the first turn there is nothing yet to contradict.
+    """
+    started = time.perf_counter()
+    settings = get_settings()
+    sheet = WorkSheet.from_state(state)
+
+    history = "\n".join(
+        f"{getattr(message, 'type', '?')}: {message.content}"
+        for message in (state.get("messages") or [])[-settings.history_turns * 2 :]
+    )
+
+    try:
+        raw = await complete(
+            node="understand_turn",
+            messages=[
+                {"role": "system", "content": UNDERSTAND_SYSTEM},
+                {
+                    "role": "user",
+                    "content": (
+                        f"{_context(sheet, state)}\n\n"
+                        f"Conversation so far:\n{history}\n\n"
+                        f"Member's new message: {state['question']}"
+                    ),
+                },
+            ],
+            reasoning_effort=settings.reasoning_effort_understand,
+            json_mode=True,
+        )
+        result = parse_understanding(raw)
+    except Exception as exc:
+        logger.warning("Turn understanding failed (%s); falling open", exc)
+        result = fallback_understanding()
+
+    stale = sorted(sheet.apply_revisions(result.revised_facts, state.get("turn_index") or 0))
+
+    return {
+        "in_scope": result.in_scope,
+        "out_of_scope_reason": result.out_of_scope_reason,
+        "intent": result.intent,
+        "requires_calculation": result.needs_figure or bool(stale),
+        "formula_types_needed": result.benefit_types if result.needs_figure or stale else [],
+        "search_queries": result.search_queries,
+        "scenarios": result.scenarios,
+        "unresolved": result.unresolved,
+        "answerable_part": result.answerable_part,
+        "stale_figures": stale,
+        **sheet.to_state_update(),
+        "timings": {"understand_turn": time.perf_counter() - started},
+    }

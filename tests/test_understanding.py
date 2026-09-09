@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from pension_chat.agent.understanding import (
     fallback_understanding,
     parse_understanding,
@@ -101,3 +103,54 @@ def test_unrecognized_types_in_scope_fall_open() -> None:
 
     result_empty_list = parse_understanding('{"in_scope": []}')
     assert result_empty_list.in_scope is True
+
+
+async def test_the_node_falls_open_when_the_model_call_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pension_chat.agent import understanding
+
+    async def boom(**kwargs: object) -> str:
+        raise RuntimeError("endpoint down")
+
+    monkeypatch.setattr(understanding, "complete", boom)
+    update = await understanding.understand_turn(
+        {"question": "how much pension will i get", "turn_index": 1, "messages": []}
+    )
+    assert update["in_scope"] is True
+    assert update["requires_calculation"] is False
+
+
+async def test_the_node_maps_its_result_onto_the_state_keys_the_graph_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pension_chat.agent import understanding
+
+    async def canned(**kwargs: object) -> str:
+        return (
+            '{"in_scope": true, "needs_figure": true, "recompute": true, '
+            '"benefit_types": ["retirement_annuity"], '
+            '"revised_facts": {"service_years": 23}, '
+            '"search_queries": ["minimum annuity"]}'
+        )
+
+    monkeypatch.setattr(understanding, "complete", canned)
+    update = await understanding.understand_turn(
+        {
+            "question": "actually it's more like 23 years",
+            "turn_index": 2,
+            "messages": [],
+            "member_facts": {"service_years": 21.5},
+            "assumptions": {},
+            "baseline": {
+                "result": {"annual_amount": "32126.78"},
+                "provision": {"section": "11-134"},
+                "rests_on": ["service_years"],
+                "turn": 1,
+            },
+        }
+    )
+    assert update["requires_calculation"] is True
+    assert update["formula_types_needed"] == ["retirement_annuity"]
+    assert update["search_queries"] == ["minimum annuity"]
+    assert update["stale_figures"] == ["now"]

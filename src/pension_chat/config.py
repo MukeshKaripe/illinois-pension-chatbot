@@ -130,6 +130,11 @@ class Settings(BaseSettings):
     # opening sentence rather than only in the assumptions block.
     materiality_threshold: float = 0.02
 
+    # Routing by model rather than by word list. Off by default so the change
+    # can be measured against the eval suite before it becomes the only path.
+    model_turn_understanding: bool = False
+    reasoning_effort_understand: str = "none"
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

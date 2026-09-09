@@ -102,6 +102,16 @@ class PensionAgentState(TypedDict, total=False):
     explicit_articles: list[str]
     # Scenario variants to evaluate, e.g. [{"label": "at age 60", "retirement_age": 60}]
     scenarios: list[dict]
+    # What the member's message actually wants, one short phrase. Set only by
+    # `understand_turn`; the regex path has no equivalent.
+    intent: str
+    # Things the turn raised that could not be settled: [{"what", "why"}].
+    unresolved: list[dict[str, Any]]
+    # When part of the message is outside the Pension Code, the part that is in it.
+    answerable_part: str
+    # Figures an earlier turn worked out whose inputs this turn contradicted.
+    # Non-empty means the calculation branch runs whatever words were used.
+    stale_figures: list[str]
 
     # ── Execution State ───────────────────────────────────────────
     employee_record: dict | None
@@ -283,6 +293,10 @@ def initial_state(
         "explicit_sections": [],
         "explicit_articles": [],
         "scenarios": [],
+        "intent": "",
+        "unresolved": [],
+        "answerable_part": "",
+        "stale_figures": [],
         "employee_record": None,
         "salary_history": [],
         "member_facts": {},

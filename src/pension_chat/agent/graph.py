@@ -61,6 +61,7 @@ from pension_chat.agent.nodes import (
     validate_recipes,
 )
 from pension_chat.agent.state import PensionAgentState, initial_state, turn_input
+from pension_chat.agent.understanding import understand_turn
 from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
 
@@ -70,6 +71,7 @@ logger = logging.getLogger("pension_chat.agent.graph")
 # adding a node without a label is visible rather than silent.
 STAGE_LABELS = {
     "triage": "reading your question",
+    "understand_turn": "reading your question",
     "plan_request": "planning",
     "fetch_employee_record": "loading your record",
     "retrieve_policy": "searching the Pension Code",
@@ -109,7 +111,8 @@ def _in_scope(state: PensionAgentState) -> str | list[str]:
     """
     if not state.get("in_scope", True):
         return "decline"
-    return ["plan_request", "fetch_employee_record"]
+    planner = "understand_turn" if get_settings().model_turn_understanding else "plan_request"
+    return [planner, "fetch_employee_record"]
 
 
 async def decline(state: PensionAgentState) -> dict:
@@ -137,10 +140,21 @@ def build_graph(checkpointer: Any | None = None):
     conversation is a thread and a follow-up resumes from what the previous turn
     established.
     """
+    settings = get_settings()
+    # `understand_turn` takes plan_request's place in the graph, behind a flag:
+    # both nodes are always registered, but only the chosen one is wired into
+    # the entry edges, so a flag flip needs no graph surgery either way.
+    planner = "understand_turn" if settings.model_turn_understanding else "plan_request"
+
     workflow = StateGraph(PensionAgentState)
 
     workflow.add_node("triage", triage)
     workflow.add_node("plan_request", plan_request)
+    # `understand_turn` reads/returns `dict[str, Any]` rather than
+    # `PensionAgentState` (Task 7's module is exercised with plain dicts in
+    # unit tests, with no network); the two are structurally compatible at
+    # runtime, so the mismatch is only in the static type LangGraph infers.
+    workflow.add_node("understand_turn", cast(Any, understand_turn))
     workflow.add_node("decline", decline)
     workflow.add_node("fetch_employee_record", fetch_employee_record)
     workflow.add_node("assess_coverage", assess_coverage)
@@ -155,7 +169,7 @@ def build_graph(checkpointer: Any | None = None):
     workflow.add_conditional_edges(
         "triage",
         _in_scope,
-        ["plan_request", "fetch_employee_record", "decline"],
+        [planner, "fetch_employee_record", "decline"],
     )
     workflow.add_edge("decline", END)
 
@@ -164,7 +178,7 @@ def build_graph(checkpointer: Any | None = None):
     # services, so running them concurrently takes one of them off the critical
     # path entirely. Retrieval waits for both: it needs the queries from one and
     # the member's Article number from the other.
-    workflow.add_edge(["plan_request", "fetch_employee_record"], "assess_coverage")
+    workflow.add_edge([planner, "fetch_employee_record"], "assess_coverage")
     # Coverage decides which Article this turn reads from, so it has to settle
     # before retrieval filters on one. It joins after the record fetch because
     # it needs something to disagree with, and it returns immediately on any
