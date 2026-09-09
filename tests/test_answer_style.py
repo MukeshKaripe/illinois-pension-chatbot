@@ -26,6 +26,7 @@ from pension_chat.agent.guardrails import GuardrailReport, fallback_answer
 from pension_chat.agent.nodes import (
     _ASK_INSTEAD,
     ANSWER_SYSTEM,
+    _dedupe_missing_inputs,
     _format_calculation,
     prepare_answer,
 )
@@ -275,17 +276,44 @@ def test_derived_quantities_are_asked_for_by_their_underlying_facts():
         assert "_" not in phrasing
 
 
-def test_the_house_style_acknowledges_what_is_known_before_asking():
+def test_missing_inputs_asking_the_same_thing_collapse_to_one() -> None:
+    """Two declared inputs that cash out to the same question ask it once.
+
+    "months_before_age_60" and "age_at_withdrawal" both read back through
+    _ASK_INSTEAD as "your date of birth" -- a recipe can easily declare both,
+    and a list asking for someone's date of birth twice looks like nobody
+    read the first answer.
+    """
+    first = {
+        "name": "months_before_age_60",
+        "ask_for": _ASK_INSTEAD["months_before_age_60"],
+        "withheld": True,
+        "withheld_basis": "on file, but not usable while this conversation is reading another Article",
+        "already_asked": True,
+    }
+    second = {"name": "age_at_withdrawal", "ask_for": _ASK_INSTEAD["age_at_withdrawal"]}
+    unrelated = {"name": "final_average_salary", "ask_for": _ASK_INSTEAD["final_average_salary"]}
+
+    deduped = _dedupe_missing_inputs([first, second, unrelated])
+
+    # The duplicate is dropped, not merged -- the first entry's position and
+    # contents survive completely unchanged.
+    assert deduped == [first, unrelated]
+    assert deduped[0]["withheld"] is True
+    assert deduped[0]["withheld_basis"] == first["withheld_basis"]
+    assert deduped[0]["already_asked"] is True
+
+
+def test_the_house_style_acknowledges_what_is_known_before_asking() -> None:
     """This acknowledgement used to be ANSWER_SYSTEM's per-shape prose for a
     question the calculation could not answer; it now lives in the "clarify"
     template's guidance (presentation.py), which prepare_answer selects for
-    exactly that turn. The "ask_for" wording it used to name for the model is
-    no longer spelled out in prose -- each missing-input entry already carries
-    its own "ask_for" field (see tests/test_worksheet.py, test_assumptions.py),
-    and the model is handed the JSON directly rather than being told the key
-    to look for.
+    exactly that turn -- "ask_for" wording restored per fix round 1 after the
+    audit found it survived nowhere.
     """
-    assert "what they told you" in template_for("clarify").guidance
+    guidance = template_for("clarify").guidance
+    assert "what they told you" in guidance
+    assert '"ask_for"' in guidance or "ask_for" in guidance
 
 
 def test_the_house_style_forbids_reusing_derivation_time_facts():

@@ -1499,11 +1499,33 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         # cannot use under this premise is not missing either -- it is withheld,
         # and saying so is the difference between "tell me your age" and "your
         # file has your age, but I am not using it while we talk about Article 12".
-        "missing_inputs": still_missing,
+        "missing_inputs": _dedupe_missing_inputs(still_missing),
         "input_overrides": overrides,
         **sheet.to_state_update(),
         "timings": {"resolve_inputs": time.perf_counter() - started},
     }
+
+
+def _dedupe_missing_inputs(missing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse asks that cash out to the same question.
+
+    Two declared inputs can share an `ask_for` -- `withdrawal_date` and
+    `annuity_start_date` both read back as "the date you plan to stop
+    working" -- and asking for it twice looks like nobody read the first
+    answer. The first entry to name a given `ask_for` is kept exactly as it
+    is, `withheld`/`withheld_basis`/`already_asked` included if it carries
+    them; later entries asking the same thing are dropped rather than
+    merged, so nothing about the surviving entry needs to change.
+    """
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in missing:
+        ask_for = str(item.get("ask_for") or "")
+        if ask_for in seen:
+            continue
+        seen.add(ask_for)
+        deduped.append(item)
+    return deduped
 
 
 # ── 5. Validation ─────────────────────────────────────────────────

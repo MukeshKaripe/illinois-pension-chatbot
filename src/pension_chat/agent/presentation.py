@@ -115,7 +115,12 @@ TEMPLATES: dict[str, Template] = {
             "member who reads no further still has the answer. Never open with "
             "the table.\n"
             "what_changes: a sentence or two on what drives the difference, then "
-            "one line on what the projection holds constant."
+            "one line on what the projection holds constant. Where the member "
+            "asked what waiting gains them, each option already carries "
+            "difference_from_now_annual and difference_from_now_monthly -- copy "
+            "those. Never reach the figure by subtracting two options' amounts "
+            "yourself; one turn did, wrote $4,466.56, and had the whole answer "
+            "withdrawn."
         ),
     ),
     "legal": Template(
@@ -148,7 +153,11 @@ TEMPLATES: dict[str, Template] = {
             "plain you read what they told you.\n"
             "question: the one or two things that would settle it, in the "
             "plainest form they take. Closed questions where the Code allows. "
-            "Prose, never a table, and never more than two questions."
+            "Prose, never a table, and never more than two questions. Where "
+            "something is missing, ask for it in the words of that item's own "
+            "ask_for, never by the name the calculation uses for it -- asking "
+            "for 'the number of full months your annuity begins before age 60' "
+            "is asking the member to do the derivation themselves."
         ),
     ),
 }

@@ -60,3 +60,31 @@ def test_shape_and_template_agree_on_a_comparison_turn() -> None:
     sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": {}, "assumptions": {}})
     shape = shape_for(sheet, {"scenario_set": {"at 60": {}}, "calculation_result": {}})
     assert "COMPARISON" in template_for(shape).slots
+
+
+# ── Fix round 1: instructions the audit found surviving nowhere ───
+
+
+def test_the_clarify_template_says_to_ask_in_the_askfor_words() -> None:
+    """A recipe's input name is not a question a member can answer.
+
+    Asking for "the number of full months your annuity begins before age 60"
+    is asking the member to do the derivation themselves; the fix is to ask
+    for the underlying fact ("your date of birth") instead, in the words of
+    that missing-input entry's own "ask_for" field.
+    """
+    guidance = template_for("clarify").guidance
+    assert "ask_for" in guidance
+    assert "never by the name the calculation uses for it" in guidance
+
+
+def test_the_comparison_template_says_to_copy_the_precomputed_difference() -> None:
+    """The model must never subtract two options' amounts itself to answer
+    "what does waiting gain me" -- one turn did, wrote $4,466.56, and had the
+    whole answer withdrawn. Each option already carries
+    difference_from_now_annual and difference_from_now_monthly.
+    """
+    guidance = template_for("comparison").guidance
+    assert "difference_from_now_annual" in guidance
+    assert "difference_from_now_monthly" in guidance
+    assert "Never reach the figure by subtracting" in guidance
