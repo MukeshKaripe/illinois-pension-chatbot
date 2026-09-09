@@ -8,8 +8,15 @@ and it may never fill in things about who the member is or what they earned.
 Assuming a salary or a service figure does not estimate a member's pension; it
 invents a member.
 
-Every assumable rule also carries the words that count as disclosing it, so the
-guardrail can check that the answer said so rather than trusting that it did.
+## Disclosure contract for Task 6's guardrail
+
+An assumption is disclosed when the answer contains BOTH:
+1. A topic cue from the rule's ``disclosure_cues`` (e.g., "today", "retire", "birthday")
+2. An assumption signal from ``ASSUMPTION_SIGNALS`` (e.g., "assuming", "taken as")
+
+So "as of today your record shows 21.5 years" has a topic cue but no signal and fails
+the check, while "I'm assuming you retire today" has both and passes. This two-part model
+keeps topic cues broad (matching natural prose) while requiring an explicit intent marker.
 """
 
 from __future__ import annotations
@@ -38,6 +45,18 @@ NEVER_ASSUMABLE = frozenset(
         "total_service_years",
         "current_annual_salary",
         "salary_history",
+    }
+)
+
+#: Words that mark a sentence as disclosing an assumption rather than merely
+#: mentioning the topic. Used with topic cues to verify that an assumption was
+#: actually stated, not just that the topic came up.
+ASSUMPTION_SIGNALS = frozenset(
+    {
+        "assum",      # assume, assumed, assuming, assumption, assumes
+        "taken as",
+        "treating",
+        "unless you",
     }
 )
 
@@ -92,7 +111,7 @@ POLICY: dict[str, AssumptionRule] = {
         name="withdrawal_date",
         assumable=True,
         basis="the date you stop working, taken as today",
-        disclosure_cues=("retire now", "as of today", "stop working now", "retiring today", "stopping work today"),
+        disclosure_cues=("today", "retire", "stop working", "withdraw"),
         default=_today,
         plausible=lambda known: (_today(known), _today(known)) if _today(known) else None,
     ),
@@ -100,7 +119,7 @@ POLICY: dict[str, AssumptionRule] = {
         name="annuity_start_date",
         assumable=True,
         basis="the date your annuity starts, taken as the date you stop working",
-        disclosure_cues=("starts when you stop", "begins now", "starts today", "begins today"),
+        disclosure_cues=("annuity", "start", "begin", "today"),
         default=_today,
         plausible=lambda known: (_today(known), _today(known)) if _today(known) else None,
     ),
@@ -108,7 +127,7 @@ POLICY: dict[str, AssumptionRule] = {
         name="months_before_age_60",
         assumable=True,
         basis="your birthday falling mid-year, because your date of birth is not on file",
-        disclosure_cues=("date of birth", "your birthday", "were born"),
+        disclosure_cues=("birthday", "date of birth", "born"),
         default=_months_before_sixty,
         plausible=_months_before_sixty_range,
     ),

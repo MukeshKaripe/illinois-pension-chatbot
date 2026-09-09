@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from pension_chat.calculation.assumption_policy import (
+    ASSUMPTION_SIGNALS,
     NEVER_ASSUMABLE,
     POLICY,
     default_for,
@@ -69,17 +70,47 @@ def test_every_assumable_rule_is_complete() -> None:
         assert plausible_range(name, KNOWN) is not None, f"{name}: range unusable on known facts"
 
 
-def test_disclosure_cues_are_multi_word() -> None:
-    """No single-word disclosure cues, which could appear by accident.
+def test_assumption_signals_are_valid() -> None:
+    """ASSUMPTION_SIGNALS must be non-empty and all lowercase."""
+    assert ASSUMPTION_SIGNALS, "ASSUMPTION_SIGNALS cannot be empty"
+    for signal in ASSUMPTION_SIGNALS:
+        assert signal == signal.lower(), f"Signal '{signal}' is not lowercase"
 
-    A bare word like 'today' might appear in an answer for unrelated reasons,
-    defeating the guardrail that checks a cue was actually disclosed.
-    """
+
+def test_assumable_rules_have_topic_cues() -> None:
+    """Every assumable rule must have at least one topic cue."""
     for name, rule in POLICY.items():
         if not rule.assumable:
             continue
-        for cue in rule.disclosure_cues:
-            assert " " in cue, f"{name}: single-word cue '{cue}' could appear by accident"
+        assert rule.disclosure_cues, f"{name}: assumable but has no topic cues"
+
+
+def test_disclosure_contract_by_example() -> None:
+    """The disclosure contract: topic cue + assumption signal = disclosed.
+
+    This test pins the behaviour Task 6's guardrail will rely on.
+    A sentence with both a topic cue and an assumption signal satisfies the
+    contract; one with only a topic cue (but no signal) does not.
+    """
+    withdrawal_cues = POLICY["withdrawal_date"].disclosure_cues
+
+    # Sentence with both topic cue and signal: should satisfy both conditions
+    disclosed_sentence = "I've assumed you stop working today, unless you tell me otherwise."
+    has_topic = any(cue.lower() in disclosed_sentence.lower() for cue in withdrawal_cues)
+    has_signal = any(signal.lower() in disclosed_sentence.lower() for signal in ASSUMPTION_SIGNALS)
+    assert has_topic, f"'{disclosed_sentence}' should contain a topic cue for withdrawal_date"
+    assert has_signal, f"'{disclosed_sentence}' should contain an assumption signal"
+
+    # Sentence with topic cue but no signal: should fail the signal test
+    undisclosed_sentence = "As of today your record shows 21.5 years of service."
+    has_topic_undisclosed = any(
+        cue.lower() in undisclosed_sentence.lower() for cue in withdrawal_cues
+    )
+    has_signal_undisclosed = any(
+        signal.lower() in undisclosed_sentence.lower() for signal in ASSUMPTION_SIGNALS
+    )
+    assert has_topic_undisclosed, f"'{undisclosed_sentence}' should contain a topic cue"
+    assert not has_signal_undisclosed, f"'{undisclosed_sentence}' should NOT contain an assumption signal"
 
 
 def test_salary_aliases_are_in_never_assumable() -> None:
