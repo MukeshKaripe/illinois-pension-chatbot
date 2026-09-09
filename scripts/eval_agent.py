@@ -384,9 +384,20 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
             problems.append(f"read the member's words as {actual!r}, expected {expect['act']!r}")
 
     if not result["guardrail_passed"]:
+        report = result["guardrail_report"]
+        # The offending values come with it. A bare "UNVERIFIED_FIGURE" says a
+        # number could not be traced but not which one, and the answer it came
+        # from has already been replaced by the fallback — so the one piece of
+        # evidence needed to diagnose it is gone by the time anyone reads the
+        # run.
+        offenders = (
+            (report.get("unverified_numbers") or [])
+            + (report.get("unverified_citations") or [])
+        )
         problems.append(
             "guardrail rejected: "
-            + "; ".join(f["code"] for f in result["guardrail_report"].get("hard_failures", []))
+            + "; ".join(f["code"] for f in report.get("hard_failures", []))
+            + (f"  {offenders}" if offenders else "")
         )
 
     return problems

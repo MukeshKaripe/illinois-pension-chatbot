@@ -561,6 +561,12 @@ async def plan_request(state: PensionAgentState) -> dict:
 # ── 2a. Coverage ──────────────────────────────────────────────────
 
 
+# How many coverage sections may be pinned into one turn's retrieval. Bounded
+# because each is statute text the answer prompt then carries, but large
+# enough to cover every candidate the question names.
+_MAX_COVERAGE_SECTIONS = 6
+
+
 def _record_coverage(record_article: str | None, turn: int) -> dict:
     """What we believe when the member has said nothing about themselves."""
     return {
@@ -737,12 +743,15 @@ async def assess_coverage(state: PensionAgentState) -> dict:
     update = {
         "self_reference": reference.to_dict(),
         "coverage": verdict,
-        # Whatever the verdict, the sections it rests on go into this turn's
-        # retrieval. An answer that names Section 12-101 without its text in
-        # front of it is citing from memory.
+        # Every section the verdict rests on goes into this turn's retrieval --
+        # all of them, not the best few. The clarifying question is handed the
+        # candidate list as JSON, section numbers included, so a candidate whose
+        # text was not pinned is a section number the model can read and cite
+        # without ever having seen the provision. Verification then withdraws
+        # the question, and the member gets an apology instead of an answer.
         "coverage_sections": [
             c["section"] for c in verdict.get("candidates") or [] if c.get("section")
-        ][:3],
+        ][:_MAX_COVERAGE_SECTIONS],
         "timings": {"assess_coverage": time.perf_counter() - started},
     }
 
