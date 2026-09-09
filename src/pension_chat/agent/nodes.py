@@ -883,9 +883,26 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
     # were found by a separate, unfiltered search, so nothing else would bring
     # them back -- and an answer that names Section 12-101 without its text in
     # front of it is citing from memory, which verification rejects outright.
+    # The provision this conversation has already settled on is pinned too.
+    #
+    # A long conversation drifts away from its own subject the moment a turn is
+    # phrased without statutory vocabulary. "Re-run the applicability analysis
+    # without changing my facts" names no section, no benefit and no age, so
+    # retrieval has nothing to lock onto -- and on turn 13 of the end-to-end
+    # case it returned Sections 11-170, 11-227, 11-231, 11-145.1, 1-160 and
+    # 11-134.1 while omitting Section 11-134, which is the provision the whole
+    # conversation is about. The answer stayed right only because the model
+    # restated the section from conversation state, which is not something to
+    # rely on: it made the case pass or fail by coin toss across runs.
+    #
+    # Pinned sections do not consume a ranked slot, so this adds the provision
+    # back rather than displacing anything the query did find.
+    settled_section = (state.get("selected_provision") or {}).get("section")
     pinned = list(
         dict.fromkeys(
-            (state.get("explicit_sections") or []) + (state.get("coverage_sections") or [])
+            (state.get("explicit_sections") or [])
+            + (state.get("coverage_sections") or [])
+            + ([settled_section] if settled_section else [])
         )
     )
 

@@ -367,3 +367,52 @@ async def test_naming_a_fund_article_still_moves_the_filter(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["articles"] == ["12"]
     assert result["answers_other_article"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_settled_provision_is_pinned_into_later_turns(monkeypatch):
+    """A conversation must not drift away from its own subject.
+
+    Turn 13 of the end-to-end case asks "re-run the applicability analysis
+    without changing my facts" — no section, no benefit, no age, so retrieval
+    has nothing to lock onto. It returned Sections 11-170, 11-227, 11-231,
+    11-145.1, 1-160 and 11-134.1, and omitted Section 11-134, which is the
+    provision the entire fourteen-turn conversation is about. The answer was
+    right only because the model restated the section from conversation state,
+    which made the case pass or fail by coin toss between runs.
+    """
+    calls: list[dict] = []
+
+    async def fake_retrieve(queries, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
+
+    state = initial_state("I think the pathway you picked was wrong.", "s")
+    state["in_scope"] = True
+    state["employee_record"] = {"article_number": 11}
+    state["selected_provision"] = {"formula_type": "retirement_annuity", "section": "11-134"}
+
+    await nodes.retrieve_policy(state)
+
+    assert "11-134" in calls[0]["must_include_sections"]
+
+
+@pytest.mark.asyncio
+async def test_nothing_is_pinned_before_a_provision_is_settled(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_retrieve(queries, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
+
+    state = initial_state("How is my pension calculated?", "s")
+    state["in_scope"] = True
+    state["employee_record"] = {"article_number": 11}
+
+    await nodes.retrieve_policy(state)
+
+    assert calls[0]["must_include_sections"] == []
