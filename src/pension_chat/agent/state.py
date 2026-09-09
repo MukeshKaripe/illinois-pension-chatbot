@@ -169,6 +169,11 @@ class PensionAgentState(TypedDict, total=False):
     answer_messages: list[dict]
     final_answer: str | None
     citations: list[dict]
+    # The rung and shape prepare_answer selected, and the slots it rendered
+    # itself (see presentation.py, blocks.py) -- per-turn, like calculation_result.
+    answer_blocks: dict[str, str]
+    answer_rung: int
+    answer_shape: str
     tool_calls: list[dict]
     guardrail_passed: bool
     guardrail_report: dict
@@ -318,6 +323,9 @@ def initial_state(
         "answer_messages": [],
         "final_answer": None,
         "citations": [],
+        "answer_blocks": {},
+        "answer_rung": 0,
+        "answer_shape": "",
         "tool_calls": [],
         "guardrail_passed": True,
         "guardrail_report": {},

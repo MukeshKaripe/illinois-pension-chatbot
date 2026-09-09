@@ -20,6 +20,7 @@ import re
 
 import pytest
 
+from pension_chat.agent.blocks import render_comparison, render_worked_steps
 from pension_chat.agent.graph import GREETING_MESSAGE, OUT_OF_SCOPE_MESSAGE
 from pension_chat.agent.guardrails import GuardrailReport, fallback_answer
 from pension_chat.agent.nodes import (
@@ -28,6 +29,7 @@ from pension_chat.agent.nodes import (
     _format_calculation,
     prepare_answer,
 )
+from pension_chat.agent.presentation import template_for
 from pension_chat.agent.state import initial_state
 
 # Words that describe how the answer was assembled rather than what is true of
@@ -172,10 +174,19 @@ async def test_an_internal_block_reason_is_never_offered_as_wording():
 # ── The house style itself ────────────────────────────────────────
 
 def test_the_house_style_fixes_one_table_shape():
-    # Eight calculation answers previously used eight different headers
-    # ("Item | Value", "Step | Amount", "Calculation item | Engine value", ...).
-    assert "| Step | Amount |" in ANSWER_SYSTEM
-    assert "**How that is worked out**" in ANSWER_SYSTEM
+    """The worked-steps table is no longer prose the model transcribes.
+
+    Eight calculation answers once used eight different headers ("Item |
+    Value", "Step | Amount", "Calculation item | Engine value", ...) because
+    the table lived as an example in the prompt. It is now rendered once by
+    `blocks.render_worked_steps` (see tests/test_presentation.py for its
+    shape) and dropped into the answer at the marker ANSWER_SYSTEM names.
+    """
+    table = render_worked_steps({"annual_amount": "1", "monthly_amount": "1"})
+    assert "| Step | Amount |" in table
+    assert "**How that is worked out**" in table
+    assert "<<<WORKED_STEPS>>>" in ANSWER_SYSTEM
+    assert "will be discarded" in ANSWER_SYSTEM
 
 
 def test_a_comparison_table_carries_the_driver_not_only_the_money():
@@ -183,11 +194,14 @@ def test_a_comparison_table_carries_the_driver_not_only_the_money():
 
     Service is what mostly moves the figure between retirement dates, and it is
     already computed per scenario, so it belongs in the table rather than in a
-    paragraph underneath.
+    paragraph underneath. The table itself now comes from
+    `blocks.render_comparison`, filled in at the <<<COMPARISON>>> marker rather
+    than written out by the model.
     """
+    table = render_comparison([{"label": "Now", "service_years": "21.5", "annual": "1", "monthly": "1"}])
     assert (
         "| If you retire | Years of service | Annual pension | Monthly pension |"
-        in ANSWER_SYSTEM
+        in table
     )
 
 
@@ -262,8 +276,16 @@ def test_derived_quantities_are_asked_for_by_their_underlying_facts():
 
 
 def test_the_house_style_acknowledges_what_is_known_before_asking():
-    assert "what they have just told you" in ANSWER_SYSTEM
-    assert '"ask_for"' in ANSWER_SYSTEM
+    """This acknowledgement used to be ANSWER_SYSTEM's per-shape prose for a
+    question the calculation could not answer; it now lives in the "clarify"
+    template's guidance (presentation.py), which prepare_answer selects for
+    exactly that turn. The "ask_for" wording it used to name for the model is
+    no longer spelled out in prose -- each missing-input entry already carries
+    its own "ask_for" field (see tests/test_worksheet.py, test_assumptions.py),
+    and the model is handed the JSON directly rather than being told the key
+    to look for.
+    """
+    assert "what they told you" in template_for("clarify").guidance
 
 
 def test_the_house_style_forbids_reusing_derivation_time_facts():

@@ -11,6 +11,7 @@ shape rather than six, which is both less to get wrong and less to read.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pension_chat.agent.worksheet import WorkSheet
@@ -77,3 +78,81 @@ def shape_for(sheet: WorkSheet, state: dict[str, Any]) -> str:
     if not state.get("requires_calculation"):
         return "legal"
     return "clarify"
+
+
+#: Slots Python renders. Everything else is prose the model writes.
+COMPUTED_SLOTS = frozenset({"STATUS", "WORKED_STEPS", "COMPARISON", "ASSUMPTIONS", "BASIS"})
+
+
+@dataclass(frozen=True)
+class Template:
+    """One response shape: what appears, in what order, and what to say in it."""
+
+    shape: str
+    slots: tuple[str, ...]
+    guidance: str
+
+
+TEMPLATES: dict[str, Template] = {
+    "figure": Template(
+        shape="figure",
+        slots=("STATUS", "lede", "WORKED_STEPS", "why", "ASSUMPTIONS", "alternatives", "BASIS"),
+        guidance=(
+            "lede: the amount, annual first with monthly in brackets, and the "
+            "circumstances it assumes. One or two sentences.\n"
+            "why: why this provision governs, in the Code's own terms. Two "
+            "sentences at most.\n"
+            "alternatives: which other provisions were weighed and exactly why "
+            "each is not the answer. Never write a provision off as inapplicable "
+            "when it applies and simply cannot be put to a number."
+        ),
+    ),
+    "comparison": Template(
+        shape="comparison",
+        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS", "BASIS"),
+        guidance=(
+            "lede: name the range -- the soonest option and the best one -- so a "
+            "member who reads no further still has the answer. Never open with "
+            "the table.\n"
+            "what_changes: a sentence or two on what drives the difference, then "
+            "one line on what the projection holds constant."
+        ),
+    ),
+    "legal": Template(
+        shape="legal",
+        slots=("lede", "detail", "BASIS"),
+        guidance=(
+            "lede: answer the question outright in plain English, before any "
+            "subsection is named.\n"
+            "detail: the conditions or consequences -- a short bullet list if "
+            "there are more than two, prose otherwise. Three to six sentences."
+        ),
+    ),
+    "partial": Template(
+        shape="partial",
+        slots=("lede", "detail", "outside", "BASIS"),
+        guidance=(
+            "lede: answer the part of the question the Pension Code covers.\n"
+            "detail: the conditions that bear on it.\n"
+            "outside: one line naming the part that is not in the Code and who "
+            "does own it -- the fund, HR, the IRS. Never answer it yourself, and "
+            "never guess at a tax or insurance rule."
+        ),
+    ),
+    "clarify": Template(
+        shape="clarify",
+        slots=("STATUS", "lede", "established", "question", "BASIS"),
+        guidance=(
+            "lede: name what is unclear and why it matters to them. One sentence.\n"
+            "established: what you already have, in one short sentence, so it is "
+            "plain you read what they told you.\n"
+            "question: the one or two things that would settle it, in the "
+            "plainest form they take. Closed questions where the Code allows. "
+            "Prose, never a table, and never more than two questions."
+        ),
+    ),
+}
+
+
+def template_for(shape: str) -> Template:
+    return TEMPLATES.get(shape, TEMPLATES["legal"])

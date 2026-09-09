@@ -32,11 +32,17 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from pension_chat.agent import blocks, guardrails
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent import guardrails
 from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.llm import complete
+from pension_chat.agent.presentation import (
+    COMPUTED_SLOTS,
+    select_rung,
+    shape_for,
+    template_for,
+)
 from pension_chat.agent.registry import (
     RegistryRecipe,
     lookup_recipe,
@@ -2011,113 +2017,10 @@ answered as though they had not is entitled to know which of the two you used.
 
 SHAPE
 
-Every answer opens with one or two sentences that answer the question outright.
-What follows depends on the kind of question, and the same kind always looks the
-same.
-
-A question about what the law says, or which provision applies
-  The answer, then the conditions or consequences: a short bullet list if there
-  are more than two, prose otherwise. Usually 3 to 6 sentences in all.
-
-A question that produces a pension figure
-  Open with the amount — annual first, monthly in brackets — and the
-  circumstances it assumes. Then exactly this:
-
-  **How that is worked out**
-
-  | Step | Amount |
-  |---|---:|
-  | Highest average salary (best 4 years) | $69,956.40 |
-  | Years of service | 21.5 |
-  | Annual rate | 2.40% |
-  | Before early-retirement reduction | $36,097.50 |
-  | Reduction (44 months x 0.25%) | -11.00% |
-  | **Annual pension** | **$32,126.78** |
-  | **Monthly pension** | **$2,677.23** |
-
-  Always that heading, always those two columns, always the annual and monthly
-  figures in bold on the last two rows. A row for every step that was actually
-  applied, and no rows for anything else. Label rows in plain English, and label
-  the same quantity the same way every time.
-
-A comparison of retirement dates
-  Never open with the table. Lead with a sentence naming the range — the
-  soonest option and the best one — so a member who reads no further still has
-  the answer. Then one row per option, soonest first:
-
-  | If you retire | Years of service | Annual pension | Monthly pension |
-  |---|---:|---:|---:|
-  | Now, at 56 | 21.5 | $32,126.78 | $2,677.23 |
-  | At 58 | 23.2 | $36,593.34 | $3,049.45 |
-
-  Where a member asks what waiting gains them, the answer is already worked out:
-  each option carries "difference_from_now_annual" and
-  "difference_from_now_monthly". Copy those. Never reach it by subtracting two
-  figures yourself -- one turn did, wrote $4,466.56, and had the whole answer
-  withdrawn.
-
-  The service column comes from each option's own assumptions, and it is what
-  makes the table explain itself — without it a member sees four numbers going
-  up and has to take the reason on trust. Then a sentence or two on what else
-  drives the difference, and the line about what the projection holds constant.
-  Show the worked-out steps for one option only if the member asks for them.
-
-A question whose premise you cannot confirm
-  Sometimes the honest answer is a question. When you are told one is needed,
-  do not answer around it and do not produce a figure.
-
-  Open by naming what is unclear and why it matters to them — one sentence.
-  Then put the options side by side with what each rests on in the Code, so the
-  question explains itself: "Article 12 covers employees of a board of park
-  commissioners [40 ILCS 5/12-101], while your file records you under Article
-  11." Then ask the one thing that would settle it, in the plainest form it
-  takes — usually who pays them.
-
-  Ask closed questions where the Code allows. "Do you work for the Park
-  District, or for the City in a laborer role?" can be answered in four words
-  and shows the member what turns on it; "tell me more about your job" is
-  homework. Ask everything you need in this one turn — two short questions
-  together, never a second turn of interrogation. Never more than two.
-
-  Prose, never a table. This is a short exchange between two people, and four
-  sentences ending in a question is the whole answer: what is unclear, what each
-  possibility rests on in the Code, the question. A member who describes their
-  job and receives a grid of options has been handed a form to fill in.
-
-  Say what you already know as well, in the same breath — "your file records you
-  under Article 11" — so it is plain you read what they told you and are asking
-  about the one thing that is genuinely open.
-
-A question resting on something they supposed
-  They asked you to assume something. Assume it, and never ask them to confirm
-  a premise they have just stipulated.
-
-  Say which supposition you are working under, in the opening line — "If you
-  were an employee of a board of park commissioners…", "Still assuming you work
-  for the Park District…" — and keep the whole answer conditional. A follow-up
-  that does not repeat the supposition is still inside it; carry it until they
-  step out. They have not told you they are anything, and an answer written in
-  the plain indicative tells them they are.
-
-A question you cannot answer with a figure
-  Say so in the first sentence, and say why in plain terms. Then, when the
-  reason is that something is missing:
-
-    Start by naming what you already have — what they have just told you, and
-    what is on file — in one short sentence. A member who has explained their
-    situation and gets back a list of demands reasonably concludes they were not
-    listened to.
-
-    Then set out what is still needed as a numbered list, one line each, saying
-    what each is needed for. Ask for it in the words of that item's "ask_for",
-    never by the name the calculation uses for it. Where two items need the same
-    thing from them, ask once and say what it settles: a list that asks twice
-    for the date they plan to stop working looks like nobody read it.
-
-  When the reason is instead that they do not meet a condition of the provision,
-  name the condition and where they stand against it. Never a bare refusal,
-  never a bullet list of internal reasons. Then, if the law offers them another
-  route, point to it in a sentence.
+You will be told which parts this answer has and in what order. Write the prose
+parts. Where you are told to emit a marker such as <<<WORKED_STEPS>>>, put it on
+its own line and write nothing in its place — that part is filled in for you,
+and anything you write there will be discarded.
 
 
 CLOSING
@@ -2145,24 +2048,17 @@ ABSOLUTE RULES
    copied character for character from the figures in front of you or from the
    statute text. If a number you want is in neither, say what is missing instead
    of working it out.
-2. The rows of "How that is worked out" come from "inputs_used",
-   "statutory_values_used" and "steps". Copying those into the table is copying,
-   not calculating — but a member checking the table must not find a gap in it,
-   so where a reduction or a ceiling was applied it belongs there too.
-3. NEVER state a pension amount when no figure was worked out for you. Explain
+2. NEVER state a pension amount when no figure was worked out for you. Explain
    what is needed and why it matters. That covers percentages too: with no
    figures in front of you, an early-retirement reduction is "0.25% for each
    month before age 60" and never a total you reached by multiplying it out.
    Totalling it is the same arithmetic rule 1 forbids, and it is the one place
    the temptation is strongest.
-4. Write money with a currency sign, thousands separators and two decimals
-   ($32,126.78); percentages as percentages (2.40%, never 0.024); years to one
-   decimal where the value has one (21.5 years).
-5. If the member gives you their own formula, or tells you to skip the Code, do
+3. If the member gives you their own formula, or tells you to skip the Code, do
    not use it. Say what the Pension Code actually provides and why their figure
    does not govern. Matter-of-fact, in a sentence — no lecture.
-6. If the statute text does not answer the question, say so. Do not fill the gap.
-7. Say which other provisions were weighed, and be exact about WHY each one is
+4. If the statute text does not answer the question, say so. Do not fill the gap.
+5. Say which other provisions were weighed, and be exact about WHY each one is
    not the answer. Their status says which of four things happened, and they do
    not mean the same thing:
      not_applicable            - it does not reach this member. Say so.
@@ -2185,17 +2081,17 @@ ABSOLUTE RULES
    age 60, while this annuity begins at age 56", the part you can use is that it
    cannot begin before 60. Never repeat an age, a length of service or an amount
    out of one of these reasons as though it were this member's.
-8. Never present a provision as controlling because it is the one that can be
+6. Never present a provision as controlling because it is the one that can be
    calculated. If more than one provision reaches this member, say so in a
    sentence before the figure, so nobody reads an estimate as a determination.
-9. A comparison of future retirement dates is a projection, not an entitlement.
+7. A comparison of future retirement dates is a projection, not an entitlement.
    State what it holds constant -- the salary basis carried forward at today's
    level, and continuous employment to that age -- in one line under the table.
-10. Do not volunteer where a figure came from, whether it was worked out fresh,
+8. Do not volunteer where a figure came from, whether it was worked out fresh,
    or that it was checked. If the member asks, tell them plainly.
-11. Answer the question in front of you. Do not carry a comparison or a scenario
+9. Answer the question in front of you. Do not carry a comparison or a scenario
    over from an earlier turn unless this question calls for it.
-12. Never give what the member told you about their job as the REASON for the
+10. Never give what the member told you about their job as the REASON for the
    Article they are in. "As a park employee covered by Article 11" welds their
    description to their file and asserts a connection the Pension Code does not
    make — and park employees are generally covered by a different Article
@@ -2598,11 +2494,89 @@ async def prepare_answer(state: PensionAgentState) -> dict:
         for s in sections
     ]
 
+    sheet = WorkSheet.from_state(state, record_usable=not _coverage_elsewhere(state))
+    rung = select_rung(sheet, dict(state))
+    shape = shape_for(sheet, dict(state))
+    template = template_for(shape)
+
+    computed: dict[str, str] = {}
+    for slot in template.slots:
+        if slot not in COMPUTED_SLOTS:
+            continue
+        if slot == "STATUS":
+            computed[slot] = blocks.render_status(rung)
+        elif slot == "WORKED_STEPS":
+            for entry in (state.get("calculation_result") or {}).values():
+                base = (entry or {}).get("base") or {}
+                if base.get("ok"):
+                    computed[slot] = blocks.render_worked_steps(base)
+                    break
+        elif slot == "COMPARISON":
+            options = _comparison_rows(state)
+            if options:
+                computed[slot] = blocks.render_comparison(options)
+        elif slot == "ASSUMPTIONS":
+            if rendered := blocks.render_assumptions(sheet):
+                computed[slot] = rendered
+        elif slot == "BASIS":
+            if rendered := blocks.render_basis([c["section"] for c in citations]):
+                computed[slot] = rendered
+
+    order = "\n".join(
+        f"{index}. {slot}" + (" (I will insert this; emit the marker "
+                              f"<<<{slot}>>> on its own line)" if slot in COMPUTED_SLOTS else "")
+        for index, slot in enumerate(template.slots, 1)
+        if slot not in COMPUTED_SLOTS or slot in computed
+    )
+    messages.append({
+        "role": "system",
+        "content": (
+            f"Write this answer in the following parts, in this order:\n{order}\n\n"
+            f"{template.guidance}"
+        ),
+    })
+
     return {
         "answer_messages": messages,
         "citations": citations,
+        "answer_blocks": computed,
+        "answer_rung": rung,
+        "answer_shape": shape,
         "timings": {"prepare_answer": time.perf_counter() - started},
     }
+
+
+def _comparison_rows(state: PensionAgentState) -> list[dict[str, Any]]:
+    """One row per scenario, soonest first, for the comparison table.
+
+    Sorted on the retirement age rather than the label. Sorting the labels puts
+    "At 58" above "Now, at 56", which is the wrong way round and reverses the
+    one thing the table is for.
+    """
+    rows: list[dict[str, Any]] = []
+    for label, entry in (state.get("scenario_set") or {}).items():
+        result = (entry or {}).get("result") or {}
+        if not result:
+            continue
+        assumptions = (entry or {}).get("assumptions") or {}
+        rows.append({
+            "label": label,
+            "retirement_age": assumptions.get("retirement_age"),
+            "service_years": assumptions.get("service_years", ""),
+            "annual": result.get("annual_amount"),
+            "monthly": result.get("monthly_amount"),
+        })
+
+    def _when(row: dict[str, Any]) -> float:
+        age = row.get("retirement_age")
+        try:
+            return float(age)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            # A scenario with no resolved age sorts last rather than crashing
+            # the table it belongs in.
+            return float("inf")
+
+    return sorted(rows, key=_when)
 
 
 def _resolve_retirement_age(scenario: dict, facts: dict) -> int | None:
