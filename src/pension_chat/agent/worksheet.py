@@ -255,7 +255,10 @@ class WorkSheet:
                 item["withheld_basis"] = fact.basis
                 kept.append(item)
                 continue
-            kept.append(dict(ask))
+            item = dict(ask)
+            if fact is not None and fact.asked:
+                item["already_asked"] = True
+            kept.append(item)
         return kept
 
 

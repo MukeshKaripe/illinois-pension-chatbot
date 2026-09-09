@@ -14,6 +14,7 @@ from pension_chat.agent.worksheet import (
     SOURCE_RECORD,
     SOURCE_STATED,
     SOURCE_WITHHELD,
+    Fact,
     WorkSheet,
 )
 
@@ -119,3 +120,22 @@ def test_a_round_trip_through_state_preserves_facts_figures_and_dependencies() -
     assert fact.source == SOURCE_ASSUMED
     assert fact.basis == "today"
     assert restored.figures["now"].rests_on == ("service_years",)
+
+
+def test_filter_asks_is_idempotent_and_preserves_order() -> None:
+    sheet = WorkSheet.from_state(_state())
+    asks = [
+        {"name": "withdrawal_date", "ask_for": "the date you plan to stop working"},
+        {"name": "spouse_age", "ask_for": "your spouse's age"},
+    ]
+    once = sheet.filter_asks(asks)
+    twice = sheet.filter_asks(once)
+    assert [a["name"] for a in once] == ["withdrawal_date", "spouse_age"]
+    assert [a["name"] for a in twice] == ["withdrawal_date", "spouse_age"]
+
+
+def test_an_ask_already_put_to_the_member_is_not_repeated() -> None:
+    sheet = WorkSheet.from_state(_state())
+    sheet.facts["spouse_age"] = Fact("spouse_age", None, SOURCE_STATED, asked=True, turn=1)
+    kept = sheet.filter_asks([{"name": "spouse_age", "ask_for": "your spouse's age"}])
+    assert kept[0]["already_asked"] is True

@@ -53,6 +53,7 @@ from pension_chat.agent.retrieval import (
     retrieve_coverage,
 )
 from pension_chat.agent.state import PensionAgentState
+from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.calculation.applicability import (
     evaluate_predicates,
     facts_for_evaluation,
@@ -1441,9 +1442,16 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         if name not in resolved and spec.get("required", True)
     ]
 
+    sheet = WorkSheet.from_state(state)
+    filtered = sheet.filter_asks(missing)
+
     return {
         "resolved_inputs": resolved,
-        "missing_inputs": missing,
+        # An input the sheet holds is not missing, and an input it holds but
+        # cannot use under this premise is not missing either -- it is withheld,
+        # and saying so is the difference between "tell me your age" and "your
+        # file has your age, but I am not using it while we talk about Article 12".
+        "missing_inputs": filtered,
         "input_overrides": overrides,
         "timings": {"resolve_inputs": time.perf_counter() - started},
     }
