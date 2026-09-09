@@ -79,18 +79,36 @@ class WorkSheet:
     # ── Construction ─────────────────────────────────────────────
 
     @classmethod
-    def from_state(cls, state: Mapping[str, Any]) -> WorkSheet:
+    def from_state(
+        cls, state: Mapping[str, Any], *, record_usable: bool = True
+    ) -> WorkSheet:
         """Build the sheet from the durable keys the checkpointer carries.
 
         `member_facts` is the record and arrives as `record`. `assumptions`
         overlays it, because a value the member stated or a premise they
         supposed outranks the file.
+
+        `record_usable` is False when the conversation is reading an Article
+        the member's record is not filed under: the record is on file but not
+        a legitimate basis for a figure under this premise, so its facts are
+        recorded as `SOURCE_WITHHELD` rather than `SOURCE_RECORD` -- known,
+        but not usable, and so still worth asking about rather than silently
+        dropping the ask. The caller decides this; the sheet has no opinion of
+        its own about which Article governs.
         """
         sheet = cls(turn=int(state.get("turn_index") or 0))
 
+        record_source = SOURCE_RECORD if record_usable else SOURCE_WITHHELD
+        record_basis = (
+            ""
+            if record_usable
+            else "on file, but not usable while this conversation is reading another Article"
+        )
         for name, value in (state.get("member_facts") or {}).items():
             if value is not None:
-                sheet.facts[name] = Fact(name, value, SOURCE_RECORD, turn=sheet.turn)
+                sheet.facts[name] = Fact(
+                    name, value, record_source, basis=record_basis, turn=sheet.turn
+                )
 
         for name, entry in (state.get("assumptions") or {}).items():
             if not isinstance(entry, Mapping):

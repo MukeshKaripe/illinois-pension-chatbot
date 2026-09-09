@@ -1478,7 +1478,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         if name not in resolved and spec.get("required", True)
     ]
 
-    sheet = WorkSheet.from_state(state)
+    sheet = WorkSheet.from_state(state, record_usable=not _coverage_elsewhere(state))
     filtered = sheet.filter_asks(missing)
     settings_ceiling = settings.assumption_ceiling
     assumed, still_missing = apply_assumptions(sheet, filtered, facts, settings_ceiling)

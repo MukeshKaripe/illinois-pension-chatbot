@@ -139,3 +139,45 @@ def test_an_ask_already_put_to_the_member_is_not_repeated() -> None:
     sheet.facts["spouse_age"] = Fact("spouse_age", None, SOURCE_STATED, asked=True, turn=1)
     kept = sheet.filter_asks([{"name": "spouse_age", "ask_for": "your spouse's age"}])
     assert kept[0]["already_asked"] is True
+
+
+def test_record_usable_false_marks_member_facts_withheld() -> None:
+    sheet = WorkSheet.from_state(_state(), record_usable=False)
+    fact = sheet.fact("service_years")
+    assert fact is not None
+    assert fact.source == SOURCE_WITHHELD
+    assert fact.basis
+    assert sheet.knows("service_years") is True
+    assert "service_years" not in sheet.usable_values()
+
+
+def test_record_usable_false_still_asks_for_a_starved_fact() -> None:
+    sheet = WorkSheet.from_state(_state(), record_usable=False)
+    kept = sheet.filter_asks([{"name": "service_years", "ask_for": "your years of service"}])
+    assert len(kept) == 1
+    assert kept[0]["withheld"] is True
+    assert kept[0]["withheld_basis"]
+
+
+def test_record_usable_false_leaves_an_assumptions_overlay_fact_alone() -> None:
+    state = {
+        **_state(),
+        "assumptions": {
+            "withdrawal_date": {"value": "2026-09-09", "source": SOURCE_ASSUMED, "basis": "today"},
+        },
+    }
+    sheet = WorkSheet.from_state(state, record_usable=False)
+    fact = sheet.fact("withdrawal_date")
+    assert fact is not None
+    assert fact.source == SOURCE_ASSUMED
+    assert fact.value == "2026-09-09"
+    assert "withdrawal_date" in sheet.usable_values()
+
+
+def test_record_usable_defaults_to_true_and_leaves_the_normal_path_unchanged() -> None:
+    sheet = WorkSheet.from_state(_state())
+    fact = sheet.fact("service_years")
+    assert fact is not None
+    assert fact.source == SOURCE_RECORD
+    assert fact.basis == ""
+    assert "service_years" in sheet.usable_values()

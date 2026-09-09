@@ -32,7 +32,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import END, StateGraph
@@ -47,6 +47,7 @@ from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
 from pension_chat.agent.nodes import (
     _available_facts,
+    _coverage_elsewhere,
     _stated_in,
     assess_coverage,
     execute_calculations,
@@ -385,7 +386,11 @@ async def run_agent_stream(
     if not report.passed:
         # The unverified text has already been streamed, so tell the client to
         # replace it rather than leaving an unsupported figure on screen.
-        replacement = guardrails.fallback_answer(report, sheet=WorkSheet.from_state(state))
+        record_usable = not _coverage_elsewhere(cast(PensionAgentState, state))
+        replacement = guardrails.fallback_answer(
+            report,
+            sheet=WorkSheet.from_state(state, record_usable=record_usable),
+        )
         state["final_answer"] = replacement
         logger.warning(
             "Guardrail rejected answer for session %s: %s",
