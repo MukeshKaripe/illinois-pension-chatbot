@@ -658,20 +658,51 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
         )
 
 
-def fallback_answer(report: GuardrailReport) -> str:
-    """The message shown when verification fails hard.
+REPAIR_SYSTEM = """Your previous answer did not pass verification.
+
+Rewrite it so that every problem listed is gone, changing as little else as
+possible. Keep the voice, the shape, and every figure that was verified. A figure
+you cannot trace to the worked figures, the statute text in front of you, the
+member's record or the member's own messages must go -- say what would be needed
+instead, or state the rule without totalling it. Never do arithmetic to replace
+it. A provision whose text you do not have must be named in words, not cited in
+brackets.
+
+Return the corrected answer only. No preamble, no apology, no mention of the
+correction."""
+
+
+def _established_line(sheet: Any) -> str:
+    """One sentence naming what the conversation already holds."""
+    if sheet is None:
+        return ""
+    parts: list[str] = []
+    values = sheet.usable_values()
+    if (age := values.get("age")) is not None:
+        parts.append(f"you are {age}")
+    if (service := values.get("service_years")) is not None:
+        parts.append(f"you have {service} years of service")
+    if (fas := values.get("final_average_salary")) is not None:
+        parts.append(f"your highest four-year average salary is ${float(fas):,.2f}")
+    if not parts:
+        return ""
+    return "I still have " + ", and ".join(parts) + "."
+
+
+def fallback_answer(report: GuardrailReport, sheet: Any | None = None) -> str:
+    """The message shown when verification fails and repair could not fix it.
 
     This replaces an answer the member has already begun reading, so it has to
-    do two things at once: be honest that the answer was withdrawn, and be a
-    reply a person would want to receive.
+    be honest that the answer was withdrawn and still be a reply a person would
+    want to receive.
 
-    It used to print the verification codes verbatim — "the answer cites 40 ILCS
-    5/11-164, which was not among the sections retrieved for it". That tells the
-    member about the machinery instead of about their pension, and it reads as a
-    malfunction rather than as care. What they need is what went unverified, in
-    their terms, and what to do next; the codes stay in the audit trail.
+    It used to be a fixed template asking for the member's age, years of service
+    and salary history regardless of what was known -- which, for a member whose
+    record holds all three, reads as amnesia rather than as care. What it says
+    now is built from the sheet.
     """
     kinds = {failure["code"] for failure in report.hard_failures}
+    established = _established_line(sheet)
 
     if "UNVERIFIED_FIGURE" in kinds:
         detail = (
@@ -680,6 +711,7 @@ def fallback_answer(report: GuardrailReport) -> str:
             "it comes from the statute and your own record."
         )
         next_step = (
+            established or
             "If you tell me your age, your years of service and your salary history, "
             "I can work it through again from the Code itself."
         )
@@ -690,14 +722,14 @@ def fallback_answer(report: GuardrailReport) -> str:
         )
         next_step = (
             "Naming the Section you are interested in usually helps — I currently have "
-            "the text of Articles 11 and 12."
+            "the text of Articles 1, 8, 9, 11, 12 and 20."
         )
     else:
         detail = (
             "Something in that answer did not hold up when I checked it back against "
             "the Pension Code."
         )
-        next_step = "It may help to ask again more specifically, or about one Section."
+        next_step = established or "It may help to ask again about one Section."
 
     return (
         "I have taken that answer back — sorry.\n\n"

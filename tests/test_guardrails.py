@@ -270,3 +270,34 @@ def test_a_section_named_nowhere_in_the_evidence_is_still_refused():
 
     assert not report.passed
     assert report.unverified_citations == ["12-131"]
+
+
+def test_the_fallback_names_what_is_established_rather_than_asking_for_it() -> None:
+    from pension_chat.agent.worksheet import WorkSheet
+
+    report = verify_answer(
+        "Your pension is $99,999.99 a year.",
+        retrieved_sections=SECTIONS,
+        calculation_result=CALC,
+        facts=FACTS,
+    )
+    assert not report.passed
+
+    sheet = WorkSheet.from_state(
+        {"turn_index": 1, "member_facts": FACTS, "assumptions": {}}
+    )
+    message = fallback_answer(report, sheet=sheet)
+    assert "21.5" in message
+    assert "your years of service" not in message.lower()
+
+
+def test_the_fallback_without_a_sheet_still_reads_as_a_reply() -> None:
+    report = verify_answer(
+        "Your pension is $99,999.99 a year.",
+        retrieved_sections=SECTIONS,
+        calculation_result=CALC,
+        facts=FACTS,
+    )
+    message = fallback_answer(report)
+    assert message.strip()
+    assert "retirement fund" in message

@@ -60,6 +60,7 @@ from pension_chat.agent.nodes import (
     validate_recipes,
 )
 from pension_chat.agent.state import PensionAgentState, initial_state, turn_input
+from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.graph")
@@ -342,10 +343,49 @@ async def run_agent_stream(
     state["guardrail_passed"] = report.passed
     state["guardrail_report"] = report.to_dict()
 
+    if not report.passed and settings.answer_repair_enabled:
+        # One attempt, never a loop. The unverified text has already been
+        # streamed, so whatever comes out of this replaces it.
+        problems = "\n".join(
+            f"- {failure['code']}: {failure['message']}"
+            for failure in report.hard_failures
+        )
+        repair_messages = list(messages) + [
+            {"role": "assistant", "content": answer},
+            {
+                "role": "system",
+                "content": f"{guardrails.REPAIR_SYSTEM}\n\nProblems found:\n{problems}",
+            },
+        ]
+        try:
+            repaired = "".join(
+                [
+                    delta
+                    async for delta in stream_llm(
+                        node="repair_answer",
+                        messages=repair_messages,
+                        reasoning_effort=settings.reasoning_effort_answer,
+                    )
+                ]
+            )
+        except Exception:
+            logger.exception("Answer repair failed")
+            repaired = ""
+
+        if repaired:
+            retry = _verify(state, repaired, settings)
+            if retry.passed:
+                answer = repaired
+                report = retry
+                state["final_answer"] = answer
+                state["guardrail_passed"] = True
+                state["guardrail_report"] = report.to_dict()
+                yield {"type": "replace", "text": answer, "reason": {"repaired": True}}
+
     if not report.passed:
         # The unverified text has already been streamed, so tell the client to
         # replace it rather than leaving an unsupported figure on screen.
-        replacement = guardrails.fallback_answer(report)
+        replacement = guardrails.fallback_answer(report, sheet=WorkSheet.from_state(state))
         state["final_answer"] = replacement
         logger.warning(
             "Guardrail rejected answer for session %s: %s",

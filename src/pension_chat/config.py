@@ -116,6 +116,13 @@ class Settings(BaseSettings):
     # own kind of not listening.
     clarification_budget: int = 3
 
+    # A hard verification failure used to delete the whole answer. Measured at
+    # 0 failures in 42 live generations, so this branch is rare -- and 2 of 2
+    # forced failures were fully recovered by one repair call in ~4s, keeping
+    # the correct figure and table and losing only the offending sentence.
+    # It costs nothing on the path that passes.
+    answer_repair_enabled: bool = True
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

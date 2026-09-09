@@ -204,8 +204,8 @@ def test_the_house_style_states_the_estimate_line_verbatim():
     ("code", "expected_fragment"),
     [
         ("UNVERIFIED_FIGURE", "years of service"),
-        ("UNVERIFIED_CITATION", "Articles 11 and 12"),
-        ("EMPTY_ANSWER", "ask again more specifically"),
+        ("UNVERIFIED_CITATION", "Articles 1, 8, 9, 11, 12 and 20"),
+        ("EMPTY_ANSWER", "ask again about one Section"),
     ],
 )
 def test_the_withdrawal_message_explains_itself_without_the_codes(code, expected_fragment):
