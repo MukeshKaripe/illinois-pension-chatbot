@@ -607,6 +607,11 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         # doing arithmetic the previous turns had made unavoidable.
         computed["_carried_differences"] = _pairwise_differences(carried)
 
+    sheet = WorkSheet.from_state(
+        state, record_usable=not _coverage_elsewhere(cast(PensionAgentState, state))
+    )
+    assumed = {name: fact.basis for name, fact in sheet.assumed_facts().items()}
+
     return guardrails.verify_answer(
         answer,
         retrieved_sections=state.get("retrieved_sections") or [],
@@ -622,4 +627,5 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         check_numbers=settings.guardrail_numeric_provenance,
         established_sections=(state.get("cited_sections") or {}),
         coverage=state.get("coverage"),
+        assumed_facts=assumed,
     )

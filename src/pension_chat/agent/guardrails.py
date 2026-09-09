@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -36,6 +36,7 @@ from typing import Any
 # The coverage vocabulary lives with the module that produces it, so the
 # check here and the adjudication there cannot drift apart.
 from pension_chat.agent.coverage import BASIS_UNRESOLVED, ESTABLISHED_BASES
+from pension_chat.calculation.assumption_policy import ASSUMPTION_SIGNALS, rule_for
 
 logger = logging.getLogger("pension_chat.agent.guardrails")
 
@@ -399,6 +400,7 @@ def verify_answer(
     check_numbers: bool = True,
     established_sections: Iterable[str] = (),
     coverage: dict | None = None,
+    assumed_facts: Mapping[str, str] | None = None,
 ) -> GuardrailReport:
     """Verify a generated answer against the evidence it was given.
 
@@ -416,6 +418,10 @@ def verify_answer(
         coverage: What this conversation believes about which Article covers
             the member, and on what evidence. Governs whether the answer may
             state that coverage as a fact about them.
+        assumed_facts: Inputs this turn filled in rather than being told,
+            keyed by fact name with the assumption's basis as the value (see
+            ``calculation.assumption_policy``). A figure resting on one of
+            these must disclose it or the answer fails verification.
 
     Returns:
         A ``GuardrailReport``. ``passed`` is False only for hard failures —
@@ -515,6 +521,9 @@ def verify_answer(
 
     # 4. Coverage may only be asserted on evidence that supports it.
     _verify_coverage(report, answer, coverage)
+
+    # 5. A figure resting on an assumed value must say so.
+    _check_assumptions_disclosed(report, answer, calculation_result, assumed_facts or {})
 
     return report
 
@@ -655,6 +664,42 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
             "only on the Article recorded against their file — not on anything they "
             "said or on a coverage test in the Code. Say what the record shows and "
             "what the Code's test is, rather than presenting one as the other.",
+        )
+
+
+def _check_assumptions_disclosed(
+    report: GuardrailReport,
+    answer: str,
+    calculation_result: dict[str, Any] | None,
+    assumed_facts: Mapping[str, str],
+) -> None:
+    """A figure resting on a value nobody supplied must say so.
+
+    Disclosure is a conjunction, not a single cue lookup: the answer must
+    contain both a topic cue for the assumed input (from the policy rule's
+    ``disclosure_cues``) *and* a word that marks the sentence as disclosing an
+    assumption rather than merely mentioning the topic (from the module-level
+    ``ASSUMPTION_SIGNALS``). A bare topic cue -- "as of today your record shows
+    21.5 years of service" -- talks about the topic without ever telling the
+    member anything was assumed, so it must not satisfy this check on its own.
+    An answer with no figure in it has nothing to disclose.
+    """
+    if not assumed_facts or not calculation_result:
+        return
+
+    lowered = answer.lower()
+    has_signal = any(signal in lowered for signal in ASSUMPTION_SIGNALS)
+
+    for name, basis in assumed_facts.items():
+        rule = rule_for(name)
+        cues = rule.disclosure_cues if rule else ()
+        has_topic = any(cue.lower() in lowered for cue in cues)
+        if has_topic and has_signal:
+            continue
+        report.fail(
+            "ASSUMPTION_NOT_DISCLOSED",
+            f"The answer states a figure that rests on an assumed value "
+            f"({name}: {basis}) without telling the member it was assumed.",
         )
 
 

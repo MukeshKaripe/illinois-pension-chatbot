@@ -301,3 +301,65 @@ def test_the_fallback_without_a_sheet_still_reads_as_a_reply() -> None:
     message = fallback_answer(report)
     assert message.strip()
     assert "retirement fund" in message
+
+
+# ── Assumption disclosure ────────────────────────────────────────
+
+ASSUMED = {"months_before_age_60": "your birthday falling mid-year"}
+
+
+def test_a_figure_resting_on_an_assumption_must_disclose_it() -> None:
+    report = verify_answer(
+        "Your pension is $32,126.78 a year ($2,677.23 a month).",
+        retrieved_sections=SECTIONS,
+        calculation_result=CALC,
+        facts=FACTS,
+        assumed_facts=ASSUMED,
+    )
+    assert not report.passed
+    assert {f["code"] for f in report.hard_failures} == {"ASSUMPTION_NOT_DISCLOSED"}
+
+
+def test_naming_the_assumption_satisfies_the_check() -> None:
+    report = verify_answer(
+        "Your pension is $32,126.78 a year ($2,677.23 a month). I have assumed your "
+        "birthday falls mid-year, because your date of birth is not on file.",
+        retrieved_sections=SECTIONS,
+        calculation_result=CALC,
+        facts=FACTS,
+        assumed_facts=ASSUMED,
+    )
+    assert report.passed
+
+
+def test_an_answer_with_no_figure_needs_no_disclosure() -> None:
+    report = verify_answer(
+        "Section 11-134 sets the annual rate at 2.40% for each year of service.",
+        retrieved_sections=SECTIONS,
+        calculation_result=None,
+        facts=FACTS,
+        assumed_facts=ASSUMED,
+        check_numbers=False,
+    )
+    assert report.passed
+
+
+def test_mentioning_the_topic_without_an_assumption_signal_still_fails() -> None:
+    """The exact vacuous-pass bug the two-part contract exists to prevent.
+
+    "You retire today" names the topic (the withdrawal-date rule's cues
+    include "retire" and "today") without ever using a word that marks the
+    sentence as disclosing an assumption -- it reads as a statement of fact,
+    not a disclosed guess. A cue-only check would let this through; the
+    conjunction with ASSUMPTION_SIGNALS must not.
+    """
+    assumed_withdrawal = {"withdrawal_date": "the date you stop working, taken as today"}
+    report = verify_answer(
+        "Your pension is $32,126.78 a year. You retire today.",
+        retrieved_sections=SECTIONS,
+        calculation_result=CALC,
+        facts=FACTS,
+        assumed_facts=assumed_withdrawal,
+    )
+    assert not report.passed
+    assert {f["code"] for f in report.hard_failures} == {"ASSUMPTION_NOT_DISCLOSED"}
