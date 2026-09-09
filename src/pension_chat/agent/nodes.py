@@ -44,6 +44,7 @@ from pension_chat.agent.registry import (
     verify_freshness,
 )
 from pension_chat.agent.retrieval import (
+    CROSS_CUTTING_ARTICLES,
     RetrievedSection,
     canonical_section_texts,
     extract_article_references,
@@ -566,6 +567,11 @@ async def plan_request(state: PensionAgentState) -> dict:
 # enough to cover every candidate the question names.
 _MAX_COVERAGE_SECTIONS = 6
 
+# How many sections a named cross-cutting Article contributes on its own query.
+# Small: it is supplying the rule the member's Article refers to, not replacing
+# their Article's provisions.
+_MAX_GENERAL_SECTIONS = 3
+
 
 def _record_coverage(record_article: str | None, turn: int) -> dict:
     """What we believe when the member has said nothing about themselves."""
@@ -834,8 +840,18 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
     # decide, which is where it belongs -- as the fallback rather than the
     # unfalsifiable default it used to be.
     candidates = state.get("candidate_articles") or []
+
+    # Naming a *fund* Article moves the filter; naming a cross-cutting one adds
+    # to it. Article 20 governs this member rather than someone else, so
+    # "can my service under two systems be coordinated under the Reciprocal
+    # Act?" is a question about their own benefit that happens to need Article
+    # 20's text beside Article 11's — filtering to Article 20 alone would drop
+    # their own fund's provisions and answer as though the question were about
+    # somebody else's law.
+    named_funds = [a for a in named if a not in CROSS_CUTTING_ARTICLES]
+    named_general = [a for a in named if a in CROSS_CUTTING_ARTICLES]
     articles = (
-        named
+        named_funds
         or candidates
         or ([str(employee["article_number"])] if employee else None)
     )
@@ -843,9 +859,10 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
     # A question about someone else's Article is a question about the law, not
     # about this member's benefit. Their salary and service belong to Article 11
     # and cannot be run through an Article 12 provision, so the figures stay out
-    # and the answer explains what that Article provides.
+    # and the answer explains what that Article provides. Keyed on the fund
+    # Articles alone — Article 1 and 20 are the member's own law.
     other_article = bool(
-        named and employee and str(employee["article_number"]) not in named
+        named_funds and employee and str(employee["article_number"]) not in named_funds
     )
 
     # A calculation needs whole provisions; the derivation step refuses to work
@@ -872,13 +889,38 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
         )
     )
 
-    sections = await retrieve(
-        state.get("search_queries") or [state["question"]],
+    queries = state.get("search_queries") or [state["question"]]
+
+    # A named cross-cutting Article gets its own query rather than a share of
+    # the member's. Putting Article 20 into the same filter as Article 11 does
+    # not work: Article 11 has 294 indexed subsections to Article 20's 35 and
+    # writes about service at far greater length, so rank fusion returned three
+    # "Early retirement incentive" sections and, from the whole Reciprocal Act,
+    # its "Short title" — which matched the member's phrase and answered
+    # nothing. Two queries let the small Article be ranked against itself.
+    general_budget = budget // 3 if named_general else 0
+    own = retrieve(
+        queries,
         articles=articles,
         must_include_sections=pinned,
         top_sections=top,
-        char_budget=budget,
+        char_budget=budget - general_budget,
     )
+    if named_general:
+        sections, general = await asyncio.gather(
+            own,
+            retrieve(
+                queries,
+                articles=named_general,
+                top_sections=_MAX_GENERAL_SECTIONS,
+                char_budget=general_budget,
+            ),
+        )
+        seen = {s.section for s in sections}
+        sections = sections + [s for s in general if s.section not in seen]
+    else:
+        sections = await own
+
     return {
         "retrieved_sections": [s.to_dict() for s in sections],
         "requires_calculation": False if other_article else calculating,

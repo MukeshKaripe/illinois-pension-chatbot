@@ -11,6 +11,7 @@ Each indexed record contains:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -71,6 +72,19 @@ class IndexRecord:
         return d
 
 
+def _variant_suffix(label: str | None) -> str:
+    """Turn a variant label into an Azure Search key fragment.
+
+    Azure Search keys allow letters, digits, underscore, dash and equals, so the
+    label is reduced to those. It is a key fragment, not a display string —
+    `variant_note` carries the label verbatim into the text the model reads.
+    """
+    if not label:
+        return ""
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", label).strip("_").lower()
+    return f"__{slug}" if slug else ""
+
+
 def chunk_sections(sections: list[ParsedSection]) -> list[IndexRecord]:
     """Convert parsed sections into indexable records.
 
@@ -91,21 +105,45 @@ def chunk_sections(sections: list[ParsedSection]) -> list[IndexRecord]:
         # Tag calculation relevance
         calc_relevance = tag_calculation_relevance(section)
 
+        # A section ILGA prints more than once — concurrent or pending
+        # amendments — reaches here as several ParsedSections sharing one
+        # section_id. The suffix keeps their records from overwriting each other
+        # on upload, and the prefix is what makes the copies tell themselves
+        # apart once the model is reading them side by side: two texts of
+        # Section 1-160 with no note saying which is which read as one section
+        # contradicting itself.
+        variant_suffix = _variant_suffix(section.variant_label)
+        variant_note = f"({section.variant_label})\n" if section.variant_label else ""
+
         # Truncate section text if extremely long (for the section_text field)
-        section_text = section.full_text
+        section_text = variant_note + section.full_text
         if len(section_text) > 10000:
             section_text = section_text[:10000] + "..."
 
         if section.subsections:
+            # A section can letter two lists, restarting at (a) for the second —
+            # Section 9-219 enumerates what counts as service, then enumerates
+            # it again for a different class of employee. Both lists are the
+            # section; only the key has to be unique, so the repeat is numbered
+            # here while `subsection_id` keeps saying (a), which is what the
+            # statute says and what a citation has to match.
+            seen_subsection_ids: dict[str, int] = {}
+
             # One record per subsection
             for sub in section.subsections:
-                record_id = f"{section.section_id}_{sub.subsection_id.strip('()')}"
+                key = sub.subsection_id.strip("()")
+                seen_subsection_ids[key] = seen_subsection_ids.get(key, 0) + 1
+                occurrence = seen_subsection_ids[key]
+                if occurrence > 1:
+                    key = f"{key}_{occurrence}"
+
+                record_id = f"{section.section_id}{variant_suffix}_{key}"
                 # Clean up the ID for Azure Search (alphanumeric + hyphens + underscores)
                 record_id = record_id.replace("(", "").replace(")", "").replace(".", "_")
 
                 records.append(IndexRecord(
                     id=record_id,
-                    content=sub.text,
+                    content=variant_note + sub.text,
                     subsection_id=sub.subsection_id,
                     subsection_text=sub.text,
                     section_text=section_text,
@@ -124,11 +162,11 @@ def chunk_sections(sections: list[ParsedSection]) -> list[IndexRecord]:
                 ))
         else:
             # One record for the whole section
-            record_id = section.section_id.replace(".", "_")
+            record_id = f"{section.section_id}{variant_suffix}".replace(".", "_")
 
             records.append(IndexRecord(
                 id=record_id,
-                content=section.full_text,
+                content=variant_note + section.full_text,
                 section_text=section_text,
                 chapter=section.chapter,
                 act=section.act,

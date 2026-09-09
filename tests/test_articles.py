@@ -23,7 +23,12 @@ import pytest
 
 from pension_chat.agent import nodes
 from pension_chat.agent.nodes import prepare_answer, triage
-from pension_chat.agent.retrieval import extract_article_references
+from pension_chat.agent.retrieval import (
+    _ARTICLE_BY_NAME,
+    CROSS_CUTTING_ARTICLES,
+    _article_filter,
+    extract_article_references,
+)
 from pension_chat.agent.state import initial_state
 
 # -- Reading the Article out of the question -----------------------
@@ -241,3 +246,124 @@ def test_a_recipe_is_filed_under_the_article_its_text_came_from():
     # decides rather than one of them winning by sort order.
     assert nodes._article_of_sections(["11-134", "12-133"]) is None
     assert nodes._article_of_sections([]) is None
+
+
+# -- Articles that govern the members of other Articles ------------
+
+
+def test_the_general_provisions_do_not_widen_a_member_s_search():
+    """Reachability comes from the fetch path, not from a wider filter.
+
+    Section 1-160 is what makes a Tier 2 member of Article 11 accrue
+    differently, so it plainly has to be reachable. Adding Article 1 and 20 to
+    the search filter looked like the way to do that, and measurably was not:
+    three benchmark cases began retrieving them for ordinary Article 11
+    questions, and Section 11-134 and Section 11-215 were pushed out of the top
+    sections on cases that had been citing them.
+
+    `fetch_sections` is called with no article filter on every path, so a
+    section the question names or the retrieved text cross-references already
+    resolves whatever Article it lives in — which is where the reachability
+    actually comes from.
+    """
+    assert _article_filter(["11"]) == "search.in(article, '11', ',')"
+    assert _article_filter(["11", "12"]) == "search.in(article, '11,12', ',')"
+
+    # No filter at all still means the whole corpus.
+    assert _article_filter([]) is None
+    assert _article_filter(None) is None
+
+    # The set is still named, because coverage reads it for a different reason:
+    # an Article nobody is a member of cannot be where a member is routed.
+    assert CROSS_CUTTING_ARTICLES == ("1", "20")
+
+
+def test_an_article_can_be_named_by_its_title_only_when_nobody_is_a_member():
+    """Naming an Article moves the filter and bypasses coverage entirely.
+
+    That is right for "what does Article 12 provide" and would be a serious
+    regression for "I am a park employee" — the second sentence is coverage
+    evidence to be checked against the Code, not an instruction about which law
+    to read. So fund Articles are matched by number and never by name.
+
+    Articles nobody is a member of have no such ambiguity: you cannot describe
+    yourself into the Reciprocal Act, so its title is the only way anyone refers
+    to it, and without this, ingesting Article 20 leaves it reachable only by
+    someone who already knows to type "Article 20".
+    """
+    assert extract_article_references(
+        "Can my service be coordinated under the Reciprocal Act?"
+    ) == ["20"]
+    assert extract_article_references(
+        "Does the Retirement Systems Reciprocal Act apply to me?"
+    ) == ["20"]
+
+    # The restriction is the safety argument, so it is enforced rather than
+    # described: adding a fund Article here would let a self-description move
+    # the retrieval filter and skip coverage entirely.
+    assert all(
+        article in CROSS_CUTTING_ARTICLES for article, _ in _ARTICLE_BY_NAME
+    ), "a fund Article must never be matchable by name"
+
+    # The sentences the coverage layer exists to handle stay untouched.
+    for description in (
+        "i am a park employee, how is my pension calculated?",
+        "I work for the Laborers' and Retirement Board Employees' fund",
+        "a worker who works at the park",
+        "I am a municipal employee of the city",
+    ):
+        assert extract_article_references(description) == [], description
+
+
+@pytest.mark.asyncio
+async def test_naming_a_cross_cutting_article_adds_to_the_filter(monkeypatch):
+    """Article 20 governs this member; Article 12 governs someone else.
+
+    Reading "under the Reciprocal Act" the way "what does Article 12 provide" is
+    read would drop the member's own fund from the search and answer as though
+    they had asked about somebody else's law.
+    """
+    calls: list[dict] = []
+
+    async def fake_retrieve(queries, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
+
+    state = initial_state("Can my service be coordinated under the Reciprocal Act?", "s")
+    state["in_scope"] = True
+    state["explicit_articles"] = ["20"]
+    state["employee_record"] = {"article_number": 11}
+
+    result = await nodes.retrieve_policy(state)
+
+    # Their own Article is still what the main query reads from...
+    assert calls[0]["articles"] == ["11"]
+    # ...and Article 20 is asked separately, because 294 Article 11 subsections
+    # otherwise out-rank the whole 35-subsection Reciprocal Act.
+    assert calls[1]["articles"] == ["20"]
+    # This is the member's own law, so nothing is suppressed.
+    assert result["answers_other_article"] is False
+
+
+@pytest.mark.asyncio
+async def test_naming_a_fund_article_still_moves_the_filter(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_retrieve(queries, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
+
+    state = initial_state("What does Article 12 provide?", "s")
+    state["in_scope"] = True
+    state["explicit_articles"] = ["12"]
+    state["employee_record"] = {"article_number": 11}
+
+    result = await nodes.retrieve_policy(state)
+
+    assert len(calls) == 1
+    assert calls[0]["articles"] == ["12"]
+    assert result["answers_other_article"] is True

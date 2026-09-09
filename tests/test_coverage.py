@@ -227,6 +227,38 @@ async def test_a_candidate_the_model_did_not_read_is_dropped(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_an_article_nobody_is_a_member_of_is_not_a_destination(monkeypatch):
+    """Ingesting Article 20 put a fund-shaped rival in the coverage pool.
+
+    Section 20-104 defines "Employee" as *any person in the service of an
+    employer*, which is broad enough to match almost any self-description and is
+    genuinely retrieved on one. But the Reciprocal Act administers no annuity;
+    nobody is an Article 20 member, they are an Article 11 or 12 member with
+    reciprocal service. Section 1-160 is the same shape — it changes what a Tier
+    2 member of Article 11 receives without making them anything but an Article
+    11 member.
+
+    The section stays retrievable and citable. It just cannot be the answer to
+    which Article covers someone.
+    """
+    async def fake_complete(**_kwargs):
+        return (
+            '{"candidates": ['
+            '{"article": "20", "section": "20-104", "test": "any person in the service of an employer"},'
+            '{"article": "12", "section": "12-118", "test": "in the service of a board of park commissioners"}'
+            "]}"
+        )
+
+    monkeypatch.setattr(cov, "complete", fake_complete)
+    report = await cov.assess(
+        "a worker who works at the park", [_Section("20-104"), _Section("12-118")]
+    )
+
+    assert report.articles == ["12"]
+    assert cov.NON_MEMBERSHIP_ARTICLES == frozenset({"1", "20"})
+
+
+@pytest.mark.asyncio
 async def test_an_assessment_failure_falls_back_to_the_record(monkeypatch):
     async def boom(**_kwargs):
         raise RuntimeError("endpoint down")

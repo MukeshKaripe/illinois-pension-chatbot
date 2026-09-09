@@ -34,9 +34,11 @@ from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.retrieval")
 
-# "Section 11-134", "Sec. 11-134(a)", "40 ILCS 5/11-134.1", "11-134(f-1)"
+# "Section 11-134", "Sec. 11-134(a)", "40 ILCS 5/11-134.1", "11-134(f-1)",
+# "Section 1-113.4a" — the trailing letter is part of the section id, not a
+# typo, and dropping it pins Section 1-113.4 instead, which is a different rule.
 _SECTION_REF = re.compile(
-    r"(?:40\s*ILCS\s*5/)?(?:Sec(?:tion|\.)?\s*)?\b(\d{1,2}-\d{1,3}(?:\.\d{1,2})?)\b",
+    r"(?:40\s*ILCS\s*5/)?(?:Sec(?:tion|\.)?\s*)?\b(\d{1,2}-\d{1,3}(?:\.\d{1,2})?[a-z]?)\b",
     re.IGNORECASE,
 )
 _SELECT_FIELDS = [
@@ -115,6 +117,30 @@ def extract_section_references(text: str) -> list[str]:
 
 _ARTICLE_REF = re.compile(r"\bArt(?:icle)?\.?\s*(\d{1,2})\b", re.IGNORECASE)
 
+# An Article named by its title rather than its number.
+#
+# Restricted to `CROSS_CUTTING_ARTICLES` on purpose, and the restriction is the
+# whole safety argument. Naming an Article *moves* the retrieval filter and
+# bypasses `assess_coverage` entirely — which is correct for "what does Article
+# 12 provide", and would be a serious regression for "I am a park employee",
+# since that sentence is coverage evidence to be checked against the Code, not
+# an instruction about which law to read. Fund Articles are therefore never
+# matched by name; describing yourself is coverage's job.
+#
+# Articles nobody is a member of have no such ambiguity. You cannot describe
+# yourself into the Reciprocal Act, so the only way anyone refers to it is by
+# its title — and without this, ingesting Article 20 leaves it reachable only by
+# someone who already knows to type "Article 20".
+_ARTICLE_BY_NAME = (
+    (
+        "20",
+        re.compile(
+            r"\bretirement\s+systems?\s+reciprocal\s+act\b|\breciprocal\s+act\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
 
 def extract_article_references(text: str) -> list[str]:
     """Pull explicit Article references out of free text.
@@ -132,7 +158,9 @@ def extract_article_references(text: str) -> list[str]:
     Naming an Article has to *move* the filter, not merely relax it.
 
     A section reference implies its Article, so "what does 12-133 say" resolves
-    the same way as "Article 12".
+    the same way as "Article 12". So does an Article named by its title, but
+    only for the Articles nobody is a member of -- see `_ARTICLE_BY_NAME`, where
+    the reason that restriction matters is the whole point.
     """
     seen: list[str] = []
 
@@ -144,6 +172,9 @@ def extract_article_references(text: str) -> list[str]:
         add(match.group(1).lstrip("0") or "0")
     for ref in extract_section_references(text):
         add(ref.split("-", 1)[0].lstrip("0") or "0")
+    for article, pattern in _ARTICLE_BY_NAME:
+        if pattern.search(text or ""):
+            add(article)
     return seen
 
 
@@ -192,6 +223,34 @@ async def _embed(queries: list[str]) -> list[list[float] | None]:
 # the usual default; it damps the difference between the top few ranks, so a
 # section ranked second by one query still beats one ranked fifth by two.
 _RRF_K = 60
+
+
+# Articles that govern the members of *other* Articles rather than having
+# members of their own. Article 1 is general provisions — Section 1-160 is what
+# makes a Tier 2 member of Article 11 accrue differently from a Tier 1 one, and
+# names Articles 8 through 12 outright. Article 20 is the Reciprocal Act, which
+# is how service in two systems is combined.
+#
+# They are **not** added to the search filter, and that was measured rather than
+# assumed. Adding them looked necessary — a member filtered to Article 11 could
+# otherwise never reach the section that overrides Article 11 for them — but the
+# reachability was already there: `fetch_sections` is called with no article
+# filter on every path, so a section the question names or the retrieved text
+# cross-references resolves whatever Article it lives in. What widening the
+# filter actually did was put 309 more documents into every member's search.
+# Three benchmark cases then retrieved Article 1 and 20 sections for an ordinary
+# Article 11 question, and — the real cost — Section 11-134 and Section 11-215
+# were displaced out of the top sections on cases that had been citing them.
+#
+# The one thing this leaves uncovered: a question that is *about* Tier 2, names
+# no section, and whose best Article 11 hits happen not to cross-reference
+# Section 1-160. Pinning it for members the record shows are Tier 2 is the fix
+# that fits — `coverage_sections` already pins that way — not a wider filter.
+#
+# `coverage.py` reads this for a different consequence of the same fact: an
+# Article nobody is a member of can never be the answer to which Article covers
+# someone.
+CROSS_CUTTING_ARTICLES = ("1", "20")
 
 
 def _article_filter(articles: Iterable[str] | None) -> str | None:
@@ -580,10 +639,17 @@ async def retrieve_coverage(
     is to let every Article's coverage test compete on the member's own words.
 
     The corpus makes this cheap. Coverage sections are a tiny, stable slice of
-    each Article -- 6 of 169 in Article 11, 5 of 114 in Article 12 -- and every
-    Article carries its own, so this scales to the full Code with no per-Article
-    maintenance. Nothing here needs the member's record, so nothing here can
-    quietly confirm it.
+    each Article, and every Article carries its own, so this scales to the full
+    Code with no per-Article maintenance. That was a prediction when it was
+    written and is now measured: ingesting Articles 8, 9 and 20 found their
+    coverage sections -- 8-113, 9-108, 20-104 and the "Creation of fund" and
+    "Future entrant" sections beside them -- with no new tagger patterns, 23
+    across the six Articles ingested. Nothing here needs the member's record, so
+    nothing here can quietly confirm it.
+
+    Note that Article 1 contributes none, correctly: it defines no fund
+    membership. Article 20 contributes two that must never be routed to, which
+    ``coverage.NON_MEMBERSHIP_ARTICLES`` is what handles.
 
     Args:
         description: How the member described themselves, in their own words.

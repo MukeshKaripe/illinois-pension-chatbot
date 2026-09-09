@@ -24,24 +24,57 @@ from sqlalchemy import update
 
 from pension_chat.config import get_settings
 from pension_chat.db.models import PensionArticle
-from pension_chat.db.session import async_session_factory
+from pension_chat.db.session import get_admin_session
 from pension_chat.ingestion.chunker import chunk_sections
 from pension_chat.ingestion.embedder import generate_embeddings
-from pension_chat.ingestion.indexer import create_search_index, get_index_client, upload_records
+from pension_chat.ingestion.indexer import (
+    create_search_index,
+    get_index_client,
+    prune_stale_records,
+    upload_records,
+)
 from pension_chat.ingestion.parser import parse_statute_file
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ingestion_cli")
 
 
+# The name each Article gives itself, from its own heading. Ingesting an
+# Article the reference table has never heard of used to be a silent no-op — the
+# UPDATE matched no row, the search index filled up, and `pension_articles` went
+# on saying the corpus was two Articles wide.
+ARTICLE_NAMES = {
+    1: "General Provisions",
+    8: "Municipal Employees', Officers', and Officials' Annuity and Benefit Fund "
+       "— Cities over 500,000 Inhabitants",
+    9: "County Employees' and Officers' Annuity and Benefit Fund "
+       "— Counties over 3,000,000 Inhabitants",
+    11: "Laborers' and Retirement Board Employees' Annuity and Benefit Fund "
+        "— Cities over 500,000 Inhabitants",
+    12: "Park Employees' and Retirement Board Employees' Annuity and Benefit Fund "
+        "— Cities over 500,000",
+    20: "Retirement Systems Reciprocal Act",
+}
+
+
 async def update_article_status(article_number: int, status: str):
-    """Update the ingestion status of an article in the database."""
-    async with async_session_factory() as db:
-        await db.execute(
+    """Record the ingestion status of an article, creating its row if needed."""
+    async with get_admin_session() as db:
+        result = await db.execute(
             update(PensionArticle)
             .where(PensionArticle.article_number == article_number)
             .values(ingestion_status=status)
         )
+        if result.rowcount == 0:
+            db.add(
+                PensionArticle(
+                    article_number=article_number,
+                    system_name=ARTICLE_NAMES.get(
+                        article_number, f"Article {article_number}"
+                    ),
+                    ingestion_status=status,
+                )
+            )
         await db.commit()
 
 
@@ -77,8 +110,13 @@ async def ingest():
         logger.error(f"Data directory not found: {data_dir}")
         return
 
-    # Just 11 and 12 for the MVP
-    target_articles = [11, 12]
+    # Article 11 and 12 are the pilot pair — deliberately adjacent and
+    # confusable. Article 8 (municipal employees) and 9 (county employees) are
+    # the two funds nearest them, so they are what tests whether coverage
+    # reasoning survives more than a binary choice. Article 1 and 20 have no
+    # members of their own but govern everyone's: Section 1-160 is Tier 2, and
+    # Article 20 is the Reciprocal Act.
+    target_articles = [1, 8, 9, 11, 12, 20]
 
     for article_num in target_articles:
         filepath = os.path.join(data_dir, f"article_{article_num}.txt")
@@ -114,6 +152,10 @@ async def ingest():
             uploaded = upload_records(records)
 
             if uploaded > 0:
+                # Anything still indexed under this Article that this run did
+                # not produce is text a previous, worse parse left behind.
+                prune_stale_records(str(article_num), {r.id for r in records})
+
                 # Mark as fully ingested
                 await update_article_status(article_num, "ingested")
                 logger.info("✓ Article %d fully ingested", article_num)

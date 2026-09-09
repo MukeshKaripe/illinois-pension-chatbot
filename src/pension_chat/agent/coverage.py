@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pension_chat.agent.llm import complete
+from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.coverage")
@@ -74,6 +75,17 @@ BASIS_UNRESOLVED = "unresolved"
 # The two bases under which an answer may state coverage as a fact about the
 # member. Read by the guardrail, so it lives here with the vocabulary it checks.
 ESTABLISHED_BASES = frozenset({BASIS_CONFIRMED, BASIS_STATUTORY})
+
+# Articles that govern the members of other Articles can never be the answer to
+# "which Article covers you", because nobody is a member of one.
+#
+# This is not hypothetical once they are indexed. Both define an "Employee" in
+# terms broad enough to match almost any description — Section 20-104 is "any
+# person in the service of an employer" — so they compete for coverage against
+# the funds on their own retrieved text, and a park employee can be routed to a
+# reciprocal act that administers no annuity. They stay fully retrievable and
+# citable; this excludes them from being a *destination*, not from being read.
+NON_MEMBERSHIP_ARTICLES = frozenset(CROSS_CUTTING_ARTICLES)
 
 
 @dataclass
@@ -385,6 +397,13 @@ async def assess(
         if not article or section not in available:
             logger.info(
                 "Dropping ungrounded coverage candidate: article=%r section=%r",
+                article,
+                section,
+            )
+            continue
+        if article in NON_MEMBERSHIP_ARTICLES:
+            logger.info(
+                "Dropping non-membership coverage candidate: article=%r section=%r",
                 article,
                 section,
             )

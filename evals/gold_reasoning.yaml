@@ -86,8 +86,6 @@ cases:
 
   - id: G07
     name: A reference reaching into another Article
-    status: blocked
-    blocked_by: needs Article 1 and Article 20 ingested
     turns:
       - q: >-
           My contribution rate under Section 11-170 depends on Section 1-160.

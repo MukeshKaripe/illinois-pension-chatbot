@@ -250,3 +250,48 @@ def upload_records(records: list[IndexRecord], batch_size: int = 100) -> int:
 
     logger.info("✓ Uploaded %d/%d records to search index", uploaded, total)
     return uploaded
+
+
+def prune_stale_records(article: str, keep_ids: set[str], batch_size: int = 100) -> int:
+    """Delete indexed documents for one article that this ingestion did not produce.
+
+    Uploading merges by key, so an ingestion that stops emitting a key leaves the
+    old document behind, fully searchable. That is not a hypothetical: fixing the
+    parser to drop text a court has struck rewrote the keys under Section
+    11-134.1 and Section 11-221.1, and without this the struck text stayed in the
+    index under its old key while the corrected text arrived under a new one —
+    the corpus would hold both, and retrieval has no way to prefer the newer.
+
+    Deleting only what the same article just failed to re-emit keeps this from
+    touching an article that is not being ingested.
+    """
+    search_client = get_search_client()
+    try:
+        results = search_client.search(
+            search_text="*",
+            filter=f"article eq '{article}'",
+            select=["id"],
+            top=100000,
+        )
+        existing = {doc["id"] for doc in results}
+    except Exception as exc:
+        logger.error("Could not list existing documents for Article %s: %s", article, exc)
+        return 0
+
+    stale = sorted(existing - keep_ids)
+    if not stale:
+        logger.info("No stale documents for Article %s", article)
+        return 0
+
+    logger.info("Deleting %d stale document(s) for Article %s", len(stale), article)
+    deleted = 0
+    for i in range(0, len(stale), batch_size):
+        batch = [{"id": doc_id} for doc_id in stale[i:i + batch_size]]
+        try:
+            result = search_client.delete_documents(documents=batch)
+            deleted += sum(1 for r in result if r.succeeded)
+        except Exception as exc:
+            logger.error("Failed to delete stale batch for Article %s: %s", article, exc)
+            raise
+    logger.info("✓ Deleted %d stale document(s) for Article %s", deleted, article)
+    return deleted

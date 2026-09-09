@@ -52,11 +52,20 @@ cases:
 
   - id: G29
     name: Service under two systems
-    status: blocked
-    blocked_by: needs Article 20, the Retirement Systems Reciprocal Act
     turns:
       - q: >-
           I have service under this fund and service under another Illinois
           retirement system. Can they be coordinated under the Reciprocal Act?
         expect:
-          cites: ["20-122"]
+          # This asked for Section 20-122 while Article 20 was uningested, and
+          # ingesting it showed there is no such section: the Article numbers
+          # 20-121 then 20-123, and Article 11 refers back to "the alternative
+          # formula formerly set forth in Section 20-122". The case was
+          # unpassable as written — an answer citing it would be a hallucination
+          # the citation guardrail is there to reject. These three are what
+          # actually govern combining service across systems.
+          cites: ["20-115|20-117|20-121"]
+          # Naming the Reciprocal Act must not read as asking about somebody
+          # else's law: Article 20 governs this member, so their own Article
+          # stays in the retrieval filter beside it.
+          forbids: ["not covered by the statute text"]
