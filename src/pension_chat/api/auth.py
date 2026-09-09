@@ -115,6 +115,38 @@ async def require_auth(user: TokenData | None = Depends(get_current_user)) -> To
     return user
 
 
+async def require_admin(user: TokenData = Depends(require_auth)) -> TokenData:
+    """Dependency for endpoints that change what every member is told.
+
+    `require_auth` establishes that somebody is signed in, which is not the same
+    question. `POST /formulas/{id}/promote` sets a recipe to `approved` and
+    permits `execution_policy='authoritative'` — the gate the architecture doc
+    (§7.2) puts human legal and actuarial review behind — and
+    `_format_calculation` reads that same field to decide whether a figure is
+    labelled an estimate. So a promotion changes how figures are presented for
+    every member, and until now any member's token was enough to make one.
+
+    The flag is read from the database on each request rather than carried as a
+    token claim. A claim inside a 24-hour non-refreshable token cannot be
+    revoked, and these endpoints are cold enough that the round trip is free.
+    """
+    async with get_admin_session() as session:
+        from pension_chat.db.models import Employee
+
+        result = await session.execute(
+            select(Employee.is_admin).where(Employee.id == user.employee_id)
+        )
+        if not result.scalar_one_or_none():
+            # Deliberately the same shape of answer as an unknown endpoint would
+            # give: a member who is not an administrator has no business
+            # learning that the administrative surface exists.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not found",
+            )
+    return user
+
+
 # ── Endpoints ─────────────────────────────────────────────────────
 
 @router.post("/register", response_model=TokenResponse)

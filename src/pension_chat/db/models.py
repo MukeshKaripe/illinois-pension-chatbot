@@ -106,6 +106,14 @@ class Employee(Base):
         nullable=False,
         server_default="true",
     )
+    # Read per request by `require_admin` rather than carried as a token claim:
+    # a claim inside a 24-hour token cannot be revoked, and the admin endpoints
+    # are cold enough that the round trip costs nothing.
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

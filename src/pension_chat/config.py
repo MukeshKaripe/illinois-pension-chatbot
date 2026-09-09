@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Shipped as the default so local development and tests can construct
+# Settings() freely. It is also a sentence in English, which is a poor
+# HS256 signing key -- see `_refuse_a_guessable_secret`.
+PLACEHOLDER_JWT_SECRET = "change-this-to-a-random-secret-in-production"
+MIN_JWT_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -126,7 +133,10 @@ class Settings(BaseSettings):
     db_pool_recycle_seconds: int = 900
 
     # ── JWT Auth ──────────────────────────────────────────────────
-    jwt_secret_key: str = "change-this-to-a-random-secret-in-production"
+    # The default is kept so that tests and local development can construct
+    # Settings() without ceremony. What must not happen is shipping it: see
+    # `_refuse_a_guessable_secret` below, which is the half that has teeth.
+    jwt_secret_key: str = PLACEHOLDER_JWT_SECRET
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 1440  # 24 hours
 
@@ -138,6 +148,32 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",")]
+
+    @model_validator(mode="after")
+    def _refuse_a_guessable_secret(self) -> Settings:
+        """Outside development, refuse to start on the shipped signing key.
+
+        Tokens carry the employee id that row-level security is keyed on and,
+        once there is an admin role, whether the holder may promote a
+        calculation recipe to authoritative. A signing key anybody can read out
+        of this file forges both. Failing at boot is the only failure mode here
+        that is loud enough to notice.
+        """
+        if self.app_env in {"development", "test"}:
+            return self
+        if self.jwt_secret_key == PLACEHOLDER_JWT_SECRET:
+            raise ValueError(
+                "JWT_SECRET_KEY is still the placeholder from config.py. "
+                "Set it to a random value of at least "
+                f"{MIN_JWT_SECRET_LENGTH} characters before running outside "
+                "development."
+            )
+        if len(self.jwt_secret_key) < MIN_JWT_SECRET_LENGTH:
+            raise ValueError(
+                f"JWT_SECRET_KEY is {len(self.jwt_secret_key)} characters; "
+                f"the minimum is {MIN_JWT_SECRET_LENGTH}."
+            )
+        return self
 
 
 @lru_cache(maxsize=1)

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, update
 
-from pension_chat.api.auth import TokenData, require_auth
+from pension_chat.api.auth import TokenData, require_admin
 from pension_chat.db.models import FormulaRegistry, PensionArticle
 from pension_chat.db.session import get_admin_session
 
@@ -59,7 +59,7 @@ class ArticleStatusItem(BaseModel):
 
 @router.get("/formulas", response_model=list[FormulaListItem])
 async def list_formulas(
-    user: TokenData = Depends(require_auth),
+    user: TokenData = Depends(require_admin),
 ):
     """List calculation-knowledge rows, lifecycle state, execution policy."""
     async with get_admin_session() as db:
@@ -97,7 +97,7 @@ async def list_formulas(
 async def promote_formula(
     formula_db_id: str,
     body: PromoteRequest,
-    user: TokenData = Depends(require_auth),
+    user: TokenData = Depends(require_admin),
 ):
     """Promote a validated/agent_derived capability to approved/authoritative."""
     formula_uuid = uuid.UUID(formula_db_id)
@@ -140,7 +140,7 @@ async def promote_formula(
 
 @router.get("/articles", response_model=list[ArticleStatusItem])
 async def list_articles(
-    user: TokenData = Depends(require_auth),
+    user: TokenData = Depends(require_admin),
 ):
     """Ingestion status per Article — progress at a glance."""
     async with get_admin_session() as db:
