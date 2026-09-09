@@ -77,3 +77,27 @@ def test_the_fallback_is_permissive() -> None:
     result = fallback_understanding()
     assert result.in_scope is True
     assert result.needs_figure is False
+
+
+def test_unrecognized_string_in_scope_falls_open() -> None:
+    """Garbage string in_scope value must not produce a refusal."""
+    result = parse_understanding('{"in_scope": "garbage"}')
+    assert result.in_scope is True
+
+
+def test_explicit_string_falsy_values_are_honoured() -> None:
+    """Clearly-expressed intent: "false" and "no" strings mean refusal."""
+    result_false = parse_understanding('{"in_scope": "false"}')
+    assert result_false.in_scope is False
+
+    result_no = parse_understanding('{"in_scope": "no"}')
+    assert result_no.in_scope is False
+
+
+def test_unrecognized_types_in_scope_fall_open() -> None:
+    """Non-string, non-bool types must not produce a refusal."""
+    result_zero = parse_understanding('{"in_scope": 0}')
+    assert result_zero.in_scope is True
+
+    result_empty_list = parse_understanding('{"in_scope": []}')
+    assert result_empty_list.in_scope is True
