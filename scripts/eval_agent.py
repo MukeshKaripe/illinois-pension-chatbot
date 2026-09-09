@@ -19,6 +19,16 @@ Usage::
     uv run python scripts/eval_agent.py --json out.json    # machine-readable
     uv run python scripts/eval_agent.py --include-blocked  # run the skipped ones
 
+**Read a single run with that in mind.** Four consecutive runs of the same
+commit scored 53, 49, 52 and 53 out of 54. The model is not deterministic, and
+across ~100 turns a handful of them sit close enough to a threshold — a figure
+the answer states in prose rather than copying, a citation the ranker surfaces
+on one run and not the next — that they land differently each time. A drop of a
+case or two between runs is variance; a category falling over, a critical case
+failing, or the same case failing twice, is a finding. Every failure prints its
+offending values, so telling the two apart means reading the line rather than
+the score.
+
 Two case-level flags carry weight. ``critical: true`` fails the run on its own,
 however well everything else scored: an overall percentage that hides an Article
 12 provision being applied to an Article 11 member is worse than no score at
