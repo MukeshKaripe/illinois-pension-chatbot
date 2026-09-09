@@ -69,6 +69,34 @@ def test_every_assumable_rule_is_complete() -> None:
         assert plausible_range(name, KNOWN) is not None, f"{name}: range unusable on known facts"
 
 
+def test_disclosure_cues_are_multi_word() -> None:
+    """No single-word disclosure cues, which could appear by accident.
+
+    A bare word like 'today' might appear in an answer for unrelated reasons,
+    defeating the guardrail that checks a cue was actually disclosed.
+    """
+    for name, rule in POLICY.items():
+        if not rule.assumable:
+            continue
+        for cue in rule.disclosure_cues:
+            assert " " in cue, f"{name}: single-word cue '{cue}' could appear by accident"
+
+
+def test_salary_aliases_are_in_never_assumable() -> None:
+    """Every salary alias facts.py publishes must be forbidden to assume."""
+    salary_aliases = {
+        "final_average_salary",
+        "highest_average_annual_salary",
+        "highest_average_annual_salary_4yr",
+        "highest_average_annual_salary_5yr",
+        "highest_average_annual_salary_8yr",
+        "fas",
+        "current_annual_salary",
+    }
+    for alias in salary_aliases:
+        assert alias in NEVER_ASSUMABLE, f"{alias} missing from NEVER_ASSUMABLE"
+
+
 def test_an_unknown_input_is_not_assumable_by_default() -> None:
     assert rule_for("favourite_colour") is None
     assert not is_assumable("favourite_colour")
