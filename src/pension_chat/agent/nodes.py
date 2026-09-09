@@ -313,8 +313,11 @@ async def triage(state: PensionAgentState) -> dict:
     # vocabulary of its own and is only in scope as a follow-up, so the check
     # needs to know whether anything precedes it. `messages` always holds at
     # least this turn's own question.
+    settings = get_settings()
     scope = guardrails.classify_scope(
-        question, has_history=len(state.get("messages") or []) > 1
+        question,
+        has_history=len(state.get("messages") or []) > 1,
+        model_routing=settings.model_turn_understanding,
     )
 
     return {

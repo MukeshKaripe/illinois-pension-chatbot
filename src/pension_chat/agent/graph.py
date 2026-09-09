@@ -97,7 +97,14 @@ GREETING_MESSAGE = (
 
 
 def _needs_calculation(state: PensionAgentState) -> str:
-    """Skip the calculation branch entirely for a question that has no maths."""
+    """Run the calculation branch for a figure that is wanted or has gone stale.
+
+    Staleness is the half that does not depend on the words used. A member who
+    writes "actually it's more like 23 years" has asked for a recalculation
+    without asking for one, and the figure they are correcting is what says so.
+    """
+    if state.get("stale_figures"):
+        return "resolve_inputs"
     if state.get("requires_calculation") and state.get("formula_types_needed"):
         return "resolve_inputs"
     return "prepare_answer"

@@ -131,7 +131,12 @@ class ScopeVerdict:
     reason: str = ""
 
 
-def classify_scope(question: str, *, has_history: bool = False) -> ScopeVerdict:
+def classify_scope(
+    question: str,
+    *,
+    has_history: bool = False,
+    model_routing: bool = False,
+) -> ScopeVerdict:
     """Cheap deterministic scope check run before any model call.
 
     The default is **out of scope**. It used to be the opposite — anything
@@ -158,6 +163,14 @@ def classify_scope(question: str, *, has_history: bool = False) -> ScopeVerdict:
 
     if _OUT_OF_SCOPE.search(text):
         return ScopeVerdict(False, "out_of_scope")
+
+    if model_routing:
+        # The deny pattern above is high precision -- when it fires it is right,
+        # so it stays as a free fast path. The vocabulary check below is the
+        # opposite: when it says "no pension words here, refuse" it is wrong
+        # about "retiring", "my wife" and "does this get taxed". Keep the regex
+        # where it accuses; delete it where it acquits.
+        return ScopeVerdict(True)
 
     lowered = text.lower()
     if any(term in lowered for term in _PENSION_TERMS):

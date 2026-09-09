@@ -164,3 +164,26 @@ class TestMidConversationRefusals:
     def test_and_the_widening_did_not_let_these_back_in(self, question):
         """The complaint that started the deny-by-default, still answered."""
         assert not classify_scope(question, has_history=True).in_scope
+
+
+def test_with_model_routing_only_the_blatant_cases_are_refused_deterministically() -> None:
+    from pension_chat.agent.guardrails import classify_scope
+
+    # High precision: when this pattern fires it is right, so it stays free.
+    assert not classify_scope("write me a poem about my dog", model_routing=True).in_scope
+
+    # Low recall in the other direction: these were all refused by the word
+    # list and are all pension questions.
+    for question in [
+        "I'm starting to think seriously about retiring but I don't know where to begin",
+        "My wife is worried about what happens to her if something happens to me",
+        "Does any of this get taxed, and do I still get health insurance?",
+    ]:
+        assert classify_scope(question, model_routing=True).in_scope, question
+
+
+def test_without_model_routing_the_old_behaviour_is_unchanged() -> None:
+    from pension_chat.agent.guardrails import classify_scope
+
+    assert classify_scope("how much pension will i get").in_scope
+    assert not classify_scope("write me a poem about my dog").in_scope
