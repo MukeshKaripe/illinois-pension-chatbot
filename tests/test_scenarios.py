@@ -1,6 +1,6 @@
 """Tests for retirement-timing scenario handling.
 
-The bug these pin down: `plan_request` runs concurrently with the record fetch,
+The bug these pin down: `understand_turn` runs concurrently with the record fetch,
 so the planner does not know the member's age and cannot turn "wait 2 more
 years" into an absolute retirement age. It returned `retirement_age: null`, and
 execution silently skipped the scenario — so the same question produced a
@@ -18,12 +18,11 @@ from datetime import date
 import pytest
 
 from pension_chat.agent.facts import build_member_facts
-from pension_chat.agent.nodes import (
-    _RESTATED_FACT,
-    _corroborated,
-    _merge_scenarios,
-    _resolve_retirement_age,
+from pension_chat.agent.nodes import _resolve_retirement_age
+from pension_chat.agent.scenarios import (
+    corroborated,
     extract_scenarios,
+    merge_scenarios,
 )
 
 TODAY = date(2026, 9, 7)
@@ -95,13 +94,13 @@ def test_merge_prefers_resolvable_scenarios_over_null_ones():
         {"label": "now", "retirement_age": None},
         {"label": "in 2 years", "retirement_age": None},
     ]
-    merged = _merge_scenarios(deterministic, planned)
+    merged = merge_scenarios(deterministic, planned)
 
     assert merged == deterministic
 
 
 def test_merge_keeps_planner_scenarios_the_regex_missed():
-    merged = _merge_scenarios([], [{"label": "at age 62", "retirement_age": 62}])
+    merged = merge_scenarios([], [{"label": "at age 62", "retirement_age": 62}])
 
     assert merged == [{"label": "at age 62", "retirement_age": 62}]
 
@@ -109,11 +108,11 @@ def test_merge_keeps_planner_scenarios_the_regex_missed():
 def test_merge_keeps_unresolvable_scenarios_when_nothing_else_matched():
     # Kept so they can be reported to the member rather than vanishing.
     planned = [{"label": "much later", "retirement_age": None}]
-    assert _merge_scenarios([], planned) == planned
+    assert merge_scenarios([], planned) == planned
 
 
 def test_merge_deduplicates_the_same_target():
-    merged = _merge_scenarios(
+    merged = merge_scenarios(
         [{"label": "at age 60", "retirement_age": 60}],
         [{"label": "when I turn 60", "retirement_age": 60}],
     )
@@ -189,8 +188,8 @@ FIFTY_PERCENT_QUESTION = (
 def test_a_scenario_remembered_from_an_earlier_turn_is_dropped():
     stale = {"label": "in 3 years", "years_from_now": 3}
 
-    assert _corroborated(stale, FIFTY_PERCENT_QUESTION) is False
-    assert _merge_scenarios(extract_scenarios(FIFTY_PERCENT_QUESTION), []) == []
+    assert corroborated(stale, FIFTY_PERCENT_QUESTION) is False
+    assert merge_scenarios(extract_scenarios(FIFTY_PERCENT_QUESTION), []) == []
 
 
 @pytest.mark.parametrize(
@@ -205,39 +204,62 @@ def test_a_scenario_remembered_from_an_earlier_turn_is_dropped():
     ],
 )
 def test_a_scenario_the_current_message_asks_for_survives(scenario, question):
-    assert _corroborated(scenario, question) is True
+    assert corroborated(scenario, question) is True
 
 
 def test_service_years_and_salary_do_not_corroborate_an_offset():
     # "21.5 years of service" and "$72,000" are facts about the member, not a
     # request to compare retirement dates.
-    assert _corroborated({"years_from_now": 5}, FIFTY_PERCENT_QUESTION) is False
-    assert _corroborated({"retirement_age": 72}, FIFTY_PERCENT_QUESTION) is False
+    assert corroborated({"years_from_now": 5}, FIFTY_PERCENT_QUESTION) is False
+    assert corroborated({"retirement_age": 72}, FIFTY_PERCENT_QUESTION) is False
 
 
 def test_an_unresolvable_scenario_survives_only_when_timing_is_actually_asked():
     vague = {"label": "later", "retirement_age": None}
 
-    assert _corroborated(vague, "What if I retire at age 62 instead?") is True
-    assert _corroborated(vague, "What does Section 11-116 define as salary?") is False
+    assert corroborated(vague, "What if I retire at age 62 instead?") is True
+    assert corroborated(vague, "What does Section 11-116 define as salary?") is False
 
 
-# ── Correcting a fact mid-conversation ────────────────────────────
+# ── A list of ages in one breath ───────────────────────────────────
 
-def test_a_restated_quantity_is_recognised_as_a_correction():
-    """"Actually I have 25 years of service, not 21.5. What changes?"
+class TestAgeLists:
+    """"Show me the same at ages 57, 59 and 60" produced no comparison at all.
 
-    None of the calculation signal words appear in that sentence, so the turn
-    planned no calculation and ran no recipe — while the conversation still held
-    an earlier estimate. The model recomputed it in prose and verification threw
-    the whole answer away.
+    Two independent reasons, nine turns into a conversation about exactly that.
+    The scope gate's timing pattern matched "age 60" but not the plural "ages
+    60", so the message was refused before any planning happened. And scenario
+    extraction, once reached, read only the first age of a list.
     """
-    assert _RESTATED_FACT.search("Actually I have 25 years of service, not 21.5.")
-    assert _RESTATED_FACT.search("my salary is now $80,000")
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            ("Now show me the same at ages 57, 59 and 60.", [57, 59, 60]),
+            ("Now show me the same at age 57, age 59 and age 60.", [57, 59, 60]),
+            ("compare ages 55 and 62", [55, 62]),
+            ("Now do the same at age 59.", [59]),
+        ],
+    )
+    def test_every_age_in_a_list_becomes_a_scenario(self, question, expected):
+        found = [s["retirement_age"] for s in extract_scenarios(question)]
+
+        assert sorted(found) == expected
+
+    def test_a_list_of_numbers_that_are_not_ages_is_left_alone(self):
+        assert extract_scenarios("I have 21.5 years of service and earn $72,000") == []
 
 
-def test_a_section_number_is_not_a_restated_quantity():
-    # Otherwise "I have a question about section 11-134" would put a planner
-    # round trip in front of an ordinary lookup.
-    assert not _RESTATED_FACT.search("I have a question about section 11-134")
-    assert not _RESTATED_FACT.search("What does Section 11-116 define as salary?")
+def test_a_follow_up_naming_an_age_carries_no_calculation_vocabulary():
+    """"Now do the same at age 59" has no calculation word in it at all.
+
+    What it does have is a retirement timing, and `extract_scenarios` finds it --
+    so the follow-up is recognised by what it names rather than by a keyword
+    list, which is why `understand_turn` reads a mid-conversation scenario as a
+    request for the figure again however the sentence is phrased.
+    """
+    question = "Now do the same at age 59."
+
+    assert extract_scenarios(question) == [
+        {"label": "at age 59", "retirement_age": 59}
+    ]

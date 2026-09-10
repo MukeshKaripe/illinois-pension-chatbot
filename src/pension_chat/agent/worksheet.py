@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from pension_chat.agent.facts import aliases_of
+from pension_chat.agent.facts import FRAMING_DEFAULTS, aliases_of
+from pension_chat.calculation.assumption_policy import rule_for
 
 SOURCE_RECORD = "record"
 SOURCE_STATED = "stated"
@@ -115,10 +116,33 @@ class WorkSheet:
             else "on file, but not usable while this conversation is reading another Article"
         )
         for name, value in (state.get("member_facts") or {}).items():
-            if value is not None:
+            if value is None:
+                continue
+            # A framing default arrives in `member_facts` beside the record's
+            # own values, but it is not one of them and must not inherit their
+            # provenance: the facts layer fills `withdrawal_date` with today
+            # so a date_diff has something to subtract, and calling that a
+            # record fact is how a figure resting on "you stop working today"
+            # came out at rung 1 with no assumptions block and nothing in the
+            # answer's own voice saying which retirement date it used.
+            #
+            # Labelled here rather than left out of `derive_facts` on purpose.
+            # The value is still needed -- applicability predicates and the
+            # interpreter both read it -- so the defect is the label alone, and
+            # dropping the key to fix a label would starve the predicates.
+            if name in FRAMING_DEFAULTS:
+                rule = rule_for(name)
                 sheet.facts[name] = Fact(
-                    name, value, record_source, basis=record_basis, turn=sheet.turn
+                    name,
+                    value,
+                    SOURCE_ASSUMED,
+                    basis=rule.basis if rule else "",
+                    turn=sheet.turn,
                 )
+                continue
+            sheet.facts[name] = Fact(
+                name, value, record_source, basis=record_basis, turn=sheet.turn
+            )
 
         for name, entry in (state.get("assumptions") or {}).items():
             if not isinstance(entry, Mapping):

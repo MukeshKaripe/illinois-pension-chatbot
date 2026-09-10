@@ -109,7 +109,7 @@ class PensionAgentState(TypedDict, total=False):
     # Result of scanning the question for "apply my formula, skip the Code"
     override_signal: dict
 
-    # ── Plan (from plan_request) ──────────────────────────────────
+    # ── Plan (from understand_turn) ───────────────────────────────
     requires_calculation: bool
     formula_types_needed: list[str]
     search_queries: list[str]

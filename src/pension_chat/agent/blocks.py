@@ -17,6 +17,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.presentation import STATUS_LABELS
 from pension_chat.agent.worksheet import WorkSheet
 
@@ -191,11 +192,23 @@ def render_comparison(options: Sequence[Mapping[str, Any]]) -> str:
 
 
 def render_assumptions(sheet: WorkSheet) -> str:
-    """What was filled in, and on whose say-so. Empty when nothing was."""
+    """What was filled in, and on whose say-so. Empty when nothing was.
+
+    One line per *quantity*, not per input name. `withdrawal_date` and
+    `annuity_start_date` are one choice wearing two names -- the ask side
+    already collapses them in `_dedupe_missing_inputs` -- and disclosing it
+    twice reads as two separate guesses about two separate things.
+    """
     assumed = sheet.assumed_facts()
     if not assumed:
         return ""
-    lines = [f"- {fact.basis or fact.name}" for fact in assumed.values()]
+    lines: list[str] = []
+    covered: set[str] = set()
+    for name, fact in assumed.items():
+        if name in covered:
+            continue
+        covered |= aliases_of(name)
+        lines.append(f"- {fact.basis or fact.name}")
     return "**What I assumed**\n\n" + "\n".join(lines)
 
 

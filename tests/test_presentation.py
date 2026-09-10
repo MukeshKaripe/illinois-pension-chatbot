@@ -207,3 +207,24 @@ def test_a_missing_marker_leaves_its_block_to_be_appended() -> None:
 
     recovered = streamed + "\n\n" + "\n\n".join(sub.unused())
     assert "TABLE" in recovered
+
+
+def test_one_assumption_line_per_quantity_not_per_input_name() -> None:
+    """`withdrawal_date` and `annuity_start_date` are one choice, two names.
+
+    The ask side already collapses them (`_dedupe_missing_inputs`); disclosing
+    both reads as two separate guesses about two separate things.
+    """
+    sheet = WorkSheet.from_state(
+        {
+            "turn_index": 1,
+            "member_facts": {
+                "withdrawal_date": "2026-09-10",
+                "annuity_start_date": "2026-09-10",
+            },
+            "assumptions": {},
+        }
+    )
+    rendered = render_assumptions(sheet)
+    assert rendered.count("\n- ") == 1, rendered
+    assert "stop working" in rendered

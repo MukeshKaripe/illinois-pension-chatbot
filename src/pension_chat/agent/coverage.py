@@ -377,7 +377,7 @@ async def assess(
                 },
             ],
             usage=usage,
-            reasoning_effort=settings.reasoning_effort_plan,
+            reasoning_effort=settings.reasoning_effort_coverage,
             json_mode=True,
         )
         parsed = json.loads(raw or "{}")

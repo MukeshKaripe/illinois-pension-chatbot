@@ -1,22 +1,29 @@
-"""Tests for what the assistant will and will not take on.
+"""Tests for what the deterministic gate will and will not decide on its own.
 
-Reported from live use: "i want an ice cream" was answered with "Go for it —
-you've earned one", "can you help me sleep" returned a page of sleep-hygiene
-advice ending in a referral to a healthcare professional, and a request to
-order food got a polite explanation of how to order food.
+This file has had its premise inverted twice, and both directions were bugs.
 
-The cause was the default. Scope classification refused an explicit blocklist,
-treated three words or fewer as a greeting, and passed **everything else**
-through to the full pipeline:
+**Default in-scope** was the original, and it answered "i want an ice cream"
+with "Go for it — you've earned one" and "can you help me sleep" with a page of
+sleep-hygiene advice.
 
-    if any(term in lowered for term in _PENSION_TERMS): return in_scope
-    if len(lowered.split()) <= 3:                       return greeting
-    return ScopeVerdict(True)                           # <- anything at all
+**Default deny** replaced it: a message matching no word in a pension vocabulary
+was refused. That fixed the ice cream and broke the thing this assistant is for.
+Three refusals inside one fourteen-turn case, and on the routing suite it turned
+away "I'm starting to think seriously about retiring" (because "retiring" does
+not contain "retire"), "my wife is worried about what happens to her" (the list
+held "spouse" and "widow", not "wife") and "does any of this get taxed" — each in
+1.75s at zero cost, which is the cheapest possible way to fail somebody.
 
-The default is now refusal. The interesting half of that change is not the
-refusals — it is that flipping a default is the easiest way to build a system
-that refuses real questions, so most of what follows guards the other side:
-members do not ask about their pension in statutory vocabulary.
+**The default is now in-scope again, but the mechanism is different**: deciding
+what a member meant moved to `understand_turn`, and what stays here is only what
+a regular expression can be trusted with — a deny list that is right whenever it
+fires, and a greeting. So the tests below come in three groups: what is still
+refused for free, what is deliberately *not* decided here any more, and the
+greeting exit.
+
+The measured price of the change is one routing call (~570 tokens) on an
+off-topic aside the deny list does not name. See eval S5, which had its `no_llm`
+expectation dropped for exactly this reason.
 """
 
 from __future__ import annotations
@@ -25,41 +32,58 @@ import pytest
 
 from pension_chat.agent.guardrails import classify_scope
 
-# ── Things it must not take on ────────────────────────────────────
+# ── Still refused for free ────────────────────────────────────────
+#
+# Every one of these trips `_OUT_OF_SCOPE`, which is high precision by
+# construction: when it fires it is right, so it costs nothing.
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "i want to order some food can you order it for me?",
+        "can you help me sleep",
+        "help me write a cover letter",
+        "can you book me a flight to Denver next week",
+        "give me a recipe for banana bread",
+        "what will the weather be tomorrow",
+        "write me a poem about my dog",
+        "who won the game last night",
+    ],
+)
+def test_the_blatant_cases_are_refused_with_no_model_call(question):
+    assert classify_scope(question).in_scope is False
+
+
+def test_a_blatant_case_is_refused_mid_conversation_too():
+    """Having talked about pensions does not open the door to everything else."""
+    assert classify_scope("write me a poem about it", has_history=True).in_scope is False
+
+
+# ── Deliberately not decided here any more ────────────────────────
+
 
 @pytest.mark.parametrize(
     "question",
     [
         "i want an ice cream",
-        "i want to order some food can you order it for me?",
-        "can you help me sleep",
         "what's a good movie tonight",
-        "help me write a cover letter",
         "what is the capital of France",
-        "can you book me a flight to Denver next week",
         "write a python function to sort a list",
-        "give me a recipe for banana bread",
-        "what will the weather be tomorrow",
     ],
 )
-def test_unrelated_requests_are_refused(question):
-    assert classify_scope(question).in_scope is False
+def test_an_aside_the_deny_list_does_not_name_reaches_the_model(question):
+    """These are refused, but by `understand_turn`, not by a word list.
 
-
-def test_an_aside_mid_conversation_is_still_refused():
-    """Having talked about pensions does not open the door to everything else."""
-    assert classify_scope("i want an ice cream", has_history=True).in_scope is False
-
-
-@pytest.mark.parametrize("question", ["hi", "hello there", "thanks"])
-def test_greetings_are_answered_as_greetings_not_refusals(question):
-    verdict = classify_scope(question)
-
-    assert verdict.in_scope is False
-    assert verdict.reason == "greeting"
+    Catching them here would mean enumerating everything a member might type,
+    and the bill for that list was paid by real pension questions. The model
+    refuses them correctly for about 570 tokens; eval S5 is the live proof.
+    """
+    assert classify_scope(question).in_scope is True
 
 
 # ── Things it must take on ────────────────────────────────────────
+
 
 @pytest.mark.parametrize(
     "question",
@@ -78,6 +102,13 @@ def test_greetings_are_answered_as_greetings_not_refusals(question):
         "and what about at age 60?",
         "I'm 56 with 21.5 years of service. Calculate my benefit.",
         "Compare my benefit if I retire now, at 57 and at 60.",
+        # The three the vocabulary list refused outright, at zero cost.
+        "I'm starting to think seriously about retiring but I don't know where to begin",
+        "My wife is worried about what happens to her if something happens to me",
+        "Does any of this get taxed, and do I still get health insurance?",
+        # The comparison question in a member's own words.
+        "is it worth it to keep working",
+        "should i retire",
     ],
 )
 def test_pension_questions_are_answered(question):
@@ -86,12 +117,60 @@ def test_pension_questions_are_answered(question):
 
 @pytest.mark.parametrize(
     "question",
-    ["why not?", "what about that?", "and then?", "ok explain that"],
+    [
+        "Which provisions apply to me?",
+        "Which provisions could you calculate, and which actually govern my case?",
+        "Now show me the same at ages 57, 59 and 60, keeping everything unchanged.",
+        "I think the pathway you picked was wrong. Re-run the applicability analysis.",
+        "What is your determination, and what assumptions did it rest on?",
+        "why not?",
+        "what about that?",
+        "and then?",
+        "ok explain that",
+    ],
 )
-def test_bare_follow_ups_are_answered_only_as_follow_ups(question):
-    """"why not?" is a pension question in context and nothing out of it."""
+def test_a_member_continuing_the_conversation_is_not_turned_away(question):
+    """Three separate refusals inside one fourteen-turn case came from here.
+
+    Each was a question this assistant exists to answer, and each was phrased
+    without a single word from the benefit vocabulary — including the member
+    replying in the words the assistant had just used at them.
+    """
+    assert classify_scope(question, has_history=True).in_scope
+
+
+# ── The greeting exit ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("question", ["hi", "Hello!", "hey there", "good morning", "bye"])
+def test_a_pleasantry_costs_nothing_and_is_answered_as_one(question):
+    """"hi" needs no model call to classify, and must not get one.
+
+    Routing it onward loses two things: the round trip, and the reason code.
+    `decline` picks GREETING_MESSAGE off `out_of_scope_reason == "greeting"`, so
+    a model-written clause in its place answers "hi" with "that is outside the
+    Pension Code".
+    """
+    verdict = classify_scope(question, has_history=True)
+
+    assert verdict.in_scope is False
+    assert verdict.reason == "greeting"
+
+
+@pytest.mark.parametrize("question", ["yes", "ok", "no", "thanks", "sure"])
+def test_a_bare_acknowledgement_is_a_greeting_only_with_nothing_before_it(question):
+    """Mid-conversation it is how a member answers what was just asked.
+
+    `_CONTINUATION` matched "ok", "yes", "no" and "thanks" for exactly this
+    reason, and a whole-message greeting gate that ignored `has_history` would
+    throw the member's answer away and reply with a salutation.
+    """
     assert classify_scope(question, has_history=True).in_scope is True
     assert classify_scope(question, has_history=False).in_scope is False
+
+
+def test_a_greeting_with_a_question_attached_is_a_question():
+    assert classify_scope("hi, how much will i get?").in_scope is True
 
 
 def test_an_empty_message_is_not_treated_as_a_greeting():
@@ -99,96 +178,6 @@ def test_an_empty_message_is_not_treated_as_a_greeting():
 
     assert verdict.in_scope is False
     assert verdict.reason != "greeting"
-
-
-def test_the_retire_or_keep_working_question_is_in_scope():
-    """Found by probing query shapes the suite never covered.
-
-    "is it worth it to keep working" is the comparison question in a member's
-    own words — no statutory vocabulary, no age, no section number — and the
-    default-deny flip refused it. That is the failure mode flipping a default
-    invites, so it is pinned here.
-    """
-    for question in (
-        "is it worth it to keep working",
-        "should i retire",
-        "is it worth it to retire now",
-    ):
-        assert classify_scope(question).in_scope is True, question
-
-
-# -- Refusals found by the fourteen-turn end-to-end case -----------
-
-class TestMidConversationRefusals:
-    """The deny-by-default kept turning members away mid-conversation.
-
-    Three separate refusals inside one fourteen-turn case, each of them a
-    question this assistant exists to answer, and each phrased without a single
-    word from the benefit vocabulary:
-
-      * "Which provisions apply to me?" — names no benefit, age or section.
-      * "Now show me the same at ages 57, 59 and 60" — the timing pattern
-        matched "age 60" but not the plural "ages 60".
-      * "Re-run the applicability analysis" — the member replying in the words
-        the assistant had just used at them.
-
-    The default is right for a stranger's first question and wrong as a way to
-    police a conversation already under way. What it needed was the vocabulary
-    of the *question*, not more vocabulary of the benefit.
-    """
-
-    @pytest.mark.parametrize(
-        "question",
-        [
-            "Which provisions apply to me?",
-            "Which provisions could you calculate, and which actually govern my case?",
-            "Now show me the same at ages 57, 59 and 60, keeping everything unchanged.",
-            "I think the pathway you picked was wrong. Re-run the applicability analysis.",
-            "Am I eligible to retire?",
-            "What is your determination, and what assumptions did it rest on?",
-        ],
-    )
-    def test_a_member_continuing_the_conversation_is_not_turned_away(self, question):
-        assert classify_scope(question, has_history=True).in_scope
-
-    @pytest.mark.parametrize(
-        "question",
-        [
-            "write me a poem about it",
-            "i want an ice cream",
-            "can you help me sleep",
-            "what is the weather like today",
-            "who won the game last night",
-        ],
-    )
-    def test_and_the_widening_did_not_let_these_back_in(self, question):
-        """The complaint that started the deny-by-default, still answered."""
-        assert not classify_scope(question, has_history=True).in_scope
-
-
-def test_with_model_routing_only_the_blatant_cases_are_refused_deterministically() -> None:
-    from pension_chat.agent.guardrails import classify_scope
-
-    # High precision: when this pattern fires it is right, so it stays free.
-    assert not classify_scope("write me a poem about my dog", model_routing=True).in_scope
-
-    # Low recall in the other direction: these were all refused by the word
-    # list and are all pension questions.
-    for question in [
-        "I'm starting to think seriously about retiring but I don't know where to begin",
-        "My wife is worried about what happens to her if something happens to me",
-        "Does any of this get taxed, and do I still get health insurance?",
-    ]:
-        assert classify_scope(question, model_routing=True).in_scope, question
-
-
-def test_without_model_routing_the_old_behaviour_is_unchanged() -> None:
-    from pension_chat.agent.guardrails import classify_scope
-
-    assert classify_scope("how much pension will i get").in_scope
-    assert not classify_scope("write me a poem about my dog").in_scope
-
-
 # ── The model's own scope verdict ──────────────────────────────────
 
 def test_the_planning_branch_can_still_take_a_turn_out_of_scope() -> None:
@@ -206,3 +195,4 @@ def test_the_planning_branch_can_still_take_a_turn_out_of_scope() -> None:
     assert _still_in_scope({"in_scope": True}) == "assess_coverage"
     # Absent means nobody objected — the deterministic gate already passed it.
     assert _still_in_scope({}) == "assess_coverage"
+

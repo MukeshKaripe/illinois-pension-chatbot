@@ -190,3 +190,21 @@ def test_a_two_part_question_takes_the_partial_shape() -> None:
 def test_a_question_with_no_figure_wanted_takes_the_legal_shape() -> None:
     state: dict[str, object] = {"calculation_result": None, "missing_inputs": [], "requires_calculation": False}
     assert shape_for(_sheet(), state) == "legal"
+
+
+def test_a_figure_resting_on_the_default_retirement_date_is_rung_two() -> None:
+    """Eval R07, which failed on both sides of the router flag.
+
+    The member states their age, service and salary but never says when they
+    would stop working. The figure is real, and it is a figure for retiring
+    today -- so the honest rung is 2, and rung 1 is what a member gets once
+    they pin the date themselves.
+    """
+    sheet = WorkSheet.from_state(
+        {
+            "turn_index": 1,
+            "member_facts": {**FACTS, "withdrawal_date": "2026-09-10"},
+            "assumptions": {},
+        }
+    )
+    assert select_rung(sheet, {"calculation_result": CALC, "missing_inputs": []}) == RUNG_ASSUMED

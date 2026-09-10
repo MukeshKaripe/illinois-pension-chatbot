@@ -353,3 +353,57 @@ def test_a_correction_of_the_same_number_written_differently_is_not_a_revision()
     )
     assert sheet.apply_revisions({"service_years": "21.50"}, turn=2) == set()
     assert sheet.stale_figures() == []
+
+
+# ── A framing default is not a record fact ────────────────────────
+
+
+def test_a_framing_default_is_labelled_assumed_not_record() -> None:
+    """`withdrawal_date` is a reading of the question, not a line in the file.
+
+    The facts layer fills it with today so a `date_diff` has something to
+    subtract. Inheriting the record's provenance made a figure that rests on
+    "you stop working today" come out fully sourced: rung 1, no assumptions
+    block, and nothing in the answer saying which retirement date it used --
+    which matters most to the member whose pension grows with every further
+    year of service.
+    """
+    sheet = WorkSheet.from_state(
+        {
+            "turn_index": 1,
+            "member_facts": {
+                "age": 56,
+                "withdrawal_date": "2026-09-10",
+                "annuity_start_date": "2026-09-10",
+                "as_of_date": "2026-09-10",
+            },
+            "assumptions": {},
+        }
+    )
+    assert sheet.facts["withdrawal_date"].source == SOURCE_ASSUMED
+    assert sheet.facts["annuity_start_date"].source == SOURCE_ASSUMED
+    assert sheet.facts["withdrawal_date"].basis
+    # Today's date is not an assumption, and the member's age is still theirs.
+    assert sheet.facts["as_of_date"].source == SOURCE_RECORD
+    assert sheet.facts["age"].source == SOURCE_RECORD
+    # Still usable: the label was the defect, so the figure must still compute.
+    assert "withdrawal_date" in sheet.usable_values()
+
+
+def test_a_stated_retirement_date_outranks_the_framing_default() -> None:
+    """Labelling the default assumed must not stop the member overriding it."""
+    sheet = WorkSheet.from_state(
+        {
+            "turn_index": 2,
+            "member_facts": {"withdrawal_date": "2026-09-10"},
+            "assumptions": {
+                "withdrawal_date": {
+                    "value": "2030-01-01",
+                    "source": SOURCE_STATED,
+                    "turn": 2,
+                }
+            },
+        }
+    )
+    assert sheet.facts["withdrawal_date"].source == SOURCE_STATED
+    assert sheet.facts["withdrawal_date"].value == "2030-01-01"

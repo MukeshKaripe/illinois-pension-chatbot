@@ -117,7 +117,8 @@ def test_leaving_a_supposition():
 
 
 # Every governor in the two pattern families must have a sentence proving it
-# fires. Guarded the way `test_planning.py` guards `_CALCULATION_SIGNALS`, and
+# fires. Guarded the way `test_planning.py` once guarded the planner's signal
+# regex -- that file is gone with the regex, and this pattern outlived it. And
 # for the same reason: three alternatives in that pattern were dead for as long
 # as they had existed, because a trailing `\b` could never match after them, and
 # reading the regex did not reveal it.

@@ -154,3 +154,127 @@ async def test_the_node_maps_its_result_onto_the_state_keys_the_graph_reads(
     assert update["formula_types_needed"] == ["retirement_annuity"]
     assert update["search_queries"] == ["minimum annuity"]
     assert update["stale_figures"] == ["now"]
+
+
+async def test_an_offset_scenario_survives_a_model_that_cannot_resolve_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """"Wait 2 more years" is the case the model structurally cannot do.
+
+    This node runs concurrently with the record fetch, so it does not know the
+    member's age and returns `retirement_age: null` -- a scenario that dies at
+    `_resolve_retirement_age`. The offset is found by regex instead and resolved
+    against the real age at execution time.
+    """
+    from pension_chat.agent import understanding
+
+    async def canned(**kwargs: object) -> str:
+        return (
+            '{"in_scope": true, "needs_figure": true, '
+            '"scenarios": [{"label": "in 2 years", "retirement_age": null}]}'
+        )
+
+    monkeypatch.setattr(understanding, "complete", canned)
+    update = await understanding.understand_turn(
+        {
+            "question": "what happens if I wait 2 more years",
+            "turn_index": 1,
+            "messages": [],
+            "member_facts": {},
+            "assumptions": {},
+        }
+    )
+    assert update["scenarios"] == [{"label": "in 2 years", "years_from_now": 2}]
+
+
+async def test_a_scenario_this_message_never_named_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The model is shown the conversation so far, and that context leaks.
+
+    A comparison asked for three turns ago used to come back attached to a
+    question that never asked for it again. A scenario survives only if the
+    message in front of us names the age or offset it is about.
+    """
+    from pension_chat.agent import understanding
+
+    async def canned(**kwargs: object) -> str:
+        return (
+            '{"in_scope": true, "needs_figure": true, '
+            '"scenarios": [{"label": "at 60", "retirement_age": 60}]}'
+        )
+
+    monkeypatch.setattr(understanding, "complete", canned)
+    update = await understanding.understand_turn(
+        {
+            "question": "is that taxed?",
+            "turn_index": 4,
+            "messages": [],
+            "member_facts": {},
+            "assumptions": {},
+        }
+    )
+    assert update["scenarios"] == []
+
+
+def _two_messages() -> list[object]:
+    """Two turns of history, in the shape `understand_turn` reads."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    return [HumanMessage(content="what is my pension"), AIMessage(content="an answer")]
+
+
+async def test_naming_a_retirement_age_mid_conversation_asks_for_the_figure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """"Call this Scenario A: retire at 57" is an instruction, not a question.
+
+    Read as one it produced no figure and no comparison, two turns into a
+    conversation about exactly that. The signal is the age it names, and the
+    benefit falls back to the one this conversation already settled on.
+    """
+    from pension_chat.agent import understanding
+
+    async def canned(**kwargs: object) -> str:
+        return '{"in_scope": true, "needs_figure": false, "scenarios": []}'
+
+    monkeypatch.setattr(understanding, "complete", canned)
+    update = await understanding.understand_turn(
+        {
+            "question": "Call this Scenario A: retire at 57.",
+            "turn_index": 2,
+            "messages": _two_messages(),
+            "member_facts": {},
+            "assumptions": {},
+            "selected_provision": {"formula_type": "retirement_annuity"},
+        }
+    )
+    assert update["requires_calculation"] is True
+    assert update["formula_types_needed"] == ["retirement_annuity"]
+    assert update["scenarios"] == [{"label": "at age 57", "retirement_age": 57}]
+
+
+async def test_naming_an_age_on_the_first_turn_is_not_a_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a first turn "what happens at 60" asks what the law says.
+
+    Forcing a calculation there would put the whole recipe branch in front of
+    every applicability question.
+    """
+    from pension_chat.agent import understanding
+
+    async def canned(**kwargs: object) -> str:
+        return '{"in_scope": true, "needs_figure": false, "scenarios": []}'
+
+    monkeypatch.setattr(understanding, "complete", canned)
+    update = await understanding.understand_turn(
+        {
+            "question": "what happens at 60",
+            "turn_index": 1,
+            "messages": _two_messages()[:1],
+            "member_facts": {},
+            "assumptions": {},
+        }
+    )
+    assert update["requires_calculation"] is False

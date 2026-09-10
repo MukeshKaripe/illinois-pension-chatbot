@@ -8,7 +8,7 @@ Flow::
 
     triage
       ├─(out of scope / greeting)─────────────────> decline ──> END
-      └─> [plan_request ∥ fetch_employee_record] ──> assess_coverage ──> retrieve_policy
+      └─> [understand_turn ∥ fetch_employee_record] ─> assess_coverage ─> retrieve_policy
                                                                               │
                                                                        resolve_recipes
                                                             │
@@ -23,14 +23,14 @@ needs the record in order to have something to disagree with, and
 ``retrieve_policy`` needs its verdict to know which Article to filter to; ``resolve_recipes``
 needs the retrieved text to derive from; ``resolve_inputs`` needs the recipe to
 know which inputs exist. The first implementation fanned these out concurrently
-from ``plan_request`` and every one of those dependencies was violated.
+from the planning node and every one of those dependencies was violated.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
@@ -44,6 +44,7 @@ from pension_chat.agent.checkpointer import (
     thread_config,
     thread_has_state,
 )
+from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
 from pension_chat.agent.nodes import (
@@ -53,7 +54,6 @@ from pension_chat.agent.nodes import (
     assess_coverage,
     execute_calculations,
     fetch_employee_record,
-    plan_request,
     prepare_answer,
     resolve_inputs,
     resolve_recipes,
@@ -73,7 +73,6 @@ logger = logging.getLogger("pension_chat.agent.graph")
 STAGE_LABELS = {
     "triage": "reading your question",
     "understand_turn": "reading your question",
-    "plan_request": "planning",
     "fetch_employee_record": "loading your record",
     "retrieve_policy": "searching the Pension Code",
     "resolve_recipes": "working out the applicable calculation",
@@ -119,8 +118,7 @@ def _in_scope(state: PensionAgentState) -> str | list[str]:
     """
     if not state.get("in_scope", True):
         return "decline"
-    planner = "understand_turn" if get_settings().model_turn_understanding else "plan_request"
-    return [planner, "fetch_employee_record"]
+    return ["understand_turn", "fetch_employee_record"]
 
 
 async def gate_scope(state: PensionAgentState) -> dict[str, Any]:
@@ -168,16 +166,9 @@ def build_graph(checkpointer: Any | None = None):
     conversation is a thread and a follow-up resumes from what the previous turn
     established.
     """
-    settings = get_settings()
-    # `understand_turn` takes plan_request's place in the graph, behind a flag:
-    # both nodes are always registered, but only the chosen one is wired into
-    # the entry edges, so a flag flip needs no graph surgery either way.
-    planner = "understand_turn" if settings.model_turn_understanding else "plan_request"
-
     workflow = StateGraph(PensionAgentState)
 
     workflow.add_node("triage", triage)
-    workflow.add_node("plan_request", plan_request)
     # `understand_turn` reads/returns `dict[str, Any]` rather than
     # `PensionAgentState` (Task 7's module is exercised with plain dicts in
     # unit tests, with no network); the two are structurally compatible at
@@ -198,16 +189,19 @@ def build_graph(checkpointer: Any | None = None):
     workflow.add_conditional_edges(
         "triage",
         _in_scope,
-        [planner, "fetch_employee_record", "decline"],
+        ["understand_turn", "fetch_employee_record", "decline"],
     )
     workflow.add_edge("decline", END)
 
-    # Planning and the record fetch are independent — planning reads only the
-    # question, and the record read needs no plan. Both are ~2s against remote
-    # services, so running them concurrently takes one of them off the critical
-    # path entirely. Retrieval waits for both: it needs the queries from one and
-    # the member's Article number from the other.
-    workflow.add_edge([planner, "fetch_employee_record"], "gate_scope")
+    # Understanding the turn and fetching the record are independent — the
+    # first reads only the conversation, and the record read needs no plan. Both
+    # are ~2s against remote services, so running them concurrently takes one of
+    # them off the critical path entirely. Retrieval waits for both: it needs the
+    # queries from one and the member's Article number from the other.
+    #
+    # It is also why `extract_scenarios` still exists: understanding cannot see
+    # the record from here, so it cannot turn "wait 2 more years" into an age.
+    workflow.add_edge(["understand_turn", "fetch_employee_record"], "gate_scope")
     # The scope verdict is read once more here. `triage` decides it before
     # either branch runs, which suits the deny pattern but leaves the model's
     # own verdict inert -- `understand_turn` runs after that decision, so its
@@ -648,6 +642,25 @@ async def _record_turn(config: dict, state: dict) -> None:
         logger.exception("Could not record turn state for session %s", config)
 
 
+
+def _inputs_behind(computed: dict[str, Any]) -> set[str]:
+    """Every input name the figures in this answer were actually computed from.
+
+    Read off each result's own ``inputs_used``, base and scenarios alike, so the
+    set is what the interpreter consumed rather than what happened to be on the
+    sheet when it ran.
+    """
+    used: set[str] = set()
+    for entry in computed.values():
+        if not isinstance(entry, Mapping):
+            continue
+        blocks: list[Any] = [entry.get("base"), *(entry.get("scenarios") or [])]
+        for block in blocks:
+            if isinstance(block, Mapping):
+                used |= {str(name) for name in (block.get("inputs_used") or {})}
+    return used
+
+
 def _pairwise_differences(scenarios: dict) -> list[str]:
     """Every gap between two carried figures, annual and monthly."""
     gaps: list[str] = []
@@ -708,7 +721,24 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
     sheet = WorkSheet.from_state(
         state, record_usable=not _coverage_elsewhere(cast(PensionAgentState, state))
     )
-    assumed = {name: fact.basis for name, fact in sheet.assumed_facts().items()}
+    # Only the assumptions *this* answer's figures were computed from. The rule
+    # being enforced is "a figure resting on a value nobody supplied must say
+    # so", and an assumption the figure never touched is not something the
+    # answer owes the member a sentence about. The sheet is durable, so without
+    # this the retirement date assumed on turn 1 was still owed disclosure on
+    # turn 3 -- where the question was about a survivor annuity, the answer had
+    # no reason to mention a retirement date, and a correct answer was withdrawn
+    # for not disclosing an assumption it had not used.
+    used = _inputs_behind(computed)
+    assumed = {
+        name: fact.basis
+        for name, fact in sheet.assumed_facts().items()
+        # No readable `inputs_used` means we cannot tell what the figure rests
+        # on, so every assumption is policed. Erring towards a spurious repair
+        # is the right side to err on: the other side is an undisclosed
+        # assumption, which is the thing this check exists to make impossible.
+        if not used or aliases_of(name) & used
+    }
 
     return guardrails.verify_answer(
         answer,

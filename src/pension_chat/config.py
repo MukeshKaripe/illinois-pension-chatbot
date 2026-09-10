@@ -75,7 +75,10 @@ class Settings(BaseSettings):
     # latency and billed reasoning tokens, so nodes ask for the cheapest
     # effort that does their job.
     llm_timeout_seconds: float = 40.0
-    reasoning_effort_plan: str = "none"
+    # Coverage assessment reads a self-description against the Code's own
+    # coverage sections. It was `reasoning_effort_plan` until the planner it
+    # was named for was deleted; coverage is the only caller left.
+    reasoning_effort_coverage: str = "none"
     # Derivation is the one step where reasoning effort buys correctness.
     # Measured on the Article 11 retirement-annuity recipe: "low" emits a tree
     # that fails to execute, "medium" derives 11-134(a) correctly in ~26s, and
@@ -99,12 +102,6 @@ class Settings(BaseSettings):
 
     # Conversation history carried into prompts (user+assistant turns)
     history_turns: int = 4
-
-    # Skip the planner round trip when the question names exactly one benefit
-    # and the timing scenarios can be read off it deterministically. Once the
-    # database sits in the same region as the code, that call is the single
-    # largest item left on time-to-first-token.
-    deterministic_planning: bool = True
 
     # Coverage assessment: match how a member describes their job against the
     # Code's own coverage sections instead of trusting the Article column on
@@ -130,9 +127,6 @@ class Settings(BaseSettings):
     # opening sentence rather than only in the assumptions block.
     materiality_threshold: float = 0.02
 
-    # Routing by model rather than by word list. Off by default so the change
-    # can be measured against the eval suite before it becomes the only path.
-    model_turn_understanding: bool = False
     reasoning_effort_understand: str = "none"
 
     # Calculation knowledge registry

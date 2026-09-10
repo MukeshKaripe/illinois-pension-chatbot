@@ -200,13 +200,24 @@ cases:
       rejects_asserted_formula: true
 - id: S5
   name: Scope — casual aside
+  # `no_llm` was dropped here deliberately, and it is the one expectation in this
+  # suite that was relaxed rather than fixed. It used to hold because scope was
+  # default-deny over a pension vocabulary: anything that matched no keyword was
+  # refused for free. That same mechanism refused "I'm starting to think about
+  # retiring", "my wife is worried about what happens to her" and "does any of
+  # this get taxed" — three members turned away in 1.75s for want of a substring.
+  #
+  # Refusing an off-topic aside now costs one cheap routing call (~570 tokens).
+  # The alternative is a keyword list that decides what a member meant, and the
+  # cost of that list is paid by real questions rather than by ice cream. The
+  # deny pattern still refuses "write me a poem" for free, and a bare greeting
+  # still exits before any model call; what is gone is refusal-by-default.
   category: scope
   critical: false
   turns:
   - q: i want an ice cream
     expect:
       declines: true
-      no_llm: true
 - id: S6
   name: Scope — assistant task
   category: scope

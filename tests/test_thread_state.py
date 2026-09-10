@@ -224,3 +224,53 @@ def test_asking_for_a_figure_still_routes_to_the_calculation_branch() -> None:
             "formula_types_needed": ["retirement_annuity"],
         }
     ) == "resolve_inputs"
+
+
+# ── Which assumptions an answer owes the member a sentence about ───
+
+
+def test_inputs_behind_reads_base_and_scenarios() -> None:
+    from pension_chat.agent.graph import _inputs_behind
+
+    computed = {
+        "retirement_annuity": {
+            "base": {"inputs_used": {"service_years": "21.5", "withdrawal_date": "2026-09-10"}},
+            "scenarios": [{"inputs_used": {"age_at_annuity_start": "60"}}],
+        },
+        # `_carried_differences` is injected alongside the formula types and is
+        # not a result; it must not blow up the scan.
+        "_carried_differences": [{"label": "at 60"}],
+    }
+    assert _inputs_behind(computed) == {
+        "service_years",
+        "withdrawal_date",
+        "age_at_annuity_start",
+    }
+
+
+def test_an_assumption_the_figure_never_used_is_not_owed_disclosure() -> None:
+    """The durable sheet outlives the turn that made the assumption.
+
+    A retirement date assumed on turn 1 is still on the sheet on turn 3. When
+    turn 3 asks about a survivor annuity, its answer has no reason to mention a
+    retirement date -- and policing every assumption on the sheet withdrew a
+    correct answer for not disclosing one it had not used.
+    """
+    from pension_chat.agent.graph import _inputs_behind
+
+    survivor = {"survivor_annuity": {"base": {"inputs_used": {"spouse_age": "54"}}}}
+    used = _inputs_behind(survivor)
+    assert "withdrawal_date" not in used
+    assert used == {"spouse_age"}
+
+
+def test_an_unreadable_result_polices_every_assumption() -> None:
+    """Erring towards a spurious repair, never towards silence.
+
+    If the figure does not say what it used, the alternative to policing
+    everything is letting an undisclosed assumption through -- which is the one
+    outcome this check exists to make impossible.
+    """
+    from pension_chat.agent.graph import _inputs_behind
+
+    assert _inputs_behind({"retirement_annuity": {"base": {}}}) == set()

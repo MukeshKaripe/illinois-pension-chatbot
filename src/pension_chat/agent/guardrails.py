@@ -43,78 +43,13 @@ logger = logging.getLogger("pension_chat.agent.guardrails")
 
 # ── Scope ─────────────────────────────────────────────────────────
 
-# Vocabulary that marks a message as being about a member's pension. Written to
-# cover how members actually ask, not only how the statute is worded — someone
-# asking "how much will I get when I stop working" is asking a pension question
-# without using one word of pension vocabulary.
-_PENSION_TERMS = {
-    "pension", "annuity", "annuitant", "retire", "retirement", "benefit",
-    "service credit", "creditable service", "creditable", "salary", "wages",
-    "contribution", "withdraw", "withdrawal", "survivor", "widow", "widower",
-    "spouse", "disability", "refund", "ilcs", "article", "section", "vest",
-    "vesting", "beneficiary", "cola", "eligib", "employee", "employer",
-    "member", "tier", "years of service", "fund", "40 ilcs",
-    # The vocabulary of the question itself, not of the benefit. "Which
-    # provisions apply to me?" is close to this assistant's whole purpose and
-    # was being refused outright: it names no benefit, no age and no section.
-    "provision", "statute", "pension code", "the code", "govern", "qualify",
-    "entitled", "apply to me", "applies to me",
-    # And the vocabulary the assistant itself uses in its answers. A member who
-    # replies in the words they were just given -- "re-run the applicability
-    # analysis", "I think the pathway you picked was wrong" -- is continuing the
-    # conversation, and was being refused for it.
-    "applicability", "applicable", "pathway", "determination", "assumption",
-    "analysis", "eligibility",
-    # How members phrase the same thing
-    "stop working", "stop work", "keep working", "carry on working",
-    "keep on working", "stay in service", "worth it to retire",
-    "should i retire", "leave service", "leave my job", "quit my job",
-    "resign", "last day", "final pay", "payout", "pay out", "lump sum",
-    "how much will i get", "how much do i get", "what will i get",
-    "buy back", "purchase service", "reciprocal", "prior service",
-    "sick leave", "leave of absence", "years of work", "my years",
-}
 
-# Retirement-timing language, which is a pension question even with none of the
-# vocabulary above: "what happens if I wait 2 more years", "and at age 60?".
-_TIMING_LANGUAGE = re.compile(
-    r"\b(?:ages?\s+\d{2}|at\s+\d{2}\b|\d{1,2}\s+(?:more\s+)?years?"
-    r"|wait(?:ing)?\s+\d|turn(?:ing|s)?\s+\d{2})",
-    re.IGNORECASE,
-)
-
-# A bare or cited section reference — "11-134", "Section 11-116", "40 ILCS 5/11-130".
-_SECTION_REFERENCE = re.compile(r"\b\d{1,2}-\d{1,3}(?:\.\d{1,2})?\b")
-
-# A message that only makes sense as a continuation of the turn before it.
-# Without this, flipping the default below would refuse "and what about at 60?"
-# in the middle of a conversation about exactly that.
-_CONTINUATION = re.compile(
-    r"^\s*(?:and|but|so|then|also|now|next|again|ok(?:ay)?|yes|no|thanks?|thank you"
-    r"|what about|how about|what if|why|why not|and what|what else"
-    r"|can you explain|explain that|tell me more|go on)\b",
-    re.IGNORECASE,
-)
-
-# Words that point back at what this conversation has already produced rather
-# than naming anything about pensions. "Put all four results in one comparison
-# table" contains no statutory vocabulary, no age and no section number, and was
-# refused outright -- after four turns of working those four results out. The
-# default-deny above exists to turn away a stranger's first question, not to
-# police a member mid-conversation, so these count only with history behind
-# them.
-_REFERS_BACK = re.compile(
-    r"\b(?:results?|figures?|numbers?|amounts?|estimates?|scenarios?|options?"
-    r"|table|breakdown|summary|those|these|them|both|all (?:four|three|two)"
-    r"|the (?:first|second|third|last|other) one|earlier|above|so far|instead"
-    r"|again|difference|chang(?:e|ed|es|ing)|unchanged|the same|why)\b",
-    re.IGNORECASE,
-)
-
-
-# Asks that are plainly somebody else's job. This list is a shortcut to a
-# clearer refusal, not the mechanism that keeps the assistant on topic — that
-# is the default below.
+# Asks that are plainly somebody else's job. High precision by construction:
+# when it fires it is right, so it refuses at zero cost. It is not the mechanism
+# that keeps the assistant on topic -- `understand_turn` is -- and it is not
+# meant to be exhaustive. Anything it does not name reaches the model, which is
+# the right direction to fail in: the list that tried to be exhaustive is what
+# refused "I'm starting to think about retiring".
 _OUT_OF_SCOPE = re.compile(
     r"\b(write|generate|compose|draft)\s+(me\s+)?(a\s+)?"
     r"(poem|song|story|essay|joke|script|email|cover letter|resume)\b"
@@ -125,37 +60,70 @@ _OUT_OF_SCOPE = re.compile(
 )
 
 
+#: A message that is only a pleasantry, and cannot be an answer to anything.
+#: Matched against the whole message, so a greeting with a question attached
+#: ("hi, how much will I get?") is a question. Deliberately a closed list: the
+#: cost of missing one is a model call, and the cost of over-matching is
+#: refusing a real question.
+_PLEASANTRY = re.compile(
+    r"\s*(?:hi|hey|hello|yo|greetings|good\s+(?:morning|afternoon|evening|day)"
+    r"|bye|goodbye|see\s+you)(?:\s+there|\s+again)?[\s.!,?]*",
+    re.IGNORECASE,
+)
+
+#: A bare acknowledgement. On a first turn there is nothing for it to
+#: acknowledge, so it is a pleasantry. Mid-conversation it is the opposite of
+#: one: "yes" is how a member answers "shall I take your retirement date as
+#: today?", and declining it as a greeting throws their answer away. So these
+#: are only ever a greeting when nothing precedes them -- which is what
+#: `has_history` is for, and why `_CONTINUATION` matched them before.
+_ACKNOWLEDGEMENT = re.compile(
+    r"\s*(?:ok(?:ay)?|yes|yep|yeah|no|nope|sure|got\s+it|understood"
+    r"|thanks?|thank\s+you|ta|cheers)[\s.!,?]*",
+    re.IGNORECASE,
+)
+
+
 @dataclass
 class ScopeVerdict:
     in_scope: bool
     reason: str = ""
 
 
-def classify_scope(
-    question: str,
-    *,
-    has_history: bool = False,
-    model_routing: bool = False,
-) -> ScopeVerdict:
+def classify_scope(question: str, *, has_history: bool = False) -> ScopeVerdict:
     """Cheap deterministic scope check run before any model call.
 
-    The default is **out of scope**. It used to be the opposite — anything
-    longer than three words that missed the keyword list fell through to the
-    full pipeline — which meant "i want an ice cream" was answered ("Go for
-    it, you've earned one") and "can you help me sleep" got a page of sleep
-    hygiene advice. An assistant that answers questions about someone's pension
-    has no business doing either, and letting the model decide on the way past
-    is both slower and less reliable than not asking it.
+    This used to be the mechanism that kept the assistant on topic, and it was
+    **default-deny**: a message that matched no word in a pension vocabulary was
+    refused outright. That caught "i want an ice cream" for free, and it also
+    refused "I'm starting to think seriously about retiring" (because "retiring"
+    does not contain "retire"), "my wife is worried about what happens to her"
+    (the list held "spouse" and "widow", not "wife") and "does any of this get
+    taxed" -- three members turned away in 1.75s at zero cost, which is the
+    cheapest possible way to fail somebody.
 
-    Flipping the default is only safe alongside the vocabulary and patterns
-    above. A member asking "how much will I get when I stop working" or "and
-    what about at age 60?" uses no statutory vocabulary at all, and refusing
-    them would be a far worse failure than the one being fixed.
+    So the default is now **in scope**, and what a member meant is decided by
+    `understand_turn`. Two things stay here, and both are the kind of check a
+    regular expression is actually good for:
+
+    * `_OUT_OF_SCOPE` -- high precision, so it refuses at no cost when it fires,
+      and defers to the model when it does not.
+    * `_PLEASANTRY` / `_ACKNOWLEDGEMENT` -- "hi" needs no model call to classify,
+      and routing it onward loses the reason code as well as the round trip:
+      `decline` picks GREETING_MESSAGE off `out_of_scope_reason == "greeting"`,
+      and a model-written clause in its place answers "hi" with "that is outside
+      the Pension Code". Both are matched whole-message, so "hi, how much will I
+      get?" is a question.
+
+    The measured cost of the change is one routing call (~570 tokens) on an
+    off-topic aside the deny list does not name. The measured gain is the routing
+    suite going from 1/7 to 7/7.
 
     Args:
         question: The member's message.
         has_history: Whether this session already has turns behind it. A bare
-            continuation ("and at 60?") is in scope only as a follow-up.
+            "yes" or "ok" is an answer to whatever was asked last turn; only
+            with nothing before it is it a pleasantry.
     """
     text = (question or "").strip()
     if not text:
@@ -164,27 +132,12 @@ def classify_scope(
     if _OUT_OF_SCOPE.search(text):
         return ScopeVerdict(False, "out_of_scope")
 
-    if model_routing:
-        # The deny pattern above is high precision -- when it fires it is right,
-        # so it stays as a free fast path. The vocabulary check below is the
-        # opposite: when it says "no pension words here, refuse" it is wrong
-        # about "retiring", "my wife" and "does this get taxed". Keep the regex
-        # where it accuses; delete it where it acquits.
-        return ScopeVerdict(True)
-
-    lowered = text.lower()
-    if any(term in lowered for term in _PENSION_TERMS):
-        return ScopeVerdict(True)
-    if _TIMING_LANGUAGE.search(text) or _SECTION_REFERENCE.search(text):
-        return ScopeVerdict(True)
-    if has_history and (_CONTINUATION.search(text) or _REFERS_BACK.search(text)):
-        return ScopeVerdict(True)
-
-    # Short, term-free openers ("hi", "thanks") are conversational rather than
-    # something to refuse.
-    if len(lowered.split()) <= 3:
+    if _PLEASANTRY.fullmatch(text):
         return ScopeVerdict(False, "greeting")
-    return ScopeVerdict(False, "out_of_scope")
+    if not has_history and _ACKNOWLEDGEMENT.fullmatch(text):
+        return ScopeVerdict(False, "greeting")
+
+    return ScopeVerdict(True)
 
 
 # ── Adversarial instruction detection ─────────────────────────────

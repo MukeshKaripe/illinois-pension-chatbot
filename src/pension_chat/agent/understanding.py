@@ -24,6 +24,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pension_chat.agent.llm import complete
+from pension_chat.agent.scenarios import (
+    corroborated,
+    extract_scenarios,
+    merge_scenarios,
+)
 from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
 
@@ -67,7 +72,10 @@ Rules:
   and for a bare continuation of an earlier turn. It is false only for a request
   that is plainly somebody else's job.
 - needs_figure is true whenever the member wants a number, including a
-  comparison of several retirement dates.
+  comparison of several retirement dates. It is also true when they ask how
+  their *own* benefit is worked out: "how is my pension calculated" wants the
+  method and the figure, not a choice between them. Only a question about the
+  law in the abstract, with no "my" in it, wants no figure.
 - recompute is true when the member corrects, revises or supplies a value that
   a figure already worked out in this conversation depended on.
 - revised_facts carries only values the member actually stated, under the fact
@@ -216,14 +224,43 @@ async def understand_turn(state: dict[str, Any]) -> dict[str, Any]:
 
     stale = sorted(sheet.apply_revisions(result.revised_facts, state.get("turn_index") or 0))
 
+    # The model's scenarios are unioned with the ones a regex can resolve and
+    # filtered by whether this message names them at all. Neither half is
+    # redundant. The model cannot resolve "wait 2 more years" -- this node runs
+    # concurrently with the record fetch, so it does not know the member's age --
+    # and it is shown the conversation so far, which is how scenarios from three
+    # turns ago came back attached to a question that never asked for them.
+    scenarios = merge_scenarios(
+        extract_scenarios(state["question"]),
+        [s for s in result.scenarios if corroborated(s, state["question"])],
+    )
+
+    # Naming a retirement age mid-conversation asks for the figure again, however
+    # the sentence is phrased. "Call this Scenario A: retire at 57" is an
+    # instruction rather than a question, and read as one it produced no figure
+    # and no comparison -- two turns into a conversation about exactly that.
+    # This only ever *adds* a calculation, so a misread costs a figure nobody
+    # asked for rather than a refusal.
+    mid_conversation = len(state.get("messages") or []) > 1
+    continuing = mid_conversation and bool(scenarios)
+    wants_figure = result.needs_figure or bool(stale) or continuing
+
+    # A continuation is a continuation *of something*: requiring the calculation
+    # without naming what to calculate would skip it anyway, so fall back to the
+    # benefit this conversation already settled on.
+    settled = (state.get("selected_provision") or {}).get("formula_type")
+    benefits = result.benefit_types if result.needs_figure or stale else []
+    if not benefits and continuing and settled:
+        benefits = [str(settled)]
+
     return {
         "in_scope": result.in_scope,
         "out_of_scope_reason": result.out_of_scope_reason,
         "intent": result.intent,
-        "requires_calculation": result.needs_figure or bool(stale),
-        "formula_types_needed": result.benefit_types if result.needs_figure or stale else [],
+        "requires_calculation": wants_figure,
+        "formula_types_needed": benefits,
         "search_queries": result.search_queries,
-        "scenarios": result.scenarios,
+        "scenarios": scenarios,
         "unresolved": result.unresolved,
         "answerable_part": result.answerable_part,
         "stale_figures": stale,

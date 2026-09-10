@@ -234,6 +234,18 @@ ALIAS_GROUPS: tuple[frozenset[str], ...] = (
 )
 
 
+#: Keys published above that are *framing choices*, not facts about the member.
+#: No file records when somebody will stop working; "today" is the reading this
+#: system takes of a bare "what would I get", and a figure resting on it has to
+#: say so -- a member whose pension grows with every further year of service
+#: needs to know which year was used. They live here, beside the names actually
+#: emitted, for the same reason `ALIAS_GROUPS` does: a list kept anywhere else
+#: drifts from the dictionary it describes.
+#:
+#: `as_of_date` is deliberately absent. Today's date is not an assumption.
+FRAMING_DEFAULTS: frozenset[str] = frozenset({"withdrawal_date", "annuity_start_date"})
+
+
 def aliases_of(name: str) -> frozenset[str]:
     """Every name that means the same quantity as ``name``, including itself."""
     for group in ALIAS_GROUPS:

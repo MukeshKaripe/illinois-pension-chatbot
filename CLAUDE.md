@@ -62,19 +62,29 @@ A recipe's `rule_specification` is a JSON operation tree (`calculation/dsl_types
 `agent/graph.py::build_graph()` assembles a LangGraph `StateGraph` over `PensionAgentState` (`agent/state.py`, a `TypedDict` blackboard). Flow:
 
 ```
-triage                                   (deterministic: scope, adversarial-instruction scan, section refs)
-  ├─(out of scope / greeting)─> decline ─> END          (no model call, no DB call)
-  └─> [plan_request ∥ fetch_employee_record]            (independent; run concurrently)
-            └─> assess_coverage                          (which Article governs, and on what evidence)
-                  └─> retrieve_policy                    (hybrid search, article-filtered, cross-references followed)
-                        └─> resolve_recipes              (registry lookup, else derive from statute)
-                              ├─(no calculation)────────────────────┐
-                              └─> resolve_inputs ─> validate_recipes ─> execute_calculations
-                                                                     │
-                                                              prepare_answer ─> END
+triage                                (deterministic: deny list, greeting, adversarial scan, section refs)
+  ├─(out of scope / greeting)─> decline ─> END       (no model call, no DB call)
+  └─> [understand_turn ∥ fetch_employee_record]      (independent; run concurrently)
+        └─> gate_scope                               (understand_turn's own in_scope verdict, re-read)
+              ├─(out of scope)─> decline ─> END
+              └─> assess_coverage                    (which Article governs, and on what evidence)
+                    └─> retrieve_policy              (hybrid search, article-filtered, cross-refs followed)
+                          └─> resolve_recipes        (registry lookup, else derive from statute)
+                                ├─(no calculation)──────────────────┐
+                                └─> resolve_inputs ─> validate_recipes ─> execute_calculations
+                                                                        │
+                                                                 prepare_answer ─> END
 ```
 
-**Node order encodes hard data dependencies** — `assess_coverage` needs the employee record in order to have something to disagree with, `retrieve_policy` needs coverage's verdict to know which Article to filter on, `resolve_recipes` needs the retrieved text to derive from, and `resolve_inputs` needs the recipe to know which inputs exist. Only `plan_request` and `fetch_employee_record` are genuinely independent, and those two are the concurrent pair.
+**Node order encodes hard data dependencies** — `assess_coverage` needs the employee record in order to have something to disagree with, `retrieve_policy` needs coverage's verdict to know which Article to filter on, `resolve_recipes` needs the retrieved text to derive from, and `resolve_inputs` needs the recipe to know which inputs exist. Only `understand_turn` and `fetch_employee_record` are genuinely independent, and those two are the concurrent pair.
+
+**What a turn *is*, is decided by a model, not a word list (`agent/understanding.py`).** `understand_turn` reads scope, whether a figure is wanted, which benefit is in play, which values the member just revised and which scenarios they want compared. It replaced ~450 lines of regex that decided the same things and failed in the ways a word list must: the planner's signal regex had three dead alternatives (`calculat`, `comput`, `estimat` — a trailing word-boundary can never match after them) for as long as it had existed, it matched "calculat" *inside* "Do not calculate my pension yet" and quoted four dollar amounts against the instruction, and the scope vocabulary refused "I'm starting to think seriously about retiring", "my wife is worried about what happens to her" and "does any of this get taxed" in 1.75s at zero cost. Measured: the routing suite went 1/7 → 7/7, three of them critical, for a fixed ~3.2s and ~1,050 tokens a turn.
+
+Three deterministic pieces survived that change, and the distinction is worth keeping straight — **a regex may accuse, supply data, or check provenance; it may not decide what the member meant**:
+
+- `guardrails._OUT_OF_SCOPE` **accuses**. High precision, so it refuses a poem at zero cost, and anything it does not name reaches the model. Refusal-by-default is what the vocabulary list did, and it is gone: an off-topic aside now costs one routing call (~570 tokens), which is why eval S5 no longer asserts `no_llm`. A bare greeting still exits before any model call, because `decline` needs `out_of_scope_reason == "greeting"` to pick the right template — route "hi" to the model and it comes back "that is outside the Pension Code". A bare "yes" or "ok" is a greeting only when nothing precedes it; mid-conversation it is an answer to whatever was just asked.
+- `scenarios.extract_scenarios` **supplies data the model cannot**. `understand_turn` runs concurrently with the record fetch, so it does not know the member's age and cannot turn "wait 2 more years" into age 58 — it returns a null age and the scenario dies at `_resolve_retirement_age`. The offset is found here and resolved against the real age at execution time. Naming a retirement age mid-conversation also re-requests the figure however the sentence is phrased ("Call this Scenario A: retire at 57" is an instruction, not a question).
+- `scenarios.corroborated` **checks provenance**. Whatever plans a turn is shown the conversation so far, and scenarios leak forward onto questions that never asked for them again. A generative planner has more scope for that, not less, so the guard outlived the planner it was written for.
 
 ### Coverage: the record is a prior, not an oracle (`agent/coverage.py`)
 
@@ -106,7 +116,7 @@ Coverage is checked the same way, and in both directions. An answer may state wh
 
 `scripts/eval_agent.py` runs the benchmark in `evals/*.yaml` against the live index and model. **A case is a conversation on one thread**, with per-turn expectations — the graph is checkpointed, so turn two resumes from what turn one established rather than being handed a transcript to re-read. Reports per-category pass rates, time-to-first-token and tokens per turn, plus a CRITICAL block that fails the run whatever the overall score says. `--category <name>` runs one family; `--help` for the rest. `scripts/replay_coverage.py` replays the conversation that motivated the coverage layer, printing the per-turn state beside each answer.
 
-Unit tests in `tests/` cover the deterministic layers (facts, guardrails, coverage, DSL interpreter, validator) and need no network. Two of them guard a *bug class* rather than a behaviour, by parsing the alternatives out of a regex and requiring every one to have a worked example — `test_planning.py` for `_CALCULATION_SIGNALS` and `test_coverage.py` for the act governors. That pattern exists because three alternatives in the planner's signal regex were dead for as long as they had existed (a trailing `\b` could never match after them) and reading the regex did not reveal it; the same guard later caught a coverage governor that no frame could ever reach.
+Unit tests in `tests/` cover the deterministic layers (facts, guardrails, coverage, DSL interpreter, validator) and need no network. One of them guards a *bug class* rather than a behaviour, by parsing the alternatives out of a regex and requiring every one to have a worked example — `test_coverage.py` for the act governors. That pattern was written for the planner's signal regex, where three alternatives were dead for as long as they had existed and reading the regex did not reveal it; the same guard later caught a coverage governor that no frame could ever reach. The planner and its guard are both gone, and the lesson generalised instead: a regex that decides what a member meant cannot be made safe by testing it harder.
 
 ### API / streaming (`api/`)
 
