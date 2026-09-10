@@ -157,13 +157,18 @@ async def create_session(
             employee_id=user.employee_id if user else None,
         )
         db.add(session)
+        # `flush()` alone is enough: the postgresql+asyncpg dialect flushes
+        # single-row inserts with an implicit `RETURNING`, so `id`,
+        # `session_token`, `started_at` and `last_active_at` are already
+        # populated on `session` here. A `db.refresh()` used to follow this,
+        # paying for a second round trip to Azure Postgres (~230-250ms, see
+        # architecture doc's latency note) to re-select a row just fetched.
+        # `get_admin_session()` also commits on exit, so no explicit commit
+        # is needed here either.
         await db.flush()
-        await db.refresh(session)
 
         session_id = str(session.id)
         session_token = session.session_token if user is None else None
-
-        await db.commit()
 
         return CreateSessionResponse(
             session_id=session_id,

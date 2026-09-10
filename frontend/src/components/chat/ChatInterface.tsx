@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   API_BASE_URL,
@@ -25,9 +25,23 @@ export function ChatInterface() {
   const [signedIn, setSignedIn] = useState(false);
   const router = useRouter();
 
+  // Guards against a stale response landing after a second click: whichever
+  // call started most recently is the one allowed to set state when it
+  // resolves.
+  const sessionRequestId = useRef(0);
+
   const createNewSession = async () => {
+    // Clear the view before the network call, not after — the backend round
+    // trip to Azure Postgres is real (see api/sessions.py::create_session),
+    // and a member should see the empty conversation the instant they click
+    // "New chat" rather than watch the old one sit there for it.
+    const requestId = ++sessionRequestId.current;
+    setMessages([]);
+    setSessionId(null);
+
     try {
       const res = await fetchWithAuth("/sessions", { method: "POST" });
+      if (requestId !== sessionRequestId.current) return;
       if (res.ok) {
         const data = await res.json();
         // The backend returns a session_token only for an anonymous session,
@@ -42,9 +56,8 @@ export function ChatInterface() {
           started_at: new Date().toISOString(),
           last_active_at: new Date().toISOString()
         };
-        setSessions([newSession, ...sessions]);
+        setSessions((prev) => [newSession, ...prev]);
         setSessionId(newSession.id);
-        setMessages([]);
       }
     } catch (err) {
       console.error("Failed to create session", err);
@@ -335,7 +348,7 @@ export function ChatInterface() {
             />
             <button
               type="submit"
-              disabled={!input.trim() || isTyping}
+              disabled={!input.trim() || isTyping || !sessionId}
               className="absolute right-2 top-2 bottom-2 aspect-square bg-white text-neutral-950 rounded-xl hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md"
             >
               <Send size={18} className="ml-1" />
