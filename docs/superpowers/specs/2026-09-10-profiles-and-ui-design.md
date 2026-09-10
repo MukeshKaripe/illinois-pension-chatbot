@@ -14,11 +14,12 @@ The draft spec's spine is kept: chat first, profile as quiet context, scenarios 
 
 | Decision | Reason |
 |---|---|
-| No Article picker. Presets are grouped by employer, Article as a secondary label. | Members do not know their Article number — that is why `coverage.py` exists. Only Articles 11 and 12 are profile-ready (`OFFERED_ARTICLES`), so a picker would be two live tiles and twenty disabled ones. |
-| Personas only for Articles whose calculation path works (11, 12 today). | A profile under Article 8 or 9 would get good statute answers and "I cannot find a governing provision" to every calculation, with nothing on screen saying why. |
-| No "coming soon" Articles. | 1A (Department of Insurance oversight), 22A (State Board of Investment), 22B/22C (police and firefighter investment funds), and 1, 20–24 are not funds anyone is a member of (`NON_MEMBERSHIP_ARTICLES`). They can never be profile destinations. Ingestion status is a corpus concern, not a profile concern. |
-| No blank profiles; no "save scenario as profile". | Both let a member author their own record, collapsing the two voices — record and member — that `coverage.py` and the guardrails' provenance classes depend on. "Retire at 59" is also a scenario fact, not a profile fact. Profiles start from a preset and are edited within `personas.validate` bounds. |
-| No schema-driven form renderer. | Articles 11 and 12 use identical fields, `employees` has fixed columns, and the engine takes the same inputs. The extensibility seam is a backend-owned field list; a renderer waits for an Article that actually differs. |
+| A standard persona for every member fund, Articles 2–19. | The whole Code is ingested, and nothing in the agent limits calculation to 11 and 12 — recipes come from "registry lookup, else derive from the statute" for any Article. The only gate was `OFFERED_ARTICLES` in `personas.py`. |
+| Each Article shows a support level, set in config: **checked** or **experimental**. | The registry holds two recipes (Articles 11 and 12, Tier 1, `agent_derived`, `estimate`). For the other funds a figure is derived on first use and has no eval coverage. The objection to offering them was never that a figure might fail — it was failing *with nothing on screen saying why*. A visible support level answers that. |
+| An employer-first picker: "Who do you work for?", with search, grouped by employer; Article as a secondary label. | Members do not know their Article number — that is why `coverage.py` exists. With 18 funds a picker is needed, but it asks about the employer, not the statute. |
+| No "coming soon" Articles; no personas for 1, 20–24, 1A, 22A–C. | 1A (Department of Insurance oversight), 22A (State Board of Investment), 22B/22C (police and firefighter investment funds), and 1, 20–24 are not funds anyone is a member of (`NON_MEMBERSHIP_ARTICLES`). They remain fully askable; they can never be profile destinations. |
+| No blank profiles; no "save scenario as profile". | Both let a member author their own record, collapsing the two voices — record and member — that `coverage.py` and the guardrails' provenance classes depend on. "Retire at 59" is also a scenario fact, not a profile fact. Profiles start from a preset and are edited within that Article's bounds. |
+| Per-Article profile config, rendered by a small form renderer. | At 18 Articles a per-Article schema is earned (at 2 identical ones it was not). Common fields stay common with per-Article bounds; an Article-specific field is added **only when a recipe reads it**, so no field is editable without changing a figure. |
 | No contribution fields. | Nothing stores them and no recipe reads them. An editable input that changes no figure is the failure `personas.apply_edits` exists to prevent for salary history. |
 | No version table. A conversation pins the record it loaded on its first turn. | What matters is that a conversation stays consistent with the facts it started from. A version table overclaims: recipes and corpus evolve underneath, so pinning a profile does not reproduce an old figure. |
 | Multiple profiles per account, via an `accounts` table and `employees.account_id`. | Trying different member situations is what makes personas useful in a prototype with synthetic data. Keeping RLS keyed on the employee id keeps the existing policies intact. |
@@ -114,6 +115,8 @@ Clicking a prompt sends it immediately.
 
 ## 6. Phase 3 — Profiles
 
+Split in two: **3a** builds multi-profile accounts, switching and editing on the seven existing personas; **3b** adds a standard persona for every member fund, per-Article config, the employer picker and support levels. 3a does not wait on 3b.
+
 ### Data model (hand-written Alembic migration)
 - New `accounts`: `id`, `email` (unique on `lower(email)`), `hashed_password`, `display_name`, `is_admin`, `primary_employee_id` (nullable FK), `created_at`.
 - `employees` gains `account_id` (nullable FK — the two seeded pilot rows have none until claimed), `persona_key`, `label`.
@@ -144,10 +147,10 @@ Clicking a prompt sends it immediately.
 ### Record pinning
 `employee_record` and `salary_history` become durable per conversation: `fetch_employee_record` loads them on the first turn and skips the read when the checkpoint already holds them. Profile edits therefore affect new chats only. The implementation plan must first verify how `initial_state()` treats these keys across turns and that coverage's `record_usable` logic is unaffected.
 
-### Presets and labels
+### Presets and labels (3a)
 Member-facing labels; internal keys unchanged:
 
-| Key | Group | Label |
+| Key | Fund | Label |
 |---|---|---|
 | `article-11-standard` | Chicago laborers (Article 11) | Mid-career, still working |
 | `article-11-near-retirement` | Chicago laborers (Article 11) | Close to retirement |
@@ -157,12 +160,45 @@ Member-facing labels; internal keys unchanged:
 | `article-12-standard` | Chicago Park District (Article 12) | Mid-career, still working |
 | `article-12-tier-2` | Chicago Park District (Article 12) | Joined after 2011 |
 
-Group names live in one backend mapping from Article number, served with the personas.
+### Phase 3b — every member fund
 
-**Adding an Article** is per-Article work: confirm recipes derive and validate for its common benefits, write 2–4 presets each exercising a real branch, add eval cases, add it to `OFFERED_ARTICLES`. It then appears as a new group. A picker or employer search is reconsidered at five or more groups.
+**Per-Article profile config.** One backend module owns it and replaces `OFFERED_ARTICLES`. Per Article:
+- `employer_group` and `member_label` (for the picker and the profile chip)
+- `support_level`: `checked` or `experimental`
+- `fields`: the common fields shown (birth date, hire date, employment status, service years, current salary; salary history is derived and rescaled as today), each with that Article's bounds and defaults
+- `extra_fields`: Article-specific fields, empty by default
+
+It is served with the personas; `personas.validate` reads its bounds. The frontend renders the edit form from `fields` + `extra_fields` over a small set of field types (date, years, money, status enum). **Rule for `extra_fields`:** a field is added only when a recipe for that Article reads it — typically discovered as a recurring `missing_inputs` entry — and `facts.py` gains the alias that maps it into the engine.
+
+**Standard personas.** One per fund, values written from that fund's own statute (plausible hire age, tier, salary range, active status). Article 11 and 12 keep their extra presets.
+
+| Article | Group | Member label |
+|---|---|---|
+| 5 | City of Chicago | Chicago police officer |
+| 6 | City of Chicago | Chicago firefighter |
+| 8 | City of Chicago | Chicago municipal employee |
+| 11 | City of Chicago | Chicago laborer |
+| 12 | City of Chicago | Chicago Park District employee |
+| 17 | City of Chicago | Chicago Public Schools teacher |
+| 9 | Cook County | Cook County employee |
+| 10 | Cook County | Forest Preserve District employee |
+| 2 | State of Illinois | General Assembly member |
+| 14 | State of Illinois | State employee |
+| 15 | State of Illinois | State university employee |
+| 16 | State of Illinois | Teacher outside Chicago |
+| 18 | State of Illinois | Judge |
+| 3 | Local and regional | Police officer outside Chicago |
+| 4 | Local and regional | Firefighter outside Chicago |
+| 7 | Local and regional | Municipal employee (IMRF) |
+| 13 | Local and regional | Water Reclamation District employee |
+| 19 | Local and regional | Closed fund member — authored last: a closed fund admits no new members, so its persona must be an existing member |
+
+**Support level.** `checked` requires the Article's smoke eval (§9) to pass alongside any existing evals; 11 and 12 start `checked`, every other fund starts `experimental`. The level shows on the preset card, in the profile chip menu, and on the calculation card ("Estimate · experimental for this fund"). It is set in config, never inferred from ingestion or from a recipe's existence.
+
+**Rollout.** Articles go live one at a time: persona + config + smoke eval, then enabled. The profile machinery (3a) does not wait on them.
 
 ### UI
-- **Signup:** (1) email, password, display name; (2) choose a preset — cards grouped by employer, each with label, age, service, status; (3) review and edit within bounds; (4) start chatting. The synthetic-data notice stays.
+- **Signup:** (1) email, password, display name; (2) "Who do you work for?" — search plus employer groups, then the fund's presets as cards with label, age, service, status and support level (3a: just the Article 11 and 12 presets, grouped the same way); (3) review and edit within that Article's bounds; (4) start chatting. The synthetic-data notice stays. **New profile** reuses steps 2–3; a profile's Article never changes — another Article means another profile.
 - **Profile chip** in the header: "Close to retirement · Art. 11". Menu: current profile summary; switch profile (confirm "Switching starts a new chat. This conversation stays as it is."); edit; new profile.
 - **Edit profile:** the same review/edit component as signup; save note "Changes apply to new chats."
 - **Sidebar items** show the profile label as a second line when the account has more than one profile.
@@ -177,13 +213,15 @@ Group names live in one backend mapping from Article number, served with the per
 
 ## 8. Out of scope
 
-Separate landing page, Sessions page, Settings page, Article picker, "coming soon" Articles, profile version table, schema-driven form renderer, contribution fields, blank profiles, save-scenario-as-profile, theme toggle, validation checklists, inline `[View]` markers requiring model changes.
+Separate landing page, Sessions page, Settings page, an Article-number picker, "coming soon" Articles, personas for non-member Articles, profile version table, contribution fields (until a recipe reads them), blank profiles, save-scenario-as-profile, theme toggle, validation checklists, inline `[View]` markers requiring model changes.
 
 ## 9. Testing
 
 - **Unit (pytest, no network):** starter-prompt selection rules; account ownership checks; persona label/group mapping; `/signup` and `/register` validation paths.
 - **Migration:** run upgrade and downgrade against a scratch database; verify the new RLS policies with scoped sessions (own profiles visible, another account's not).
 - **Evals:** `scripts/eval_agent.py` still binds to the fixed persona ids; run the coverage and calculation categories after Phase 3 and after record pinning.
+- **Per-Article smoke eval (3b):** one case per fund in `evals/`, run as the standard persona. Passes when coverage resolves to the persona's Article, and a calculation question either returns an estimate citing that Article's sections or names the missing inputs. Passing is what moves an Article from `experimental` to `checked`.
+- **Config validity (unit):** every standard persona passes its Article's bounds; every `extra_fields` entry has a `facts.py` alias; no config entry names a non-member Article.
 - **Frontend:** a unit test for starter-prompt selection; `npm run build` and `npm run lint` stay at or below the current baseline; manual browser check at desktop and 400px width in light and dark after each phase.
 
 ## 10. Risks to verify during planning
@@ -192,3 +230,4 @@ Separate landing page, Sessions page, Settings page, Article picker, "coming soo
 - How `initial_state()` treats `employee_record` across turns (record pinning).
 - `eval_agent.py` and `seed_synthetic_data.py` assumptions about `employees.email`.
 - The anonymous path must remain unchanged: `session_token`, its RLS predicate and `BASIS_UNRESOLVED`.
+- Recipe derivation for funds whose formula rests on a different salary basis (e.g. police and fire) or inputs `facts.py` does not know. The expected failure is a missing input or a validator rejection, not a wrong figure — the smoke evals must confirm that before any such Article is enabled, even as `experimental`.
