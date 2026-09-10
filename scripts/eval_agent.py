@@ -152,6 +152,9 @@ async def run_turn(question: str, thread: str, employee_id: str | None) -> dict:
         "scenario_set": state.get("scenario_set") or {},
         "tokens": state.get("token_usage") or {},
         "timings": state.get("timings") or {},
+        "in_scope": state.get("in_scope"),
+        "stale_figures": state.get("stale_figures") or [],
+        "answer_rung": state.get("answer_rung"),
     }
 
 
@@ -254,6 +257,20 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         return [f"ERROR: {result['error']}"]
     if not answer.strip():
         return ["empty answer"]
+
+    want_scope = expect.get("in_scope")
+    if want_scope is not None and result["in_scope"] != want_scope:
+        problems.append(
+            f"scope was {result['in_scope']}, expected {want_scope}"
+        )
+
+    if expect.get("recompute") and not result["stale_figures"]:
+        problems.append("did not treat this as a correction to an earlier figure")
+
+    if expect.get("rung") and result["answer_rung"] != expect["rung"]:
+        problems.append(
+            f"answered at rung {result['answer_rung']}, expected {expect['rung']}"
+        )
 
     for section in expect.get("cites", []):
         # "11-215|11-216" passes on either. Some questions have more than one

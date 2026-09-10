@@ -83,3 +83,45 @@ cases:
           # A summary turn recalls; it does not re-resolve a recipe, so asking
           # for `provision` here tested the wrong thing.
           cites: ["11-134"]
+
+  - id: E90
+    name: A member planning retirement, in their own words
+    critical: true
+    turns:
+      - q: >-
+          I'm starting to think seriously about retiring but I honestly don't
+          know where to begin. What should I be thinking about?
+        expect:
+          in_scope: true
+      - q: >-
+          Realistically I'd like to stop working sometime in the next couple of
+          years. Roughly what would I be looking at?
+        expect:
+          calculation: true
+      - q: >-
+          My wife is worried about what happens to her if something happens to
+          me. What would she get?
+        expect:
+          in_scope: true
+      - q: >-
+          Ok. Put the retire-now, retire-at-58 and retire-at-60 numbers side by
+          side for me so I can show my wife.
+        expect:
+          scenarios: true
+          forbids: ["Not worked out"]
+
+  - id: E91
+    name: A member being imprecise, and correcting themselves
+    critical: true
+    turns:
+      - q: how much pension will i get
+        expect:
+          calculation: true
+      - q: i'm 56, been there about 21 years, make around 72k
+        expect:
+          in_scope: true
+      - q: actually sorry it's more like 23 years, i forgot the first two
+        expect:
+          recompute: true
+          calculation: true
+          forbids: ["I would need the pension calculation"]

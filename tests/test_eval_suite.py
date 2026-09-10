@@ -175,4 +175,11 @@ def test_the_critical_cases_are_the_ones_worth_failing_a_run_over():
         # Suppositions. Answering "if I were a park employee" in the plain
         # indicative tells a member they are in a fund they only asked about.
         "G38", "G39", "G41",              # adopted, held across turns, released
+        # Routing. Each measured wrong against the live system before turn
+        # understanding replaced the keyword regexes — three of them refused
+        # outright, the cheapest possible way to fail a member.
+        "R01", "R02", "R03",
+        # The two conversations that motivated the routing cases, kept end to
+        # end as the acceptance test.
+        "E90", "E91",
     }
