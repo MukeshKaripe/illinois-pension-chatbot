@@ -21,6 +21,7 @@ export function ChatInterface() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [agentStatus, setAgentStatus] = useState("");
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   const router = useRouter();
 
@@ -121,6 +122,7 @@ export function ChatInterface() {
 
     // AI Placeholder
     const aiMessageId = (Date.now() + 1).toString();
+    setStreamingMessageId(aiMessageId);
     setMessages((prev) => [
       ...prev,
       {
@@ -129,6 +131,7 @@ export function ChatInterface() {
         content: "",
         created_at: new Date().toISOString(),
         citations: [],
+        verified_citations: [],
         tool_calls: [],
       },
     ]);
@@ -214,6 +217,8 @@ export function ChatInterface() {
                       ...m,
                       id: data.message_id ? String(data.message_id) : m.id,
                       citations: (data.citations as unknown[]) ?? [],
+                      verified_citations:
+                        (data.verified_citations as string[]) ?? [],
                       tool_calls: (data.tool_calls as unknown[]) ?? [],
                       guardrail_passed: data.guardrail_passed !== false,
                     }
@@ -251,6 +256,7 @@ export function ChatInterface() {
       console.error("Chat error:", err);
     } finally {
       setIsTyping(false);
+      setStreamingMessageId(null);
     }
   };
 
@@ -298,7 +304,11 @@ export function ChatInterface() {
             </div>
           ) : (
             messages.map((m) => (
-              <ChatMessage key={m.id} message={m} />
+              <ChatMessage
+                key={m.id}
+                message={m}
+                isStreaming={m.id === streamingMessageId}
+              />
             ))
           )}
           {isTyping && (

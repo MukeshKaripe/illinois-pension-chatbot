@@ -109,6 +109,7 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     citations: list | None = None
+    verified_citations: list[str] | None = None
     tool_calls: list | None = None
     guardrail_passed: bool | None = None
     created_at: str
@@ -388,6 +389,9 @@ async def send_message(
             citations=final_state.get("citations"),
             tool_calls=_audit_trail(final_state),
             guardrail_passed=final_state.get("guardrail_passed", True),
+            verified_citations=(final_state.get("guardrail_report") or {}).get(
+                "verified_citations", []
+            ),
         )
 
     return StreamingResponse(

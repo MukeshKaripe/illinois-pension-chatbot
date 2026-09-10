@@ -87,6 +87,7 @@ def sse_done(
     citations: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
     guardrail_passed: bool = True,
+    verified_citations: list[str] | None = None,
 ) -> str:
     """Emit the final done event with full metadata."""
     return sse_event("done", {
@@ -94,6 +95,7 @@ def sse_done(
         "citations": citations or [],
         "tool_calls": tool_calls or [],
         "guardrail_passed": guardrail_passed,
+        "verified_citations": verified_citations or [],
     })
 
 
