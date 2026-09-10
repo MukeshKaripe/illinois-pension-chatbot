@@ -4,6 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { API_BASE_URL, auth } from "@/lib/api";
+import { buttonVariants } from "@/components/ui/button";
+
+const field =
+  "w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -18,112 +22,87 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      // Using URLSearchParams for x-www-form-urlencoded
+      // The login endpoint is OAuth2's password flow: form-encoded, "username".
       const formData = new URLSearchParams();
       formData.append("username", email);
       formData.append("password", password);
 
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData,
       });
-
-      if (!response.ok) {
-        throw new Error("Invalid email or password");
-      }
+      if (!response.ok) throw new Error("Invalid email or password");
 
       const data = await response.json();
       auth.signIn(data.access_token);
       router.push("/");
-    } catch (err: any) {
-      setError(err.message || "An error occurred during login");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred during login");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-neutral-950 text-neutral-50 relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/20 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-purple-600/20 blur-[120px] pointer-events-none" />
-
-      <div className="w-full max-w-md p-8 space-y-8 bg-neutral-900/50 backdrop-blur-xl rounded-2xl shadow-2xl border border-neutral-800 relative z-10">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            Pension Code Chatbot
-          </h1>
-          <p className="text-sm text-neutral-400">
-            Sign in to your account
-          </p>
+    <main className="flex min-h-dvh items-center justify-center bg-background px-4 py-12 text-foreground">
+      <div className="w-full max-w-sm space-y-8">
+        <div className="space-y-2 text-center">
+          <h1 className="font-serif text-3xl tracking-tight">Illinois Pension Assistant</h1>
+          <p className="text-sm text-muted-foreground">Sign in to your account</p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        <form onSubmit={handleLogin} className="space-y-5 rounded-xl border border-border bg-card p-6">
           {error && (
-            <div className="p-3 text-sm text-red-400 bg-red-950/50 border border-red-900/50 rounded-lg">
+            <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-neutral-300" htmlFor="email">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all text-neutral-100"
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-neutral-300" htmlFor="password">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all text-neutral-100"
-                placeholder="••••••••"
-                required
-              />
-            </div>
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="text-sm font-medium">Email address</label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={field}
+              placeholder="you@example.com"
+              required
+            />
           </div>
 
+          <div className="space-y-1.5">
+            <label htmlFor="password" className="text-sm font-medium">Password</label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={field}
+              required
+            />
+          </div>
+
+          {/* A native button: this one must submit the form. */}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 px-4 bg-white text-neutral-950 font-semibold rounded-xl hover:bg-neutral-200 focus:ring-2 focus:ring-white/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            className={buttonVariants({ size: "lg", className: "h-10 w-full" })}
           >
-            {isLoading ? (
-              <div className="w-5 h-5 border-2 border-neutral-950/20 border-t-neutral-950 rounded-full animate-spin" />
-            ) : (
-              <span>Sign In</span>
-            )}
+            {isLoading ? "Signing in…" : "Sign in"}
           </button>
-
-          <p className="text-center text-sm text-neutral-500">
-            No account?{" "}
-            <Link href="/signup" className="text-blue-400 hover:text-blue-300">
-              Create one
-            </Link>
-            {" · "}
-            <Link href="/" className="text-blue-400 hover:text-blue-300">
-              Continue without an account
-            </Link>
-          </p>
         </form>
+
+        <p className="text-center text-sm text-muted-foreground">
+          No account?{" "}
+          <Link href="/signup" className="text-primary hover:underline">Create one</Link>
+          {" · "}
+          <Link href="/" className="text-primary hover:underline">Continue without an account</Link>
+        </p>
       </div>
-    </div>
+    </main>
   );
 }
