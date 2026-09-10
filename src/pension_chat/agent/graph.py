@@ -434,6 +434,7 @@ async def run_agent_stream(
             repaired = ""
 
         if repaired:
+            repaired = _substitute(state.get("answer_blocks") or {}, repaired)
             retry = _verify(state, repaired, settings)
             if retry.passed:
                 answer = repaired
@@ -641,6 +642,26 @@ async def _record_turn(config: dict, state: dict) -> None:
         # a warning, not a failed turn.
         logger.exception("Could not record turn state for session %s", config)
 
+
+
+
+def _substitute(blocks: Mapping[str, str], text: str) -> str:
+    """Apply the computed blocks to a complete answer rather than a stream.
+
+    The repair path joins its deltas before verifying, and it is handed the same
+    system prompt as the original generation -- markers and all -- so it emits
+    them again. Without this the member's repaired answer showed a raw
+    ``<<<BASIS>>>`` and lost its legal-basis footer entirely: 12 of 119 turns on
+    the eval suite, every one of them a repair.
+
+    Substitution has to happen *before* verification, not after, because the
+    blocks carry the citations `verify_citations` reads.
+    """
+    substituter = MarkerSubstituter(blocks)
+    out = substituter.feed(text) + substituter.flush()
+    for block in substituter.unused():
+        out += "\n\n" + block
+    return out
 
 
 def _inputs_behind(computed: dict[str, Any]) -> set[str]:

@@ -228,3 +228,37 @@ def test_one_assumption_line_per_quantity_not_per_input_name() -> None:
     rendered = render_assumptions(sheet)
     assert rendered.count("\n- ") == 1, rendered
     assert "stop working" in rendered
+
+
+# ── Repaired answers go through the same substitution ─────────────
+
+
+def test_a_repaired_answer_has_its_markers_substituted() -> None:
+    """The repair model is handed the same system prompt, markers and all.
+
+    Its deltas were joined and verified without ever meeting the substituter, so
+    a repaired answer showed the member a raw `<<<BASIS>>>` and lost its
+    legal-basis footer: 12 of 119 turns on a full eval run, every one a repair.
+    """
+    from pension_chat.agent.graph import _substitute
+
+    blocks = {"BASIS": "**Legal basis** [40 ILCS 5/11-134]"}
+    out = _substitute(blocks, "The corrected answer.\n\n<<<BASIS>>>")
+
+    assert "<<<" not in out
+    assert "**Legal basis** [40 ILCS 5/11-134]" in out
+
+
+def test_a_marker_naming_no_block_is_dropped_not_shown() -> None:
+    from pension_chat.agent.graph import _substitute
+
+    assert "<<<" not in _substitute({}, "Text with <<<BASIS>>> in it.")
+
+
+def test_a_block_whose_marker_never_arrived_is_still_appended() -> None:
+    """Same rule as the streaming path: never short the member a block."""
+    from pension_chat.agent.graph import _substitute
+
+    out = _substitute({"BASIS": "**Legal basis** [40 ILCS 5/11-134]"}, "No marker.")
+
+    assert "**Legal basis** [40 ILCS 5/11-134]" in out
