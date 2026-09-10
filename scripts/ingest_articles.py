@@ -54,7 +54,42 @@ ARTICLE_NAMES = {
     12: "Park Employees' and Retirement Board Employees' Annuity and Benefit Fund "
         "— Cities over 500,000",
     20: "Retirement Systems Reciprocal Act",
+    # The rest of the Code. Names taken from each Article's own heading rather
+    # than paraphrased, because `system_name` is what the admin UI shows and a
+    # paraphrase is a second source of truth.
+    2: "General Assembly Retirement System",
+    3: "Police Pension Fund — Municipalities",
+    4: "Firefighters' Pension Fund",
+    5: "Policemen's Annuity and Benefit Fund — Cities over 500,000",
+    6: "Firemen's Annuity and Benefit Fund — Cities over 500,000",
+    7: "Illinois Municipal Retirement Fund",
+    10: "Forest Preserve District Employees' Annuity and Benefit Fund",
+    13: "Metropolitan Water Reclamation District Retirement Fund",
+    14: "State Employees' Retirement System of Illinois",
+    15: "State Universities Retirement System",
+    16: "Teachers' Retirement System of the State of Illinois",
+    17: "Public School Teachers' Pension and Retirement Fund "
+        "— Cities over 500,000 Inhabitants",
+    18: "Judges Retirement System of Illinois",
+    19: "Closed Funds",
+    21: "Social Security Enabling Act",
+    22: "Miscellaneous Collateral Provisions",
+    23: "Purpose — Savings Provisions — Repeal",
+    24: "Public Employees' Deferred Compensation",
 }
+
+# Articles whose number is not an integer (1A, 22A, 22B, 22C). They are parsed
+# fine as text but cannot be *recorded*: `pension_articles.article_number` is a
+# SmallInteger primary key, so there is nowhere to put "22A" until that column
+# and the search index's `article` field agree on a wider type.
+#
+# Listed explicitly and refused loudly rather than left to fail quietly. The
+# section-header pattern anchors the article on `(\d+)`, so `(40 ILCS 5/22A-101)`
+# matches nothing and every one of these files parses to ZERO sections — which
+# `upload_records` accepts happily, leaving `ingestion_status` saying "ingested"
+# over an empty article. That is the same silent-collision family as the three
+# ILGA formatting bugs in `test_ingestion.py`.
+UNSUPPORTED_ARTICLES = ("1a", "22a", "22b", "22c")
 
 
 async def update_article_status(article_number: int, status: str):
@@ -110,13 +145,39 @@ async def ingest():
         logger.error(f"Data directory not found: {data_dir}")
         return
 
-    # Article 11 and 12 are the pilot pair — deliberately adjacent and
-    # confusable. Article 8 (municipal employees) and 9 (county employees) are
-    # the two funds nearest them, so they are what tests whether coverage
-    # reasoning survives more than a binary choice. Article 1 and 20 have no
-    # members of their own but govern everyone's: Section 1-160 is Tier 2, and
-    # Article 20 is the Reciprocal Act.
-    target_articles = [1, 8, 9, 11, 12, 20]
+    # The whole Code, as far as an integer article number reaches.
+    #
+    # Articles 11 and 12 remain the pilot pair — deliberately adjacent and
+    # confusable — with 8 (municipal) and 9 (county) as the funds nearest them,
+    # and 1 and 20 governing everyone without having members of their own.
+    # Widening past those six changes coverage from a five-way choice to a
+    # twenty-plus-way one, which is more honest about the Code and is *not*
+    # free: Article 10 is the Forest Preserve District fund, which competes
+    # directly with Article 12's park employees on any description involving a
+    # park. Re-run the `coverage` eval category after changing this list.
+    #
+    # The four letter-suffixed Articles are in `UNSUPPORTED_ARTICLES` above.
+    target_articles = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ]
+
+    present = {
+        f[len("article_") : -len(".txt")]
+        for f in os.listdir(data_dir)
+        if f.startswith("article_") and f.endswith(".txt")
+    }
+    unsupported = sorted(present & set(UNSUPPORTED_ARTICLES))
+    if unsupported:
+        logger.warning(
+            "SKIPPING %d Article(s) with a non-integer number: %s. Their text "
+            "parses to zero sections (the section-header pattern anchors the "
+            "article on digits) and `pension_articles.article_number` is a "
+            "SmallInteger, so there is nowhere to record them. Widening both is "
+            "a schema change, not a parser tweak.",
+            len(unsupported),
+            ", ".join(unsupported),
+        )
 
     for article_num in target_articles:
         filepath = os.path.join(data_dir, f"article_{article_num}.txt")
@@ -136,7 +197,16 @@ async def ingest():
             sections = parse_statute_file(filepath, article_num)
 
             if not sections:
-                logger.warning("No sections found in %s", filepath)
+                # Never fall through to "ingested" here. Uploading merges by
+                # key, so an article that parses to nothing uploads nothing and
+                # fails silently -- the status stays at "validating", which is
+                # the honest record of what happened.
+                logger.error(
+                    "Article %d parsed to ZERO sections -- leaving it at "
+                    "'validating' rather than claiming it was ingested. The "
+                    "header pattern did not match this file's section ids.",
+                    article_num,
+                )
                 continue
 
             # Step 2: Chunk

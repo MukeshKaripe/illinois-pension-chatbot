@@ -52,6 +52,16 @@ STATUTE_DIR = Path(__file__).resolve().parents[1] / "data" / "statutes"
 # blocks below cover the logic and always run; the ones marked here check that
 # logic against what ILGA actually publishes, which is where every one of these
 # bugs came from, so they skip rather than fail when the corpus is absent.
+#: (filename, article number) for every Article on disk with an integer number.
+#: The letter-suffixed files (1A, 22A-22C) are excluded: the section-header
+#: pattern anchors the article on digits, so they parse to nothing and there is
+#: no number to pass. See `UNSUPPORTED_ARTICLES` in scripts/ingest_articles.py.
+_CORPUS_ARTICLES = sorted(
+    (path.name, int(path.stem.split("_")[1]))
+    for path in STATUTE_DIR.glob("article_*.txt")
+    if path.stem.split("_")[1].isdigit()
+)
+
 requires_corpus = pytest.mark.skipif(
     not list(STATUTE_DIR.glob("article_*.txt")),
     reason="no statute files in data/statutes (they are gitignored)",
@@ -236,14 +246,7 @@ def test_a_restarted_letter_list_keeps_both_subsections() -> None:
 
 @pytest.mark.parametrize(
     ("filename", "article"),
-    [
-        ("article_1.txt", 1),
-        ("article_8.txt", 8),
-        ("article_9.txt", 9),
-        ("article_11.txt", 11),
-        ("article_12.txt", 12),
-        ("article_20.txt", 20),
-    ],
+    _CORPUS_ARTICLES,
 )
 @requires_corpus
 def test_no_record_key_collides_across_a_whole_article(
@@ -253,6 +256,11 @@ def test_no_record_key_collides_across_a_whole_article(
 
     A collision is not an error at upload time — the later document simply
     replaces the earlier one, and the section is quietly short a subsection.
+
+    Parametrised from what is actually on disk rather than from a list, because
+    the list was the six ingested Articles and the corpus is now twenty-four.
+    A hand-maintained list here fails in the one direction that matters: a new
+    Article's collisions go unchecked and nothing says so.
     """
     path = STATUTE_DIR / filename
     if not path.exists():  # pragma: no cover - corpus is checked in
@@ -285,7 +293,17 @@ def test_no_struck_text_survives_anywhere_in_the_corpus() -> None:
     surviving_labels: set[str] = set()
 
     for path in sorted(STATUTE_DIR.glob("article_*.txt")):
-        article = int(path.stem.split("_")[1])
+        raw = path.stem.split("_")[1]
+        if not raw.isdigit():
+            # Articles 1A and 22A-22C. `parse_statute_file` takes an int, and
+            # the header pattern anchors the article on digits, so these parse
+            # to nothing whatever is passed for the number -- see
+            # `UNSUPPORTED_ARTICLES` in scripts/ingest_articles.py. Walking them
+            # here only raised ValueError on `int("1a")` and took the guard down
+            # with it, which is worse than skipping them: a corpus-wide check
+            # that crashes is a check nobody is running.
+            continue
+        article = int(raw)
         for line in path.read_text(encoding="utf-8").splitlines():
             if match := VARIANT_MARKER_RE.match(line.strip()):
                 markers.add(match.group(1).strip())

@@ -79,13 +79,29 @@ ESTABLISHED_BASES = frozenset({BASIS_CONFIRMED, BASIS_STATUTORY})
 # Articles that govern the members of other Articles can never be the answer to
 # "which Article covers you", because nobody is a member of one.
 #
-# This is not hypothetical once they are indexed. Both define an "Employee" in
-# terms broad enough to match almost any description — Section 20-104 is "any
-# person in the service of an employer" — so they compete for coverage against
-# the funds on their own retrieved text, and a park employee can be routed to a
-# reciprocal act that administers no annuity. They stay fully retrievable and
-# citable; this excludes them from being a *destination*, not from being read.
-NON_MEMBERSHIP_ARTICLES = frozenset(CROSS_CUTTING_ARTICLES)
+# This is not hypothetical once they are indexed. Articles 1 and 20 both define
+# an "Employee" in terms broad enough to match almost any description — Section
+# 20-104 is "any person in the service of an employer" — so they compete for
+# coverage against the funds on their own retrieved text, and a park employee can
+# be routed to a reciprocal act that administers no annuity. They stay fully
+# retrievable and citable; this excludes them from being a *destination*, not
+# from being read.
+#
+# Kept as a superset of `CROSS_CUTTING_ARTICLES` rather than an alias for it,
+# because the two questions differ. Cross-cutting asks "does this Article govern
+# this member alongside their own?", which earns Article 1 and 20 their own
+# retrieval query. Non-membership asks "could a person be a member of it?", and
+# the Code's administrative Articles fail that without being cross-cutting in
+# the retrieval sense: nobody is an Article 23 member ("Purpose — Savings
+# Provisions — Repeal"), and giving it a query of its own would be absurd.
+# Article 19 is deliberately absent: a closed fund is still a fund, and somebody
+# is a member of one. Article 24 is deferred compensation, which is a savings
+# plan rather than an annuity -- nobody's *pension* coverage is Article 24.
+_ADMINISTRATIVE_ARTICLES = ("21", "22", "23", "24")
+
+NON_MEMBERSHIP_ARTICLES = frozenset(CROSS_CUTTING_ARTICLES) | frozenset(
+    _ADMINISTRATIVE_ARTICLES
+)
 
 
 @dataclass

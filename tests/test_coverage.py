@@ -262,7 +262,12 @@ async def test_an_article_nobody_is_a_member_of_is_not_a_destination(monkeypatch
     )
 
     assert report.articles == ["12"]
-    assert cov.NON_MEMBERSHIP_ARTICLES == frozenset({"1", "20"})
+    # Containment, not equality: the set grows whenever the corpus widens (the
+    # Code's administrative Articles joined it at 24 Articles ingested), and
+    # what this test is about is that Article 20 lost, not how many others
+    # would also have lost.
+    assert "20" in cov.NON_MEMBERSHIP_ARTICLES
+    assert "12" not in cov.NON_MEMBERSHIP_ARTICLES
 
 
 @pytest.mark.asyncio
@@ -980,3 +985,33 @@ async def test_without_a_record_only_the_description_is_searched(monkeypatch):
 
     assert [s.section for s in sections] == ["12-118"]
     assert len(calls) == 1
+
+
+def test_the_codes_administrative_articles_are_not_coverage_destinations() -> None:
+    """Nobody is a member of "Purpose — Savings Provisions — Repeal".
+
+    `NON_MEMBERSHIP_ARTICLES` was an alias for `CROSS_CUTTING_ARTICLES` while the
+    corpus held six Articles, and the two questions only look the same at that
+    size. Cross-cutting asks whether an Article governs this member alongside
+    their own, which earns Articles 1 and 20 a retrieval query of their own.
+    Non-membership asks whether a person could be a member of it at all.
+    """
+    from pension_chat.agent.coverage import NON_MEMBERSHIP_ARTICLES
+
+    for article in ("1", "20", "21", "22", "23", "24"):
+        assert article in NON_MEMBERSHIP_ARTICLES, article
+
+
+def test_a_closed_fund_is_still_a_fund_somebody_belongs_to() -> None:
+    """Article 19's funds are closed to new members, not memberless.
+
+    Excluding it would tell an Article 19 annuitant that nothing covers them.
+    Article 10 matters for the opposite reason: it is the Forest Preserve
+    District fund, so once it is indexed it competes with Article 12's park
+    employees on any description involving a park, and it must stay reachable
+    for that competition to be decided on the Code's own text.
+    """
+    from pension_chat.agent.coverage import NON_MEMBERSHIP_ARTICLES
+
+    for article in ("10", "19", "11", "12", "8", "9"):
+        assert article not in NON_MEMBERSHIP_ARTICLES, article
