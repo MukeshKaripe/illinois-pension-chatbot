@@ -144,8 +144,38 @@ def test_every_rung_has_a_status_label() -> None:
 
 
 def test_a_comparison_takes_the_comparison_shape() -> None:
-    state: dict[str, object] = {"calculation_result": CALC, "missing_inputs": [], "scenario_set": {"at 60": {}}}
+    # The signal is the variants THIS turn computed, published under the
+    # formula type's `scenarios`. It used to be the durable `scenario_set`,
+    # which `turn_record` writes after every successful calculation -- so every
+    # turn following a figure was treated as a comparison, legal questions
+    # included. See `test_a_later_turn_is_not_a_comparison_just_because_an_earlier_one_was`.
+    state: dict[str, object] = {
+        "calculation_result": {
+            "retirement_annuity": {
+                "base": {"ok": True, "annual_amount": "1"},
+                "scenarios": [{"label": "At 60", "retirement_age": 60, "annual_amount": "2"}],
+            }
+        },
+        "missing_inputs": [],
+    }
     assert shape_for(_sheet(), state) == "comparison"
+
+
+def test_a_later_turn_is_not_a_comparison_just_because_an_earlier_one_was() -> None:
+    """A durable key cannot answer a per-turn question.
+
+    `scenario_set` survives the turn that produced it, so routing on it made a
+    plain legal question following a calculation come out as a comparison --
+    dropping the worked-steps slot and telling the model to name a range of
+    options that did not exist.
+    """
+    state: dict[str, object] = {
+        "scenario_set": {"if you retire now": {"annual_amount": "32126.78"}},
+        "calculation_result": None,
+        "missing_inputs": [],
+        "requires_calculation": False,
+    }
+    assert shape_for(_sheet(), state) == "legal"
 
 
 def test_a_two_part_question_takes_the_partial_shape() -> None:

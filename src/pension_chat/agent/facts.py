@@ -208,6 +208,40 @@ def build_member_facts(
     return {k: v for k, v in facts.items() if v is not None}
 
 
+#: Names that mean the same quantity. ``build_member_facts`` publishes each
+#: canonical value under several aliases, because different derivations of the
+#: same rule pick different names for it -- so a member correcting
+#: ``service_years`` has to invalidate a figure that was built from
+#: ``creditable_service_years``. Grouped here, beside the facts themselves, so
+#: the groups cannot drift from the names actually published.
+ALIAS_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({
+        "age", "current_age", "age_at_annuity_start", "age_at_withdrawal",
+        "attained_age",
+    }),
+    frozenset({
+        "service_years", "years_of_service", "total_service_years",
+        "creditable_service_years",
+    }),
+    frozenset({
+        "months_before_age_60", "months_before_60", "full_months_under_age_60",
+    }),
+    frozenset({
+        "final_average_salary", "highest_average_annual_salary",
+        "highest_average_annual_salary_4yr", "fas",
+    }),
+    frozenset({"withdrawal_date", "annuity_start_date", "as_of_date"}),
+)
+
+
+def aliases_of(name: str) -> frozenset[str]:
+    """Every name that means the same quantity as ``name``, including itself."""
+    for group in ALIAS_GROUPS:
+        if name in group:
+            return group
+    return frozenset({name})
+
+
 def _as_date(value: Any) -> date | None:
     if isinstance(value, date):
         return value

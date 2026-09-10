@@ -123,15 +123,34 @@ def test_a_round_trip_through_state_preserves_facts_figures_and_dependencies() -
 
 
 def test_filter_asks_is_idempotent_and_preserves_order() -> None:
+    """Running the filter on its own output must change nothing.
+
+    The fixtures deliberately cover all three outcomes -- a fact the sheet holds
+    usably (dropped), one it holds but cannot use (kept and marked), and one it
+    does not hold (kept) -- because with fixtures that match no fact at all this
+    test passed against the pre-change code and guarded none of the marking.
+    """
     sheet = WorkSheet.from_state(_state())
+    sheet.record_fact("service_years", 21.5, SOURCE_WITHHELD, basis="premise is Article 12")
+    sheet.facts["spouse_age"] = Fact("spouse_age", None, SOURCE_STATED, asked=True, turn=1)
     asks = [
-        {"name": "withdrawal_date", "ask_for": "the date you plan to stop working"},
+        {"name": "age", "ask_for": "your date of birth"},
+        {"name": "service_years", "ask_for": "your years of service"},
         {"name": "spouse_age", "ask_for": "your spouse's age"},
+        {"name": "withdrawal_date", "ask_for": "the date you plan to stop working"},
     ]
+
     once = sheet.filter_asks(asks)
     twice = sheet.filter_asks(once)
-    assert [a["name"] for a in once] == ["withdrawal_date", "spouse_age"]
-    assert [a["name"] for a in twice] == ["withdrawal_date", "spouse_age"]
+
+    # `age` is held usably, so it is dropped and stays dropped.
+    assert [a["name"] for a in once] == ["service_years", "spouse_age", "withdrawal_date"]
+    assert [a["name"] for a in twice] == ["service_years", "spouse_age", "withdrawal_date"]
+    # The marks survive a second pass rather than being recomputed away.
+    assert once[0]["withheld"] is True and twice[0]["withheld"] is True
+    assert once[0]["withheld_basis"] == twice[0]["withheld_basis"] == "premise is Article 12"
+    assert once[1]["already_asked"] is True and twice[1]["already_asked"] is True
+    assert "withheld" not in twice[2] and "already_asked" not in twice[2]
 
 
 def test_an_ask_already_put_to_the_member_is_not_repeated() -> None:
@@ -181,3 +200,156 @@ def test_record_usable_defaults_to_true_and_leaves_the_normal_path_unchanged() -
     assert fact.source == SOURCE_RECORD
     assert fact.basis == ""
     assert "service_years" in sheet.usable_values()
+
+
+# ── Against the shapes production actually persists ───────────────
+#
+# The tests above build state by hand, which is how the sheet came to hold no
+# figures at all in production: `graph.turn_record` writes `baseline` flat --
+# `annual_amount`, `monthly_amount`, `inputs_used` -- and the reader only
+# recognised a nested `{"result": ...}`. Every downstream consequence followed
+# from that one mismatch, so these go through the real writer.
+
+def _persisted_turn() -> dict[str, Any]:
+    """Durable state as `graph.turn_record` writes it after a real calculation."""
+    from pension_chat.agent.graph import turn_record
+
+    finished = {
+        "final_answer": "Your pension is ...",
+        "turn_index": 1,
+        "calculation_result": {
+            "retirement_annuity": {
+                "section": "11-134",
+                "subsection": "(a)",
+                "base": {
+                    "ok": True,
+                    "annual_amount": "32126.78",
+                    "monthly_amount": "2677.23",
+                    "inputs_used": {
+                        "highest_average_annual_salary_4yr": "69956.40",
+                        "creditable_service_years": "21.5",
+                        "months_before_age_60": "44",
+                    },
+                },
+            }
+        },
+    }
+    update = turn_record(finished)
+    assert update is not None
+    return {**_state(), **update}
+
+
+def test_the_sheet_holds_the_figure_that_turn_record_actually_persisted() -> None:
+    sheet = WorkSheet.from_state(_persisted_turn())
+
+    figure = sheet.figures.get("now")
+    assert figure is not None
+    assert figure.result["annual_amount"] == "32126.78"
+    assert figure.provision["section"] == "11-134"
+
+
+def test_rests_on_comes_from_the_inputs_the_figure_actually_used() -> None:
+    sheet = WorkSheet.from_state(_persisted_turn())
+
+    assert set(sheet.figures["now"].rests_on) == {
+        "highest_average_annual_salary_4yr",
+        "creditable_service_years",
+        "months_before_age_60",
+    }
+
+
+def test_a_correction_makes_the_persisted_figure_stale() -> None:
+    """The headline case: "actually it's more like 23 years" must recompute.
+
+    The member revises `service_years`; the recipe consumed
+    `creditable_service_years`. Same quantity, so the same figure is stale.
+    """
+    sheet = WorkSheet.from_state(_persisted_turn())
+
+    # `turn_record` also files the unscenarioed base under the label a member
+    # would use for it, so both copies of the same figure go stale together.
+    assert sheet.apply_revisions({"service_years": 23}, turn=2) == {
+        "now", "if you retire now"
+    }
+    assert "now" in sheet.stale_figures()
+
+
+def test_a_carried_scenario_goes_stale_with_the_figure_it_varied() -> None:
+    from pension_chat.agent.graph import turn_record
+
+    update = turn_record({
+        "final_answer": "...",
+        "turn_index": 1,
+        "calculation_result": {
+            "retirement_annuity": {
+                "section": "11-134",
+                "base": {
+                    "ok": True,
+                    "annual_amount": "32126.78",
+                    "monthly_amount": "2677.23",
+                    "inputs_used": {"creditable_service_years": "21.5"},
+                },
+                "scenarios": [
+                    {
+                        "label": "at age 60",
+                        "annual_amount": "42280.10",
+                        "monthly_amount": "3523.34",
+                        "assumptions": {"service_years": "25.2"},
+                    }
+                ],
+            }
+        },
+    })
+    assert update is not None
+    sheet = WorkSheet.from_state({**_state(), **update})
+
+    assert sheet.apply_revisions({"years_of_service": 23}, turn=2) == {"now", "at age 60"}
+
+
+def test_the_persisted_shape_survives_a_round_trip_through_the_sheet() -> None:
+    """One shape, not two.
+
+    `graph._verify` reads `baseline["turn"]` and each scenario's
+    `annual_amount` straight off the durable key, so writing the sheet back in
+    a nested shape would leave those readers looking at the wrong level on any
+    turn that persisted the sheet without recalculating.
+    """
+    state = _persisted_turn()
+    sheet = WorkSheet.from_state(state)
+    written = sheet.to_state_update()
+
+    assert written["baseline"]["annual_amount"] == "32126.78"
+    assert written["baseline"]["turn"] == state["baseline"]["turn"]
+    assert WorkSheet.from_state({**_state(), **written}).figures["now"].rests_on == (
+        sheet.figures["now"].rests_on
+    )
+
+
+def test_a_withheld_fact_is_never_written_into_durable_state() -> None:
+    """A stipulated premise must not poison the record for later turns.
+
+    `withheld` is a per-turn view of a record fact. Persisted, it is overlaid
+    back on top of `member_facts` next turn and wins forever -- so after one
+    "if I were a park employee" turn the conversation would hold no usable
+    values at all.
+    """
+    sheet = WorkSheet.from_state(_state(), record_usable=False)
+    assert sheet.usable_values() == {}
+
+    persisted = sheet.to_state_update()
+    assert persisted["assumptions"] == {}
+
+    later = WorkSheet.from_state({**_state(), **persisted})
+    assert later.usable_values()["service_years"] == 21.5
+    assert later.fact("age") is not None
+    assert later.fact("age").source == SOURCE_RECORD  # type: ignore[union-attr]
+
+
+def test_a_correction_of_the_same_number_written_differently_is_not_a_revision() -> None:
+    sheet = WorkSheet.from_state(_state())
+    sheet.record_figure(
+        "now", {"annual_amount": "1"}, {"section": "11-134"},
+        rests_on=("service_years",), turn=1,
+    )
+    assert sheet.apply_revisions({"service_years": "21.50"}, turn=2) == set()
+    assert sheet.stale_figures() == []

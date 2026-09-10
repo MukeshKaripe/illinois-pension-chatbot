@@ -94,17 +94,78 @@ def _label(name: str) -> str:
     return _LABELS.get(name, name.replace("_", " ").capitalize())
 
 
+def _parameter_amount(name: str, entry: Any) -> str:
+    """One statutory constant, as the statute states it.
+
+    A parameter arrives either bare or as ``{"value": ..., "source": {...}}`` --
+    the interpreter attaches the section each constant was read from, and
+    `_present` carries that through. Reading the wrapper as the value printed
+    the whole dict into the table.
+
+    A rate or cap is stored as the fraction the arithmetic uses (0.024, 0.0025,
+    0.8) and read by a member as a percentage. Rendering the fraction as money
+    turned Article 11's 2.40% accrual rate into "$0.02".
+    """
+    value = entry.get("value") if isinstance(entry, Mapping) else entry
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return _amount(value, name)
+    if number != 0 and abs(number) < 1:
+        return f"{number * 100:,.2f}%"
+    return _amount(value, name)
+
+
+#: A step whose name ends in one of these published a ratio, not an amount.
+_FACTOR_SUFFIXES = ("_factor", "_fraction", "_ratio", "_rate", "_percentage")
+
+
+def _step_amount(name: str, value: Any) -> str:
+    """One named intermediate value, as the engine published it.
+
+    Steps are keyed by the recipe's own ``result_name``, so there is no
+    declared type to consult. A name ending in "_factor" is the one shape that
+    would otherwise read as money: Article 11's ``age_reduction_factor`` of
+    0.89 is a multiplier, not 89 cents.
+    """
+    if name.endswith(_FACTOR_SUFFIXES):
+        try:
+            return f"{Decimal(str(value)).normalize():f}"
+        except (InvalidOperation, ValueError, TypeError):
+            return str(value)
+    return _amount(value, name)
+
+
 def render_worked_steps(result: Mapping[str, Any]) -> str:
-    """The two-column table showing how one figure was reached."""
+    """The two-column table showing how one figure was reached.
+
+    Two shapes reach here and both are real. `nodes._present` renames the
+    interpreter's ``parameters_used`` to ``statutory_values_used`` and rewrites
+    each step as ``{"name", "value"}``; the interpreter's own output keeps
+    ``parameters_used`` and adds ``operation``. Reading only for
+    ``statutory_values_used`` entries as bare values, and for steps keyed
+    ``label``/``amount``, printed a dict in one column and ``None`` in the
+    other -- in the block whose whole purpose is that a table can never be
+    mistranscribed.
+    """
     rows: list[tuple[str, str]] = []
     for name, value in (result.get("inputs_used") or {}).items():
         rows.append((_label(name), _amount(value, name)))
-    for name, value in (result.get("statutory_values_used") or {}).items():
-        rows.append((_label(name), _amount(value, name)))
+    parameters = result.get("statutory_values_used")
+    if parameters is None:
+        parameters = result.get("parameters_used")
+    for name, entry in (parameters or {}).items():
+        rows.append((_label(name), _parameter_amount(name, entry)))
     for step in result.get("steps") or []:
-        # Steps have labels, not field names, so don't pass a field_name.
-        # The value's shape (percentage, decimal, etc.) determines the format.
-        rows.append((str(step.get("label") or ""), _amount(step.get("amount"))))
+        if step.get("name"):
+            name = str(step["name"])
+            label, value = _label(name), step.get("value")
+        else:
+            # A step carrying a prose label rather than a field name: use it as
+            # written rather than putting it through the field-name formatter.
+            name = label = str(step.get("label") or "")
+            value = step.get("amount")
+        rows.append((label, _step_amount(name, value)))
 
     if annual := result.get("annual_amount"):
         rows.append(("**Annual pension**", f"**{_money(annual)}**"))

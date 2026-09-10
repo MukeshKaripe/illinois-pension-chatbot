@@ -187,3 +187,22 @@ def test_without_model_routing_the_old_behaviour_is_unchanged() -> None:
 
     assert classify_scope("how much pension will i get").in_scope
     assert not classify_scope("write me a poem about my dog").in_scope
+
+
+# ── The model's own scope verdict ──────────────────────────────────
+
+def test_the_planning_branch_can_still_take_a_turn_out_of_scope() -> None:
+    """`understand_turn`'s verdict has to reach a decision, not just a state key.
+
+    `triage` settles scope before either branch runs, which is right for the
+    deterministic deny pattern but leaves the model's judgement inert: it runs
+    *after* that decision, so `in_scope: false` declined nothing and the turn was
+    answered anyway. The eval asserted the state key and passed while the
+    behaviour was wrong, which is why this is pinned here instead.
+    """
+    from pension_chat.agent.graph import _still_in_scope
+
+    assert _still_in_scope({"in_scope": False}) == "decline"
+    assert _still_in_scope({"in_scope": True}) == "assess_coverage"
+    # Absent means nobody objected — the deterministic gate already passed it.
+    assert _still_in_scope({}) == "assess_coverage"

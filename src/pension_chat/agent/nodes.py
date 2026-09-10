@@ -39,6 +39,7 @@ from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.llm import complete
 from pension_chat.agent.presentation import (
     COMPUTED_SLOTS,
+    scenarios_this_turn,
     select_rung,
     shape_for,
     template_for,
@@ -2080,7 +2081,13 @@ ABSOLUTE RULES
    not use it. Say what the Pension Code actually provides and why their figure
    does not govern. Matter-of-fact, in a sentence — no lecture.
 4. If the statute text does not answer the question, say so. Do not fill the gap.
-5. Say which other provisions were weighed, and be exact about WHY each one is
+5. Write money with a currency sign, thousands separators and two decimals
+   ($32,126.78); percentages as percentages (2.40%, never 0.024); years to one
+   decimal where the value has one (21.5 years). The tables are formatted for
+   you, but the opening line is yours, and the figures reach you bare -- an
+   annual amount arrives as "32126.78". Punctuating it is not arithmetic and
+   rule 1 does not forbid it; reaching a different number is.
+6. Say which other provisions were weighed, and be exact about WHY each one is
    not the answer. Their status says which of four things happened, and they do
    not mean the same thing:
      not_applicable            - it does not reach this member. Say so.
@@ -2103,17 +2110,17 @@ ABSOLUTE RULES
    age 60, while this annuity begins at age 56", the part you can use is that it
    cannot begin before 60. Never repeat an age, a length of service or an amount
    out of one of these reasons as though it were this member's.
-6. Never present a provision as controlling because it is the one that can be
+7. Never present a provision as controlling because it is the one that can be
    calculated. If more than one provision reaches this member, say so in a
    sentence before the figure, so nobody reads an estimate as a determination.
-7. A comparison of future retirement dates is a projection, not an entitlement.
+8. A comparison of future retirement dates is a projection, not an entitlement.
    State what it holds constant -- the salary basis carried forward at today's
    level, and continuous employment to that age -- in one line under the table.
-8. Do not volunteer where a figure came from, whether it was worked out fresh,
+9. Do not volunteer where a figure came from, whether it was worked out fresh,
    or that it was checked. If the member asks, tell them plainly.
-9. Answer the question in front of you. Do not carry a comparison or a scenario
+10. Answer the question in front of you. Do not carry a comparison or a scenario
    over from an earlier turn unless this question calls for it.
-10. Never give what the member told you about their job as the REASON for the
+11. Never give what the member told you about their job as the REASON for the
    Article they are in. "As a park employee covered by Article 11" welds their
    description to their file and asserts a connection the Pension Code does not
    make — and park employees are generally covered by a different Article
@@ -2571,22 +2578,22 @@ async def prepare_answer(state: PensionAgentState) -> dict:
 def _comparison_rows(state: PensionAgentState) -> list[dict[str, Any]]:
     """One row per scenario, soonest first, for the comparison table.
 
-    Sorted on the retirement age rather than the label. Sorting the labels puts
-    "At 58" above "Now, at 56", which is the wrong way round and reverses the
-    one thing the table is for.
+    Read from where the scenarios are: `execute_calculations` publishes each
+    variant under its formula type's `scenarios`, with the amounts at the top
+    level and only the projection basis under `assumptions`. Reading
+    `scenario_set[label]["result"]` -- a nesting nothing writes -- produced an
+    empty list on every turn, and since the comparison prose left
+    `ANSWER_SYSTEM` at the same time, a comparison answer had no table at all.
     """
     rows: list[dict[str, Any]] = []
-    for label, entry in (state.get("scenario_set") or {}).items():
-        result = (entry or {}).get("result") or {}
-        if not result:
-            continue
-        assumptions = (entry or {}).get("assumptions") or {}
+    for scenario in scenarios_this_turn(dict(state)):
+        assumptions = scenario.get("assumptions") or {}
         rows.append({
-            "label": label,
-            "retirement_age": assumptions.get("retirement_age"),
+            "label": scenario.get("label") or "",
+            "retirement_age": scenario.get("retirement_age"),
             "service_years": assumptions.get("service_years", ""),
-            "annual": result.get("annual_amount"),
-            "monthly": result.get("monthly_amount"),
+            "annual": scenario.get("annual_amount"),
+            "monthly": scenario.get("monthly_amount"),
         })
 
     def _when(row: dict[str, Any]) -> float:

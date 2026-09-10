@@ -54,11 +54,27 @@ class PensionAgentState(TypedDict, total=False):
     # formula_type, formula_id, selection_basis.
     selected_provision: dict | None
     # The last figures worked out, with the inputs they were worked out from,
-    # so "change only my salary" has something to change.
+    # so "change only my salary" has something to change. `rests_on` names those
+    # inputs as a dependency set, which is what lets a member's correction mark
+    # the figure stale instead of being noticed only if they used the right words.
     baseline: dict | None
-    # name -> {value, source: record|stated|hypothetical, turn}. The source is
-    # the point: it is what separates the member's record from what they have
-    # supposed, and lets a later turn say which was which.
+    # name -> {value, source, basis, turn, asked}, read and written through
+    # `agent/worksheet.py` rather than directly.
+    #
+    # `source` is the point, and it has five values, not three:
+    #   record        - from the member's file
+    #   stated        - the member said it
+    #   hypothetical  - a premise they asked us to suppose
+    #   assumed       - we filled it in; `basis` says why, and the answer must
+    #                   disclose it or verification fails
+    #   withheld      - on file, but not usable under the premise this turn is
+    #                   exploring, so no figure may rest on it
+    # `record` and `withheld` are never written here: the file is re-read every
+    # turn, and `withheld` is a per-turn view of a record fact rather than a
+    # fact, so persisting it would overlay the record with an unusable copy of
+    # itself for the rest of the conversation.
+    # `asked` records that the question has already been put to the member, so a
+    # later turn does not put it again.
     assumptions: Annotated[dict[str, Any], merge_dicts]
     # Scenarios the member has built up by name, across turns.
     scenario_set: Annotated[dict[str, Any], merge_dicts]

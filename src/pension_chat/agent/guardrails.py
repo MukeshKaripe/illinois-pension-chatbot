@@ -731,20 +731,28 @@ correction."""
 
 
 def _established_line(sheet: Any) -> str:
-    """One sentence naming what the conversation already holds."""
+    """One sentence naming what the conversation already holds.
+
+    Written as a list of noun phrases rather than clauses. Joining clauses onto
+    "I still have" produced "I still have you are 45, and you have 21.5 years of
+    service" -- and this is the one message whose whole job is to read as care
+    rather than as a malfunction.
+    """
     if sheet is None:
         return ""
     parts: list[str] = []
     values = sheet.usable_values()
     if (age := values.get("age")) is not None:
-        parts.append(f"you are {age}")
+        parts.append(f"your age ({age})")
     if (service := values.get("service_years")) is not None:
-        parts.append(f"you have {service} years of service")
+        parts.append(f"your {service} years of service")
     if (fas := values.get("final_average_salary")) is not None:
-        parts.append(f"your highest four-year average salary is ${float(fas):,.2f}")
+        parts.append(f"your highest four-year average salary (${float(fas):,.2f})")
     if not parts:
         return ""
-    return "I still have " + ", and ".join(parts) + "."
+    if len(parts) == 1:
+        return f"I still have {parts[0]}."
+    return "I still have " + ", ".join(parts[:-1]) + f" and {parts[-1]}."
 
 
 def fallback_answer(report: GuardrailReport, sheet: Any | None = None) -> str:

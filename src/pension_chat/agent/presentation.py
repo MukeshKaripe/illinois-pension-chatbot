@@ -41,6 +41,34 @@ def _has_figure(state: dict[str, Any]) -> bool:
     return False
 
 
+def scenarios_this_turn(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """The retirement-date variants *this* turn computed.
+
+    `scenario_set` is durable and cannot answer this question. `turn_record`
+    writes it after every successful calculation -- including the single "if you
+    retire now" entry it files when the member asked for no comparison at all --
+    so a conversation that has produced one figure has a non-empty
+    `scenario_set` for the rest of its life. Routing on it made every
+    subsequent turn a comparison, pure legal questions included: `WORKED_STEPS`
+    dropped out of the slot list permanently and the model was told to "name
+    the range" of options that did not exist.
+
+    `execute_calculations` puts the variants it ran under each formula type's
+    `scenarios`, and `calculation_result` is per-turn by design, so that is the
+    only honest answer to "is this turn a comparison".
+    """
+    rows: list[dict[str, Any]] = []
+    for entry in (state.get("calculation_result") or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        rows.extend(
+            scenario
+            for scenario in (entry.get("scenarios") or [])
+            if isinstance(scenario, dict)
+        )
+    return rows
+
+
 def select_rung(sheet: WorkSheet, state: dict[str, Any]) -> int:
     """The highest rung the evidence supports.
 
@@ -69,7 +97,7 @@ def shape_for(sheet: WorkSheet, state: dict[str, Any]) -> str:
     law, a comparison of dates, and an answer whose question was half outside
     the Pension Code.
     """
-    if state.get("scenario_set"):
+    if scenarios_this_turn(state):
         return "comparison"
     if state.get("answerable_part"):
         return "partial"

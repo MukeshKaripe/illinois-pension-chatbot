@@ -17,12 +17,24 @@ from pension_chat.agent.blocks import (
 from pension_chat.agent.presentation import RUNG_ASSUMED
 from pension_chat.agent.worksheet import SOURCE_ASSUMED, WorkSheet
 
+#: The shape `nodes._present` actually produces, statutory constants wrapped
+#: with the section each was read from and steps keyed by the recipe's own
+#: `result_name`. The fixture this file started with used `{"label", "amount"}`
+#: steps and bare parameter values -- names nothing in the system emits -- so
+#: the tests passed while production rendered `|  | None |` on every step row.
 RESULT = {
-    "inputs_used": {"final_average_salary": "69956.40", "service_years": "21.5"},
-    "statutory_values_used": {"annual_rate": "2.40%"},
+    "inputs_used": {
+        "final_average_salary": "69956.40",
+        "service_years": "21.5",
+        "months_before_age_60": "44",
+    },
+    "statutory_values_used": {
+        "accrual_rate": {"value": 0.024, "source": {"section": "11-134"}},
+        "monthly_reduction": {"value": 0.0025, "source": {"section": "11-134"}},
+    },
     "steps": [
-        {"label": "Before early-retirement reduction", "amount": "36097.50"},
-        {"label": "Reduction (44 months x 0.25%)", "amount": "-11.00%"},
+        {"name": "unreduced_annuity", "value": "36097.50"},
+        {"name": "age_reduction_factor", "value": "0.89"},
     ],
     "annual_amount": "32126.78",
     "monthly_amount": "2677.23",
@@ -51,6 +63,75 @@ def test_years_of_service_not_formatted_as_money() -> None:
     table = render_worked_steps(RESULT)
     assert "21.5" in table
     assert "$21.50" not in table
+
+
+def test_a_statutory_rate_reads_as_a_rate_and_not_as_money() -> None:
+    """0.024 is Article 11's 2.40% accrual rate, not two cents."""
+    table = render_worked_steps(RESULT)
+    assert "2.40%" in table
+    assert "0.25%" in table
+    assert "$0.02" not in table
+    # And the citation the value carries is not printed as its value.
+    assert "section" not in table
+    assert "11-134" not in table
+
+
+def test_a_named_intermediate_step_shows_its_own_amount() -> None:
+    table = render_worked_steps(RESULT)
+    assert "| Unreduced annuity | $36,097.50 |" in table
+    # A factor is a multiplier, not 89 cents.
+    assert "| Age reduction factor | 0.89 |" in table
+
+
+def test_the_worked_steps_render_from_real_interpreter_output() -> None:
+    """The one test that cannot be fooled by a fixture.
+
+    Every cell here comes from running the DSL interpreter over Section
+    11-134(a) as it is actually specified, then through `nodes._present`, then
+    through the renderer -- no hand-written intermediate shape anywhere. The
+    block whose existence justified deleting an absolute rule from the answer
+    prompt has to be right against what the engine emits, not against what the
+    plan assumed it emitted.
+    """
+    from test_calculation_trace import ELECTED_ANNUITY, MEMBER_INPUTS
+
+    from pension_chat.agent.nodes import _present
+    from pension_chat.calculation.dsl_interpreter import DSLInterpreter
+
+    # The interpreter predates strict typing, so the call is untyped; the point
+    # of this test is the shape it returns, not its signature.
+    raw = DSLInterpreter().execute(  # type: ignore[no-untyped-call]
+        ELECTED_ANNUITY, dict(MEMBER_INPUTS)
+    )
+
+    for result in (raw, _present(raw, "annual_annuity")):
+        table = render_worked_steps(result)
+        cells = [
+            cell.strip()
+            for line in table.splitlines()
+            if line.startswith("|") and not line.startswith("|---")
+            for cell in line.strip("|").split("|")
+        ]
+        assert cells
+        for cell in cells:
+            assert cell, f"empty cell in: {table}"
+            assert "None" not in cell, f"unrendered value in: {table}"
+            assert "{" not in cell, f"raw dict in: {table}"
+            assert "'value'" not in cell, f"parameter wrapper in: {table}"
+
+    presented = render_worked_steps(_present(raw, "annual_annuity"))
+    assert "| Years of service | 21.5 |" in presented
+    assert "| Accrual rate | 2.40% |" in presented
+    assert "**$32,126.78**" in presented
+
+
+def test_a_step_carrying_a_prose_label_is_still_rendered() -> None:
+    """Tolerated, not invented: a step may arrive labelled rather than named."""
+    table = render_worked_steps({
+        "steps": [{"label": "Reduction (44 months x 0.25%)", "amount": "-11.00%"}],
+        "annual_amount": "32126.78",
+    })
+    assert "| Reduction (44 months x 0.25%) | -11.00% |" in table
 
 
 def test_the_comparison_table_carries_the_service_column() -> None:

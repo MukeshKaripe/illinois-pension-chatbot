@@ -57,8 +57,20 @@ def test_an_unknown_shape_falls_back_to_the_legal_template() -> None:
 
 
 def test_shape_and_template_agree_on_a_comparison_turn() -> None:
+    # A comparison is what THIS turn computed variants for, not what any earlier
+    # turn left in the durable `scenario_set`.
     sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": {}, "assumptions": {}})
-    shape = shape_for(sheet, {"scenario_set": {"at 60": {}}, "calculation_result": {}})
+    shape = shape_for(
+        sheet,
+        {
+            "calculation_result": {
+                "retirement_annuity": {
+                    "base": {"ok": True, "annual_amount": "1"},
+                    "scenarios": [{"label": "At 60", "annual_amount": "2"}],
+                }
+            }
+        },
+    )
     assert "COMPARISON" in template_for(shape).slots
 
 

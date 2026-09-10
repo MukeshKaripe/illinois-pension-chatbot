@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -37,6 +39,30 @@ router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
 # How many prior messages are loaded as conversation context for a new turn.
 _HISTORY_MESSAGES = 8
+
+
+def _sections_of(citations: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The section numbers in a persisted citation list, in order."""
+    return [str(section) for entry in citations if (section := entry.get("section"))]
+
+
+def _verified_citations(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """The provisions the answer relied on and that verification confirmed.
+
+    `state["citations"]` is every section retrieved for the turn; the guardrail
+    report names the ones the answer actually cited and had verified. The client
+    renders chips from the verified list, so persisting that subset — rather
+    than everything retrieved — is what keeps a reloaded conversation's chips
+    both present and honest.
+
+    An answer that cited nothing keeps nothing, which is correct: there is
+    nothing to attribute.
+    """
+    retrieved = state.get("citations") or []
+    verified = set((state.get("guardrail_report") or {}).get("verified_citations") or [])
+    if not verified:
+        return []
+    return [entry for entry in retrieved if entry.get("section") in verified]
 
 
 def _audit_trail(state: dict) -> list[dict]:
@@ -371,7 +397,15 @@ async def send_message(
                     session_id=session_uuid,
                     role="assistant",
                     content=answer,
-                    citations=final_state.get("citations"),
+                    # Only the provisions the answer actually relied on and that
+                    # passed verification. `citations` used to hold every
+                    # retrieved section, which the client rendered as chips --
+                    # six of them under an answer resting on two, implying a
+                    # reliance it did not have. Persisting the verified subset is
+                    # also what lets a reloaded conversation show its chips at
+                    # all: there is no column for the verified list, and this one
+                    # is ours to define.
+                    citations=_verified_citations(final_state),
                     tool_calls=_audit_trail(final_state),
                     guardrail_passed=final_state.get("guardrail_passed", True),
                 )
@@ -440,15 +474,23 @@ async def get_messages(
         )
         messages = result.scalars().all()
 
-        return [
-            MessageResponse(
-                id=m.id,
-                role=m.role,
-                content=m.content,
-                citations=m.citations,
-                tool_calls=m.tool_calls,
-                guardrail_passed=m.guardrail_passed,
-                created_at=m.created_at.isoformat(),
+        restored = []
+        for m in messages:
+            # Read once. What is persisted in `citations` is already the verified
+            # subset, so the client's chips survive a reload -- without the
+            # second field the chips vanished on every restored conversation,
+            # because that is the only field the client renders them from.
+            cites = m.citations or []
+            restored.append(
+                MessageResponse(
+                    id=m.id,
+                    role=m.role,
+                    content=m.content,
+                    citations=cites,
+                    verified_citations=_sections_of(cites),
+                    tool_calls=m.tool_calls,
+                    guardrail_passed=m.guardrail_passed,
+                    created_at=m.created_at.isoformat(),
+                )
             )
-            for m in messages
-        ]
+        return restored

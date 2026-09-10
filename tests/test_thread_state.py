@@ -134,3 +134,93 @@ def test_an_input_records_where_it_came_from():
 
     assert update["assumptions"]["creditable_service_years"]["source"] == "stated"
     assert update["assumptions"]["age_at_annuity_start"]["source"] == "record"
+
+
+def test_a_value_the_system_assumed_is_still_assumed_on_the_next_turn() -> None:
+    """Provenance has to survive the turn boundary, or disclosure is erased.
+
+    `resolve_inputs` puts assumed values into `resolved_inputs` alongside the
+    record's. Rebuilding `assumptions` from that dict wholesale relabelled them
+    `record`, and everything downstream reads that label: the rung drops from
+    "calculated, with assumptions" to "calculated", the assumptions block
+    renders as nothing, and the disclosure guardrail stops firing. A disclosed
+    assumption becomes an undisclosed fabrication in one turn boundary.
+    """
+    from pension_chat.agent.blocks import render_assumptions
+    from pension_chat.agent.presentation import RUNG_ASSUMED, select_rung
+    from pension_chat.agent.worksheet import SOURCE_ASSUMED, WorkSheet
+
+    assumed = {
+        "withdrawal_date": {
+            "value": "2026-09-09",
+            "source": SOURCE_ASSUMED,
+            "basis": "your withdrawal date taken as today",
+            "turn": 2,
+        }
+    }
+    state = _finished(
+        question="roughly what would I get?",
+        calculation_result=RESULT,
+        assumptions=assumed,
+        resolved_inputs={
+            "withdrawal_date": "2026-09-09",
+            "creditable_service_years": 21.5,
+        },
+    )
+
+    update = turn_record(state)
+
+    # `assumptions` is a merged key, so leaving the name out is what preserves
+    # the entry the sheet already wrote -- basis included.
+    assert update is not None
+    assert "withdrawal_date" not in update["assumptions"]
+    assert update["assumptions"]["creditable_service_years"]["source"] == "record"
+
+    carried = {**state, "assumptions": {**assumed, **update["assumptions"]}}
+    sheet = WorkSheet.from_state(carried)
+
+    assert "withdrawal_date" in sheet.assumed_facts()
+    assert select_rung(sheet, carried) == RUNG_ASSUMED
+    assert "taken as today" in render_assumptions(sheet)
+
+
+# ── Routing on a correction ───────────────────────────────────────
+
+def test_a_stale_figure_routes_to_the_calculation_branch_on_its_own() -> None:
+    """A correction asks for a recalculation without asking for one.
+
+    This is the combination that matters and the one no other unit test covers:
+    the member used no calculation vocabulary, so `requires_calculation` is False
+    and `formula_types_needed` is empty -- and the branch must still run, because
+    a figure they had already been given rests on the value they just revised.
+    Conversation B turn 3 ("actually sorry it's more like 23 years") was answered
+    with "I would need the pension calculation using 23 years of service"
+    precisely because this routed to `prepare_answer`.
+
+    Its only other coverage is a live eval, which cannot run without the index.
+    """
+    from pension_chat.agent.graph import _needs_calculation
+
+    assert _needs_calculation(
+        {"stale_figures": ["now"], "requires_calculation": False, "formula_types_needed": []}
+    ) == "resolve_inputs"
+
+
+def test_a_turn_with_neither_a_request_nor_a_stale_figure_writes_prose() -> None:
+    from pension_chat.agent.graph import _needs_calculation
+
+    assert _needs_calculation(
+        {"stale_figures": [], "requires_calculation": False, "formula_types_needed": []}
+    ) == "prepare_answer"
+
+
+def test_asking_for_a_figure_still_routes_to_the_calculation_branch() -> None:
+    from pension_chat.agent.graph import _needs_calculation
+
+    assert _needs_calculation(
+        {
+            "stale_figures": [],
+            "requires_calculation": True,
+            "formula_types_needed": ["retirement_annuity"],
+        }
+    ) == "resolve_inputs"

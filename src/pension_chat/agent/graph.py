@@ -123,6 +123,26 @@ def _in_scope(state: PensionAgentState) -> str | list[str]:
     return [planner, "fetch_employee_record"]
 
 
+async def gate_scope(state: PensionAgentState) -> dict[str, Any]:
+    """Join the concurrent pair, so the scope verdict can be read once more.
+
+    Deterministic and free -- it exists only to give the edge below a source
+    node. ``triage`` decides scope before either branch runs, which is right for
+    the deny pattern but leaves the model's own verdict with nowhere to go:
+    ``understand_turn`` runs *after* that decision, so its ``in_scope: false``
+    declined nothing and the turn was answered anyway. Reading the key again
+    here is what makes the model's judgement mean something.
+    """
+    return {}
+
+
+def _still_in_scope(state: PensionAgentState) -> str:
+    """Whether anything the planning branch learned takes the turn out of scope."""
+    if not state.get("in_scope", True):
+        return "decline"
+    return "assess_coverage"
+
+
 async def decline(state: PensionAgentState) -> dict:
     """Answer an out-of-scope or conversational message without a model call.
 
@@ -171,6 +191,7 @@ def build_graph(checkpointer: Any | None = None):
     workflow.add_node("resolve_inputs", resolve_inputs)
     workflow.add_node("validate_recipes", validate_recipes)
     workflow.add_node("execute_calculations", execute_calculations)
+    workflow.add_node("gate_scope", gate_scope)
     workflow.add_node("prepare_answer", prepare_answer)
 
     workflow.set_entry_point("triage")
@@ -186,7 +207,16 @@ def build_graph(checkpointer: Any | None = None):
     # services, so running them concurrently takes one of them off the critical
     # path entirely. Retrieval waits for both: it needs the queries from one and
     # the member's Article number from the other.
-    workflow.add_edge([planner, "fetch_employee_record"], "assess_coverage")
+    workflow.add_edge([planner, "fetch_employee_record"], "gate_scope")
+    # The scope verdict is read once more here. `triage` decides it before
+    # either branch runs, which suits the deny pattern but leaves the model's
+    # own verdict inert -- `understand_turn` runs after that decision, so its
+    # `in_scope: false` used to decline nothing at all.
+    workflow.add_conditional_edges(
+        "gate_scope",
+        _still_in_scope,
+        {"decline": "decline", "assess_coverage": "assess_coverage"},
+    )
     # Coverage decides which Article this turn reads from, so it has to settle
     # before retrieval filters on one. It joins after the record fetch because
     # it needs something to disagree with, and it returns immediately on any
@@ -495,13 +525,19 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             "formula_id": entry.get("formula_id"),
             "selection_basis": entry.get("selection_basis"),
         }
+        inputs_used = base.get("inputs_used") or {}
         update["baseline"] = {
             "turn": turn,
             "formula_type": formula_type,
             "section": entry.get("section"),
             "annual_amount": base.get("annual_amount"),
             "monthly_amount": base.get("monthly_amount"),
-            "inputs_used": base.get("inputs_used") or {},
+            "inputs_used": inputs_used,
+            # The dependency set, named. A figure that does not say what it was
+            # built from cannot be invalidated when the member corrects one of
+            # those values, and "actually it's more like 23 years" then reaches
+            # a turn that has no reason to recalculate anything.
+            "rests_on": list(inputs_used),
             # The rates the figure was built from, so a later turn explaining
             # what changed can quote "2.40% a year" without it tracing to
             # nothing. They came from the statute with a source section
@@ -528,6 +564,10 @@ def turn_record(state: dict) -> dict[str, Any] | None:
                 ),
                 "section": entry.get("section"),
                 "turn": state.get("turn_index"),
+                # A variant is the same recipe over the same inputs at a
+                # different retirement date, so it rests on the same values the
+                # base figure did and goes stale with them.
+                "rests_on": list(inputs_used),
             }
             for scenario in scenarios
             if scenario.get("label") and scenario.get("annual_amount")
@@ -535,11 +575,10 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             "if you retire now": {
                 "annual_amount": base.get("annual_amount"),
                 "monthly_amount": base.get("monthly_amount"),
-                "service_years": (base.get("inputs_used") or {}).get(
-                    "creditable_service_years"
-                ),
+                "service_years": inputs_used.get("creditable_service_years"),
                 "section": entry.get("section"),
                 "turn": state.get("turn_index"),
+                "rests_on": list(inputs_used),
             }
         }
         # A label reused with a different figure means the member corrected
@@ -559,16 +598,39 @@ def turn_record(state: dict) -> dict[str, Any] | None:
 
     if state.get("resolved_inputs"):
         question = state.get("question") or ""
-        update["assumptions"] = {
-            name: {
+        # Provenance already settled this turn is not re-derived here. A value
+        # the system *assumed* -- `resolve_inputs` puts those into
+        # `resolved_inputs` alongside the record's -- would otherwise be
+        # relabelled `record` on its way into durable state, and the next turn
+        # would treat something the system invented as something the member's
+        # file says. Everything downstream reads that label: `assumed_facts()`
+        # empties, the rung drops from "calculated, with assumptions" to
+        # "calculated", the assumptions block renders as nothing, the
+        # disclosure guardrail stops firing and the offer to correct the value
+        # disappears. A disclosed assumption becomes an undisclosed fabrication
+        # in one turn boundary.
+        #
+        # `assumptions` is a merged key, so a name omitted here keeps the entry
+        # the sheet already wrote for it, basis and all.
+        established = state.get("assumptions") or {}
+        provenance: dict[str, Any] = {}
+        for name, value in (state.get("resolved_inputs") or {}).items():
+            prior = established.get(name)
+            if (
+                isinstance(prior, dict)
+                and prior.get("source") not in (None, "", "record")
+                and str(prior.get("value")) == str(value)
+            ):
+                continue
+            provenance[name] = {
                 "value": value,
                 # What the member typed outranks the record, and the answer may
                 # need to say which was which several turns later.
                 "source": "stated" if _stated_in(value, question) else "record",
                 "turn": turn,
             }
-            for name, value in (state.get("resolved_inputs") or {}).items()
-        }
+        if provenance:
+            update["assumptions"] = provenance
 
     return update
 
