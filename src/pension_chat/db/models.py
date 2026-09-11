@@ -76,11 +76,11 @@ class Employee(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    # Optional since 004: sign-in lives on `Account`, and a profile beyond an
+    # Optional since 005: sign-in lives on `Account`, and a profile beyond an
     # account's first has no address of its own. Kept for the pilot's seeded
     # members, whom `/register` finds by it.
     email: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
-    # Superseded by `Account.hashed_password` (004); kept for the downgrade.
+    # Superseded by `Account.hashed_password` (005); kept for the downgrade.
     hashed_password: Mapped[str | None] = mapped_column(Text, nullable=True)
     article_number: Mapped[int] = mapped_column(
         SmallInteger,
@@ -109,14 +109,14 @@ class Employee(Base):
         nullable=False,
         server_default="true",
     )
-    # Superseded by `Account.is_admin` (004), which `require_admin` reads. Kept
+    # Superseded by `Account.is_admin` (005), which `require_admin` reads. Kept
     # so a downgrade can hand the flag back; dropped by the cleanup migration.
     is_admin: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         server_default="false",
     )
-    # The account this profile belongs to (004). NULL for a seeded pilot member
+    # The account this profile belongs to (005). NULL for a seeded pilot member
     # nobody has claimed yet.
     account_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -155,7 +155,7 @@ class Employee(Base):
 
 
 class Account(Base):
-    """A sign-in: one person, any number of profiles (004).
+    """A sign-in: one person, any number of profiles (005).
 
     A profile is an `Employee` row; this is who may use it. `is_admin` lives
     here, read per request by `require_admin` rather than carried as a token
@@ -170,7 +170,7 @@ class Account(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    # Unique on lower(email), by index (004).
+    # Unique on lower(email), by index (005).
     email: Mapped[str] = mapped_column(Text, nullable=False)
     hashed_password: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)

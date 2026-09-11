@@ -2,7 +2,7 @@
 
 A profile is an `employees` row belonging to the account. Everything here runs
 through `get_db_session(account_id=...)`: the account policies from migration
-004 admit the account's own rows and nothing else, so a bug in these handlers
+005 admit the account's own rows and nothing else, so a bug in these handlers
 cannot reach another member's profile -- the database refuses it, not this code.
 
 Profiles are made only from presets and edited only within `personas.validate`

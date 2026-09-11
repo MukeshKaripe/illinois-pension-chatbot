@@ -195,7 +195,7 @@ async def _create_profile_session(
     The ownership check and the primary-profile fallback are both part of the
     insert, so a signed-in "New chat" costs no more round trips than an
     anonymous one. A profile that is not this account's -- or that does not
-    exist -- inserts nothing, which the account policy (004) would refuse anyway.
+    exist -- inserts nothing, which the account policy (005) would refuse anyway.
     """
     async with get_db_session(account_id=user.account_id) as db:
         result = await db.execute(
@@ -227,7 +227,7 @@ async def list_sessions(
     if user is None:
         return []
 
-    # Every profile's conversations, under the account policy (004).
+    # Every profile's conversations, under the account policy (005).
     async with get_db_session(account_id=user.account_id) as db:
         result = await db.execute(
             select(Session, Employee.label)
@@ -287,7 +287,7 @@ async def send_message(
 
         if session.employee_id is not None:
             # A profile's conversation belongs to the account that owns the
-            # profile (004); the token names the account.
+            # profile (005); the token names the account.
             if user is None or owner_account != user.account_id:
                 raise HTTPException(status_code=403, detail="Access denied")
         else:
@@ -566,7 +566,7 @@ async def get_messages(
 
         if session.employee_id is not None:
             # A profile's conversation belongs to the account that owns the
-            # profile (004); the token names the account.
+            # profile (005); the token names the account.
             if user is None or owner_account != user.account_id:
                 raise HTTPException(status_code=403, detail="Access denied")
         else:

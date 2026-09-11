@@ -1,4 +1,4 @@
-"""004 accounts - one sign-in, many profiles
+"""005 accounts - one sign-in, many profiles
 
 A profile is an `employees` row. Until now the row was also the sign-in: email,
 password and admin flag lived on it, the JWT named it, and one person could be
@@ -19,8 +19,8 @@ history and checkpoints follow through the subselects 003 already gave them.
 Every employee-keyed policy is unchanged, which is what keeps the record fetch,
 the checkpointer and the evals working as they are.
 
-Revision ID: 004_accounts
-Revises: 003_enforce_rls
+Revision ID: 005_accounts
+Revises: 004_admin_role
 Create Date: 2026-09-11
 """
 from collections.abc import Sequence
@@ -28,8 +28,8 @@ from collections.abc import Sequence
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "004_accounts"
-down_revision: str | None = "003_enforce_rls"
+revision: str = "005_accounts"
+down_revision: str | None = "004_admin_role"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

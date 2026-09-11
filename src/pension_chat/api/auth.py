@@ -161,7 +161,7 @@ class TokenResponse(BaseModel):
 
 
 class TokenData(BaseModel):
-    """Who is signed in: an account (004), not a profile.
+    """Who is signed in: an account (005), not a profile.
 
     Which profile a request acts as is decided per conversation -- a session
     row names its profile -- so the token carries none.
@@ -186,7 +186,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes)
     )
-    # `typ` names what `sub` is. Tokens issued before accounts (004) carried an
+    # `typ` names what `sub` is. Tokens issued before accounts (005) carried an
     # employee id there, and `get_current_user` refuses anything without this.
     to_encode.update({"exp": expire, "typ": "account"})
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
@@ -206,7 +206,7 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> TokenD
         account_id = payload.get("sub")
         email = payload.get("email")
         if account_id is None or email is None or payload.get("typ") != "account":
-            # A token from before accounts (004) names an employee, not an
+            # A token from before accounts (005) names an employee, not an
             # account. A 401 makes the client sign out cleanly rather than
             # fail later on a lookup that finds nothing.
             raise HTTPException(
@@ -408,7 +408,7 @@ async def register(body: UserRegister):
     async with get_admin_session() as session:
         from pension_chat.db.models import Account, Employee
 
-        # Since 004 a claim creates an account over the seeded row, so "not yet
+        # Since 005 a claim creates an account over the seeded row, so "not yet
         # linked to an account" joins "no password" as the invariant.
         result = await session.execute(
             select(Employee).where(

@@ -77,7 +77,7 @@ async def get_db_session(
     Args:
         employee_id: The profile being acted as -- a conversation's own.
         session_token: Anonymous session token for unauthenticated sessions.
-        account_id: The signed-in account (004), for reading and changing the
+        account_id: The signed-in account (005), for reading and changing the
             account's own profiles and listing its conversations.
     """
     session = async_session_factory()
