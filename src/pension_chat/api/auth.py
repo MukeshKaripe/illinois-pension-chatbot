@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from pension_chat import personas
+from pension_chat import funds, personas
 from pension_chat.config import get_settings
 from pension_chat.db.session import get_admin_session, get_db_session
 
@@ -70,13 +70,54 @@ class UserRegister(BaseModel):
         return _display_name(value)
 
 
-class PersonaOption(BaseModel):
+class FieldOption(BaseModel):
+    """One field of the profile form, carrying the bounds of the profile's fund."""
+
+    name: str
+    label: str
+    type: str
+    min: Decimal | None = None
+    max: Decimal | None = None
+    options: list[str] = []
+
+
+class FundFacts(BaseModel):
+    """What a preset or profile shows about its fund (spec §6, Phase 3b)."""
+
+    # The fund, in the words a member uses for their employer.
+    member_label: str
+    employer_group: str
+    support_level: str
+    # The edit form is rendered from these, so its bounds are the server's.
+    fields: list[FieldOption]
+
+
+def fund_facts(article: int) -> dict[str, object]:
+    """`FundFacts` for an Article, from `funds.py`."""
+    fund = funds.for_article(article) or funds.Fund(article, "", f"Article {article}")
+    return {
+        "member_label": fund.member_label,
+        "employer_group": fund.employer_group,
+        "support_level": fund.support_level,
+        "fields": [
+            FieldOption(
+                name=spec.name,
+                label=spec.label,
+                type=spec.type,
+                min=spec.min,
+                max=spec.max,
+                options=list(spec.options),
+            )
+            for spec in fund.fields
+        ],
+    }
+
+
+class PersonaOption(FundFacts):
     """One selectable synthetic member, as the signup picker sees it."""
 
     key: str
     article_number: int
-    # The fund, in the words a member uses for their employer.
-    fund: str
     label: str
     summary: str
     tier: int
@@ -271,18 +312,17 @@ async def require_admin(user: TokenData = Depends(require_auth)) -> TokenData:
 
 @router.get("/personas", response_model=list[PersonaOption])
 async def list_personas():
-    """The members someone can sign up as.
+    """The members someone can sign up as: one per member fund, more for 11 and 12.
 
-    Restricted to Articles that have a derived recipe. Articles 8 and 9 are in
-    the corpus and the foreign key would accept them, but a member filed under
-    one would get good statute answers and "I cannot find a governing provision"
-    to every calculation, permanently, with nothing on screen saying why.
+    Each carries its fund's support level. A fund whose recipes are untested
+    still gets sound statute answers, and a figure may be missing; the level is
+    how the screen says so, rather than leaving a member to discover it.
     """
     return [
         PersonaOption(
             key=persona.key,
             article_number=persona.article_number,
-            fund=personas.FUND_NAMES[persona.article_number],
+            **fund_facts(persona.article_number),
             label=persona.label,
             summary=persona.summary,
             tier=persona.tier,

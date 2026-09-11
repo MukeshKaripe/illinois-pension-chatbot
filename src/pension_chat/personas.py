@@ -36,6 +36,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from pension_chat import funds
 from pension_chat.agent.facts import age_on, derive_tier
 
 # Salary grows 3% a year, then the final year is set to the current salary.
@@ -50,11 +51,7 @@ _ANNUAL_RAISE = Decimal("1.03")
 _HISTORY_START_YEAR = 2018
 _HISTORY_YEARS = 8
 
-EMPLOYMENT_STATUSES = ("active", "separated", "retired")
-
-# The minimum working age the bounds enforce, so a persona cannot have been
-# hired as a small child.
-_MIN_WORKING_AGE = 16
+EMPLOYMENT_STATUSES = funds.EMPLOYMENT_STATUSES
 
 
 def _money(value: Decimal) -> Decimal:
@@ -77,6 +74,21 @@ def _rows(*amounts: str) -> tuple[tuple[date, Decimal], ...]:
     return tuple(
         (date(_HISTORY_START_YEAR + offset, 1, 1), Decimal(amount))
         for offset, amount in enumerate(amounts)
+    )
+
+
+def _career(
+    final: str, last_year: int = _HISTORY_START_YEAR + _HISTORY_YEARS
+) -> tuple[tuple[date, Decimal], ...]:
+    """Nine years of 3% raises ending at `final` on 1 January of `last_year`.
+
+    Counted back from the salary a member sees rather than forward from an
+    invented starting figure, so the current salary sits on the curve.
+    """
+    amount = Decimal(final)
+    return tuple(
+        (date(last_year - back, 1, 1), _money(amount / _ANNUAL_RAISE**back))
+        for back in range(_HISTORY_YEARS, -1, -1)
     )
 
 
@@ -236,6 +248,100 @@ ARTICLE_12_TIER_2 = Persona(
     salary_history=_history(Decimal("47000.00"), Decimal("59000.00")),
 )
 
+# ── One standard member for every other fund (Phase 3b) ───────────
+#
+# So a profile can be filed under the fund someone actually works for. Each is
+# Tier 1, mid-career and active, so that what differs between them is the
+# fund's law rather than the member's stage -- the stage-specific presets above
+# stay with Articles 11 and 12, where the benchmark tests them. Values are
+# plausible for each fund's members (hire age, pay, service), not drawn from
+# anyone real. Whether the assistant can compute a figure for a fund is what its
+# smoke case in `evals/fund_smoke.yaml` finds out, and `funds.py` says so.
+
+
+def _standard(
+    persona_id: str,
+    article: int,
+    summary: str,
+    *,
+    born: date,
+    hired: date,
+    service: str,
+    salary: str,
+    status: str = "active",
+    label: str = "Mid-career, still working",
+    last_year: int = _HISTORY_START_YEAR + _HISTORY_YEARS,
+) -> Persona:
+    return Persona(
+        id=uuid.UUID(persona_id),
+        key=f"article-{article}-standard",
+        article_number=article,
+        label=label,
+        summary=summary,
+        birth_date=born,
+        hire_date=hired,
+        employment_status=status,
+        total_service_years=Decimal(service),
+        current_annual_salary=Decimal(salary),
+        salary_history=_career(salary, last_year),
+    )
+
+
+FUND_STANDARDS: tuple[Persona, ...] = (
+    _standard("62193da4-55ae-4505-9dd0-43339c29915c", 2,
+              "First elected in 2003 and still serving, with 22 years of service.",
+              born=date(1968, 4, 12), hired=date(2003, 1, 8), service="22.00", salary="89250.00"),
+    _standard("5f8ea32a-ffaf-4775-a80b-3ef37d92e581", 3,
+              "Officer in a municipal police department outside Chicago, 21 years in.",
+              born=date(1980, 6, 3), hired=date(2005, 8, 15), service="21.00", salary="98000.00"),
+    _standard("662db0e0-54ea-405e-ace5-bdea799e462c", 4,
+              "Firefighter in a municipal department outside Chicago, 22 years in.",
+              born=date(1979, 11, 20), hired=date(2004, 5, 3), service="22.00", salary="96500.00"),
+    _standard("176b0472-e700-41ab-8c6f-12de2b651722", 5,
+              "Chicago police officer with 24 and a half years on the force.",
+              born=date(1976, 2, 9), hired=date(2001, 10, 1), service="24.50", salary="112000.00"),
+    _standard("7a29b230-3b3b-431b-bacf-e0926335aebb", 6,
+              "Chicago firefighter with 24 years in the department.",
+              born=date(1977, 9, 14), hired=date(2002, 3, 18), service="24.00", salary="110500.00"),
+    _standard("1ff37522-f0b4-44f6-89c0-5736e0b439c5", 7,
+              "Works for a town that participates in IMRF, 20 and a half years in.",
+              born=date(1972, 12, 1), hired=date(2006, 2, 6), service="20.50", salary="61000.00"),
+    _standard("b884bbe6-1ee6-4438-9f6a-6442e79c3f11", 8,
+              "City of Chicago employee with 23 years of service.",
+              born=date(1971, 7, 22), hired=date(2003, 5, 12), service="23.00", salary="84000.00"),
+    _standard("d1b67d9c-abec-43c2-8f51-4b4ef322df55", 9,
+              "Cook County employee with 21 and a half years of service.",
+              born=date(1973, 3, 30), hired=date(2004, 9, 7), service="21.50", salary="76000.00"),
+    _standard("1b48dc21-8d09-4dc9-a828-ac533b3d00eb", 10,
+              "Forest Preserve District employee with 19 years of service.",
+              born=date(1974, 8, 17), hired=date(2007, 4, 2), service="19.00", salary="66000.00"),
+    _standard("0368d77a-f6c6-4653-911d-2f3bb2aaae4d", 13,
+              "Metropolitan Water Reclamation District employee, 26 years in.",
+              born=date(1970, 10, 5), hired=date(2000, 6, 19), service="26.00", salary="92000.00"),
+    _standard("932245ac-c14c-4925-9fd0-3084b07cfdc4", 14,
+              "State of Illinois employee with 21 years of service.",
+              born=date(1972, 1, 25), hired=date(2005, 7, 1), service="21.00", salary="70000.00"),
+    _standard("4eee700a-1037-4644-b1e0-509d635146ac", 15,
+              "Staff member at a state university, 22 years in.",
+              born=date(1971, 5, 8), hired=date(2004, 8, 16), service="22.00", salary="78000.00"),
+    _standard("98dd51b8-c6a6-4a11-9dd2-50c8d1e1806e", 16,
+              "Public school teacher outside Chicago with 23 years in the classroom.",
+              born=date(1975, 9, 2), hired=date(2003, 8, 18), service="23.00", salary="74000.00"),
+    _standard("bb5fb6c5-e700-48aa-81f1-90c16546129d", 17,
+              "Chicago Public Schools teacher with 22 years in the classroom.",
+              born=date(1976, 4, 27), hired=date(2004, 8, 30), service="22.00", salary="92000.00"),
+    _standard("a3afe7a8-2c1c-49ea-a8ec-1d06003d6e16", 18,
+              "Circuit judge since 2006, with 19 and a half years on the bench.",
+              born=date(1962, 11, 11), hired=date(2006, 12, 4), service="19.50", salary="235000.00"),
+    # Authored last, as the spec asks: a closed fund admits no new members, so
+    # its member must be one who joined long ago -- here, already retired.
+    _standard("60e22f7a-c853-4c68-8f65-07949bf9e054", 19,
+              "Retired in 1998 after 30 years. The fund admits no new members, so "
+              "everyone still in it joined long ago.",
+              born=date(1945, 3, 14), hired=date(1968, 6, 3), service="30.00", salary="48000.00",
+              status="retired", label="Already retired", last_year=1998),
+)
+
 PERSONAS: tuple[Persona, ...] = (
     ARTICLE_11_STANDARD,
     ARTICLE_11_NEAR_RETIREMENT,
@@ -244,27 +350,14 @@ PERSONAS: tuple[Persona, ...] = (
     ARTICLE_11_RETIRED,
     ARTICLE_12_STANDARD,
     ARTICLE_12_TIER_2,
+    *FUND_STANDARDS,
 )
 
 # The two the pilot database already holds, and the two the benchmark binds to.
 SEEDED: tuple[Persona, ...] = (ARTICLE_11_STANDARD, ARTICLE_12_STANDARD)
 
-# Articles a persona may be offered for. Deliberately narrower than what is
-# ingested: Articles 8 and 9 are in the corpus and the foreign key would accept
-# them, but neither has a derived recipe, so a member filed under one would get
-# good statute answers and "I cannot find a governing provision" to every
-# calculation, permanently, with nothing on screen explaining why. They can be
-# asked about — that path does not need a persona.
-OFFERED_ARTICLES = (11, 12)
-
-#: Each offered Article's fund, in the words a member uses for their employer.
-#: The picker leads with this and shows the Article number after it: members
-#: know who they work for, not which Article covers them (that is the whole
-#: reason `agent/coverage.py` exists).
-FUND_NAMES: dict[int, str] = {
-    11: "Chicago laborers",
-    12: "Chicago Park District",
-}
+#: One member per fund in `funds.FUNDS` -- what the smoke evals run as.
+STANDARD: tuple[Persona, ...] = (ARTICLE_11_STANDARD, ARTICLE_12_STANDARD, *FUND_STANDARDS)
 
 
 def by_key(key: str) -> Persona | None:
@@ -307,13 +400,7 @@ def persona_from_row(row: Any, history: Sequence[tuple[date, Decimal]]) -> Perso
 
 # ── Editing a persona ─────────────────────────────────────────────
 
-EDITABLE_FIELDS = (
-    "birth_date",
-    "hire_date",
-    "employment_status",
-    "total_service_years",
-    "current_annual_salary",
-)
+EDITABLE_FIELDS = funds.COMMON_FIELD_NAMES
 
 
 def apply_edits(persona: Persona, edits: dict[str, object]) -> Persona:
@@ -364,8 +451,11 @@ def validate(persona: Persona, today: date | None = None) -> list[str]:
     today = today or date.today()
     problems: list[str] = []
 
-    if persona.article_number not in OFFERED_ARTICLES:
-        problems.append(f"Article {persona.article_number} has no personas.")
+    fund = funds.for_article(persona.article_number)
+    if fund is None:
+        problems.append(f"Article {persona.article_number} has no profiles.")
+        # Everything else still applies, against the defaults every fund starts from.
+        fund = funds.Fund(persona.article_number, "", "")
 
     if persona.employment_status not in EMPLOYMENT_STATUSES:
         problems.append(f"Unknown employment status {persona.employment_status!r}.")
@@ -379,10 +469,10 @@ def validate(persona: Persona, today: date | None = None) -> list[str]:
     if persona.hire_date > today:
         problems.append("Hire date cannot be in the future.")
     hire_age = age_on(persona.birth_date, persona.hire_date)
-    if hire_age < _MIN_WORKING_AGE:
+    if hire_age < fund.min_hire_age:
         problems.append(
             f"Hire date puts them in the job at {hire_age}; "
-            f"the minimum here is {_MIN_WORKING_AGE}."
+            f"the minimum here is {fund.min_hire_age}."
         )
 
     tenure = Decimal(str((today - persona.hire_date).days)) / Decimal("365.25")
@@ -399,8 +489,10 @@ def validate(persona: Persona, today: date | None = None) -> list[str]:
         # default, so it produces a confident $0.00 annuity that the numeric
         # guardrail passes without complaint, because it traces to the record.
         problems.append("Salary must be greater than zero.")
-    elif persona.current_annual_salary > Decimal("1000000"):
-        problems.append("Salary above $1,000,000 is outside the range these presets cover.")
+    elif persona.current_annual_salary > fund.salary_max:
+        problems.append(
+            f"Salary above ${fund.salary_max:,.0f} is outside the range this fund's profiles cover."
+        )
 
     if not persona.salary_history:
         # Without history there is no final average salary and therefore no

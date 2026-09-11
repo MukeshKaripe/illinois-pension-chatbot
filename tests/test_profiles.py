@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from pension_chat import personas
+from pension_chat.api.auth import list_personas
 
 
 @pytest.mark.parametrize("preset", personas.PERSONAS, ids=lambda p: p.key)
@@ -53,5 +54,17 @@ def test_every_preset_reads_in_a_members_words() -> None:
         assert preset.label not in engineering_names, preset.key
 
 
-def test_every_offered_article_names_its_fund() -> None:
-    assert set(personas.FUND_NAMES) == set(personas.OFFERED_ARTICLES)
+async def test_every_preset_is_served_with_its_funds_facts() -> None:
+    # The picker groups by employer and the form renders from `fields`, so
+    # both travel with each preset rather than living in the client.
+    options = await list_personas()
+    assert len(options) == len(personas.PERSONAS)
+    judge = next(option for option in options if option.article_number == 18)
+    assert (judge.member_label, judge.employer_group, judge.support_level) == (
+        "Judge",
+        "State of Illinois",
+        "experimental",
+    )
+    assert [spec.name for spec in judge.fields] == list(personas.EDITABLE_FIELDS)
+    laborer = next(option for option in options if option.key == "article-11-standard")
+    assert laborer.support_level == "checked"

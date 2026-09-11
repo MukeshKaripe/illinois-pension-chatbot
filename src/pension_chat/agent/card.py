@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pension_chat import funds
 from pension_chat.agent import blocks
 from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.worksheet import Fact, WorkSheet
@@ -86,5 +87,11 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
                 if scenario.get("annual_amount")
             ],
             "blocks": {slot: computed[slot] for slot in DRAWER_BLOCKS if computed.get(slot)},
+            # How well the assistant knows the fund the figure was computed
+            # under (`funds.py`): coverage's verdict, else the record's Article.
+            "support_level": funds.support_level(
+                (state.get("coverage") or {}).get("article")
+                or (state.get("employee_record") or {}).get("article_number")
+            ),
         }
     return None

@@ -229,20 +229,9 @@ def test_lookup_helpers():
     }
 
 
-def test_only_articles_with_recipes_are_offered():
-    """Articles 8 and 9 are ingested, so the foreign key would accept them.
-
-    Neither has a derived recipe, so a member filed under one would get good
-    statute answers and "I cannot find a governing provision" to every
-    calculation, permanently, with nothing on screen explaining why.
-    """
-    assert personas.OFFERED_ARTICLES == (11, 12)
-    assert {p.article_number for p in personas.PERSONAS} == {11, 12}
-
-
-def test_a_tier_2_persona_exists_for_both_articles():
+def test_a_tier_2_persona_exists_for_both_pilot_articles():
     """Section 1-160 is why Article 1 was ingested; something must reach it."""
-    for article in personas.OFFERED_ARTICLES:
+    for article in (11, 12):
         tiers = {p.tier for p in personas.for_article(article)}
         assert 2 in tiers, f"Article {article} has no Tier 2 persona"
 

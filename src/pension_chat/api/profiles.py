@@ -23,19 +23,18 @@ from sqlalchemy.orm import selectinload
 
 from pension_chat import personas
 from pension_chat.agent.facts import age_on
-from pension_chat.api.auth import PersonaEdits, TokenData, require_auth
+from pension_chat.api.auth import FundFacts, PersonaEdits, TokenData, fund_facts, require_auth
 from pension_chat.db.models import Account, Employee, EmployeeSalaryHistory
 from pension_chat.db.session import get_db_session
 
 router = APIRouter(prefix="/api/v1", tags=["profiles"])
 
 
-class ProfileItem(BaseModel):
+class ProfileItem(FundFacts):
     id: str
     persona_key: str | None
     label: str
     article_number: int
-    fund: str
     tier: int
     age: int
     birth_date: date
@@ -72,7 +71,7 @@ def _item(row: Employee) -> ProfileItem:
         persona_key=row.persona_key,
         label=row.label or (template.label if template else "Profile"),
         article_number=row.article_number,
-        fund=personas.FUND_NAMES.get(row.article_number, f"Article {row.article_number}"),
+        **fund_facts(row.article_number),
         tier=row.tier,
         age=age_on(row.birth_date, date.today()),
         birth_date=row.birth_date,

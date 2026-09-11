@@ -49,6 +49,21 @@ def _card(state: dict) -> dict | None:
     return calculation_card(state, WorkSheet.from_state(state))
 
 
+def test_the_card_says_how_well_the_fund_is_known() -> None:
+    # Coverage's verdict decides which Article the figure was computed under,
+    # so it outranks the record; with neither, the card makes no claim.
+    state = _state()
+    state["coverage"] = {"article": "5"}
+    state["employee_record"] = {"article_number": 11}
+    assert _card(state)["support_level"] == "experimental"
+
+    state["coverage"] = None
+    assert _card(state)["support_level"] == "checked"
+
+    state["employee_record"] = None
+    assert _card(state)["support_level"] is None
+
+
 def test_card_carries_the_headline_figure_and_its_basis() -> None:
     card = _card(_state())
     assert card is not None
