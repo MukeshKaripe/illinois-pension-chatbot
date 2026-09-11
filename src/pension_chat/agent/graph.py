@@ -62,7 +62,7 @@ from pension_chat.agent.nodes import (
     triage,
     validate_recipes,
 )
-from pension_chat.agent.state import PensionAgentState, initial_state, turn_input
+from pension_chat.agent.state import CLEAR, PensionAgentState, initial_state, turn_input
 from pension_chat.agent.understanding import understand_turn
 from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
@@ -461,7 +461,10 @@ async def run_agent_stream(
         )
         yield {"type": "replace", "text": replacement, "reason": report.to_dict()}
 
-    await _record_turn(config, state)
+    recorded = await _record_turn(config, state)
+    scenarios = active_scenarios(
+        {**(state.get("scenario_set") or {}), **(recorded.get("scenario_set") or {})}
+    )
 
     state["token_usage"] = usage.to_dict()
     state["timings"] = {
@@ -481,7 +484,7 @@ async def run_agent_stream(
                 record_usable=not _coverage_elsewhere(cast(PensionAgentState, state)),
             ),
         )
-    yield {"type": "done", "state": state, "card": card}
+    yield {"type": "done", "state": state, "card": card, "scenarios": scenarios}
 
 
 def turn_record(state: dict) -> dict[str, Any] | None:
@@ -580,7 +583,7 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             for scenario in scenarios
             if scenario.get("label") and scenario.get("annual_amount")
         } or {
-            "if you retire now": {
+            NOW_LABEL: {
                 "annual_amount": base.get("annual_amount"),
                 "monthly_amount": base.get("monthly_amount"),
                 "service_years": inputs_used.get("creditable_service_years"),
@@ -596,7 +599,7 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         # superseded result is kept under its own name instead.
         previous = state.get("scenario_set") or {}
         superseded = {
-            f"{label} (before the correction on turn {was['turn']})": was
+            f"{label}{_SUPERSEDED}{was['turn']})": was
             for label, was in previous.items()
             if label in recorded
             and str(was.get("annual_amount")) != str(recorded[label]["annual_amount"])
@@ -643,17 +646,91 @@ def turn_record(state: dict) -> dict[str, Any] | None:
     return update
 
 
-async def _record_turn(config: dict, state: dict) -> None:
-    """Persist what `turn_record` decided this turn is worth remembering."""
+async def _record_turn(config: dict, state: dict) -> dict[str, Any]:
+    """Persist what `turn_record` decided this turn is worth remembering.
+
+    Returns what was recorded -- nothing if the write failed -- because the
+    `done` event reports the conversation's scenarios, and this turn's are only
+    in the checkpoint, not in `state`.
+    """
     update = turn_record(state)
     if not update:
-        return
+        return {}
     try:
         await agent_graph.aupdate_state(config, update)
     except Exception:
         # The member has their answer; losing the thread's memory of it is worth
         # a warning, not a failed turn.
         logger.exception("Could not record turn state for session %s", config)
+        return {}
+    return update
+
+
+#: The label `turn_record` files an unscenarioed figure under. A figure, not a
+#: scenario the member built, so the chip leaves it out.
+NOW_LABEL = "if you retire now"
+#: What `turn_record` appends to a label whose figure the member corrected.
+_SUPERSEDED = " (before the correction on turn "
+
+
+def active_scenarios(scenario_set: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The what-ifs a member has built up, for the chip above the composer (§7).
+
+    Not the "retire now" figure every calculation files -- a figure, not a
+    scenario -- and not the superseded copies kept so a correction can be
+    compared: those are history, not something in play.
+    """
+    return [
+        {
+            "label": label,
+            "annual_amount": entry.get("annual_amount"),
+            "monthly_amount": entry.get("monthly_amount"),
+        }
+        for label, entry in scenario_set.items()
+        if label != NOW_LABEL and _SUPERSEDED not in label and isinstance(entry, Mapping)
+    ]
+
+
+async def scenarios_of(
+    session_id: str, *, employee_id: str | None = None, session_token: str | None = None
+) -> list[dict[str, Any]]:
+    """The chip's scenarios for one conversation, read from its checkpoint."""
+    config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    snapshot = await agent_graph.aget_state(config)
+    return active_scenarios((snapshot.values or {}).get("scenario_set") or {})
+
+
+async def forget_scenarios(
+    session_id: str,
+    *,
+    label: str | None = None,
+    employee_id: str | None = None,
+    session_token: str | None = None,
+) -> list[dict[str, Any]]:
+    """Forget one scenario (`label`), or every one the chip shows.
+
+    `scenario_set` merges, so nothing can be removed by writing to it -- it is
+    emptied with CLEAR and what stays is written back. The "retire now" figure
+    always stays: it is what "put them all in one table" builds on.
+    """
+    config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    snapshot = await agent_graph.aget_state(config)
+    current = (snapshot.values or {}).get("scenario_set") or {}
+    if not current:
+        return []
+    if label is None:
+        keep = {name: entry for name, entry in current.items() if name == NOW_LABEL}
+    else:
+        # The superseded copies of a forgotten scenario go with it.
+        keep = {
+            name: entry
+            for name, entry in current.items()
+            if name != label and not name.startswith(f"{label}{_SUPERSEDED}")
+        }
+    await agent_graph.aupdate_state(config, {"scenario_set": CLEAR})
+    if keep:
+        await agent_graph.aupdate_state(config, {"scenario_set": keep})
+    return active_scenarios(keep)
 
 
 

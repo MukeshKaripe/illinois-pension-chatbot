@@ -407,6 +407,8 @@ async def send_message(
         replaced_answer: str | None = None
         final_state: dict = {}
         card: dict | None = None
+        # The what-ifs the conversation holds after this turn, for the chip.
+        scenarios: list[dict] = []
         stream_failed = False
         save_task: asyncio.Task[None] | None = None
         # Set once the stream has run to its end, whichever way. Until then the
@@ -460,6 +462,7 @@ async def send_message(
                 elif kind == "done":
                     final_state = event.get("state") or {}
                     card = event.get("card")
+                    scenarios = event.get("scenarios") or []
             completed = True
         except Exception:
             completed = True
@@ -529,6 +532,7 @@ async def send_message(
             verified_citations=(final_state.get("guardrail_report") or {}).get(
                 "verified_citations", []
             ),
+            scenarios=scenarios,
         )
 
     return StreamingResponse(
@@ -540,6 +544,72 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def _authorised_session(
+    session_uuid: uuid.UUID, request: Request, user: TokenData | None
+) -> Session:
+    """The session, if this caller may use it.
+
+    404 when it does not exist, 403 when it is someone else's. Deliberately
+    unrestricted, as in `send_message`: this read *is* the authorisation step,
+    and it has to tell those two apart.
+    """
+    async with get_admin_session() as db:
+        result = await db.execute(
+            select(Session, Employee.account_id)
+            .outerjoin(Employee, Employee.id == Session.employee_id)
+            .where(Session.id == session_uuid)
+        )
+        found = result.one_or_none()
+    if found is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session, owner_account = found
+    if session.employee_id is not None:
+        # A profile's conversation belongs to the account that owns the
+        # profile (005); the token names the account.
+        if user is None or owner_account != user.account_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif request.headers.get("X-Session-Token", "") != session.session_token:
+        raise HTTPException(status_code=403, detail="Invalid session token")
+    return session
+
+
+def _thread_owner(session: Session) -> dict[str, str | None]:
+    """Whose checkpoints these are -- the same row-level scoping a turn uses."""
+    if session.employee_id is not None:
+        return {"employee_id": str(session.employee_id), "session_token": None}
+    return {"employee_id": None, "session_token": session.session_token}
+
+
+@router.get("/sessions/{session_id}/scenarios")
+async def get_scenarios(
+    session_id: str,
+    request: Request,
+    user: TokenData | None = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """The what-ifs this conversation is holding, for the chip (spec §7)."""
+    session = await _authorised_session(uuid.UUID(session_id), request, user)
+    from pension_chat.agent.graph import scenarios_of
+
+    return await scenarios_of(session_id, **_thread_owner(session))
+
+
+@router.delete("/sessions/{session_id}/scenarios")
+async def delete_scenarios(
+    session_id: str,
+    request: Request,
+    label: str | None = None,
+    user: TokenData | None = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Forget one scenario (`?label=`), or every one the chip shows.
+
+    Returns what remains, so the chip redraws from the server's word.
+    """
+    session = await _authorised_session(uuid.UUID(session_id), request, user)
+    from pension_chat.agent.graph import forget_scenarios
+
+    return await forget_scenarios(session_id, label=label, **_thread_owner(session))
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])

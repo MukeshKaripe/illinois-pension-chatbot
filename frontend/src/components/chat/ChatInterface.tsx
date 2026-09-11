@@ -8,15 +8,18 @@ import {
   auth,
   credentialHeaders,
   fetchMe,
+  fetchScenarios,
   fetchWithAuth,
+  forgetScenario,
   setPrimaryProfile,
   type Me,
 } from "@/lib/api";
+import { ScenarioChips } from "./ScenarioChips";
 import { NewProfilePanel } from "@/components/profile/NewProfilePanel";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { ProfilePanel } from "@/components/profile/ProfilePanel";
 import { takeFrames, type SseEvent } from "@/lib/sse";
-import type { Citation, Message, Panel, SessionSummary } from "@/lib/types";
+import type { Citation, Message, Panel, Scenario, SessionSummary } from "@/lib/types";
 import { CalculationPanel } from "./CalculationPanel";
 import { ChatHeader } from "./ChatHeader";
 import { ChatMessage } from "./ChatMessage";
@@ -52,6 +55,8 @@ export function ChatInterface() {
   // uses -- null meaning the account's primary.
   const [me, setMe] = useState<Me | null>(null);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  // The what-ifs this conversation is holding (spec §7).
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const router = useRouter();
 
   // Guards against a stale response landing after a second click: whichever
@@ -78,6 +83,7 @@ export function ChatInterface() {
     setPanel(null);
     const requestId = ++sessionRequestId.current;
     setMessages([]);
+    setScenarios([]);
     setSessionId(null);
     setActiveProfileId(profileId ?? null);
     closeSidebarOnPhone();
@@ -160,8 +166,14 @@ export function ChatInterface() {
     let stale = false;
     const loadMessages = async () => {
       try {
-        const res = await fetchWithAuth(`/sessions/${sessionId}/messages`);
-        if (res.ok && !stale) setMessages(await res.json());
+        // Together: a reloaded chat's chips come from its checkpoint.
+        const [res, held] = await Promise.all([
+          fetchWithAuth(`/sessions/${sessionId}/messages`),
+          fetchScenarios(sessionId),
+        ]);
+        if (stale) return;
+        if (res.ok) setMessages(await res.json());
+        setScenarios(held);
       } catch (err) {
         console.error("Failed to load messages", err);
       }
@@ -186,6 +198,7 @@ export function ChatInterface() {
   const selectSession = (id: string) => {
     abortRef.current?.abort();
     setPanel(null);
+    setScenarios([]);
     setActiveProfileId(sessions.find((s) => s.id === id)?.profile_id ?? null);
     setSessionId(id);
     closeSidebarOnPhone();
@@ -256,6 +269,7 @@ export function ChatInterface() {
           break;
         case "done":
           setAgentStatus("");
+          if (Array.isArray(data.scenarios)) setScenarios(data.scenarios as Scenario[]);
           update({
             id: data.message_id ? String(data.message_id) : aiMessageId,
             citations: (data.citations as Citation[] | undefined) ?? [],
@@ -311,6 +325,12 @@ export function ChatInterface() {
       setAgentStatus("");
       setStreamingMessageId(null);
     }
+  };
+
+  const removeScenario = async (label?: string) => {
+    if (!sessionId) return;
+    const remaining = await forgetScenario(sessionId, label);
+    if (remaining) setScenarios(remaining);
   };
 
   const refreshMe = async () => {
@@ -409,6 +429,7 @@ export function ChatInterface() {
         </div>
 
         <div className="mx-auto w-full max-w-[720px] px-4 pb-4">
+          <ScenarioChips scenarios={scenarios} onRemove={removeScenario} disabled={isStreaming} />
           <Composer
             value={input}
             onChange={setInput}

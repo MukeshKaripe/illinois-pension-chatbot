@@ -28,6 +28,13 @@ export type SessionSummary = {
   profile_label?: string | null;
 };
 
+/** A what-if the conversation is holding (spec §7), shown as a chip. */
+export type Scenario = {
+  label: string;
+  annual_amount?: string | null;
+  monthly_amount?: string | null;
+};
+
 /** What the side drawer is showing, if anything. */
 export type Panel =
   | { kind: "section"; section: string }

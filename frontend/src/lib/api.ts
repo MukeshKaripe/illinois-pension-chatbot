@@ -1,3 +1,5 @@
+import type { Scenario } from "./types";
+
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
@@ -186,6 +188,21 @@ export async function updateProfile(id: string, edits: ProfileEdits): Promise<Pr
 
 export async function setPrimaryProfile(id: string): Promise<boolean> {
   return (await fetchWithAuth(`/profiles/${id}/primary`, { method: "POST" })).ok;
+}
+
+/** The scenarios a conversation is holding, for the chip row. */
+export async function fetchScenarios(sessionId: string): Promise<Scenario[]> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/scenarios`);
+  return response.ok ? response.json() : [];
+}
+
+/** Forget one scenario, or all of them; resolves to what remains, or null on failure. */
+export async function forgetScenario(sessionId: string, label?: string): Promise<Scenario[] | null> {
+  const query = label ? `?label=${encodeURIComponent(label)}` : "";
+  const response = await fetchWithAuth(`/sessions/${sessionId}/scenarios${query}`, {
+    method: "DELETE",
+  });
+  return response.ok ? response.json() : null;
 }
 
 export async function fetchPersonas(): Promise<Persona[]> {

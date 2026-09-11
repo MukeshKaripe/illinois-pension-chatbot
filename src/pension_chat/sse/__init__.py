@@ -88,14 +88,21 @@ def sse_done(
     tool_calls: list[dict] | None = None,
     guardrail_passed: bool = True,
     verified_citations: list[str] | None = None,
+    scenarios: list[dict] | None = None,
 ) -> str:
-    """Emit the final done event with full metadata."""
+    """Emit the final done event with full metadata.
+
+    `scenarios` is the conversation's what-ifs after this turn, for the chip
+    above the composer (spec §7): conversation state rather than message
+    provenance, so it rides beside `tool_calls` rather than inside it.
+    """
     return sse_event("done", {
         "message_id": message_id,
         "citations": citations or [],
         "tool_calls": tool_calls or [],
         "guardrail_passed": guardrail_passed,
         "verified_citations": verified_citations or [],
+        "scenarios": scenarios or [],
     })
 
 
