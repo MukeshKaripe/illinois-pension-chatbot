@@ -18,7 +18,7 @@ export const GROUP_ORDER = [
 
 /** Said wherever an experimental fund is chosen or used. */
 export const EXPERIMENTAL_NOTE =
-  "Experimental for this fund: answers cite its statute, but a figure may be unavailable or less tested than for Chicago laborers and Park District employees.";
+  "Experimental for this fund: answers cite its statute, but a figure may be unavailable or not yet checked.";
 
 export type FundPresets = {
   article: number;

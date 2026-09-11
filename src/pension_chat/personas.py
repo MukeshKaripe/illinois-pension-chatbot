@@ -347,10 +347,13 @@ FUND_STANDARDS: tuple[Persona, ...] = (
     # Authored last, as the spec asks: a closed fund admits no new members, so
     # its member must be one who joined long ago -- here, already retired.
     # Article 19 holds more than one closed fund; this is Division 1 (§19-101).
+    # Retired at 55 with 30 years, because §19-109(9) grants the annuity only
+    # from age 55 with 25 years, at 40% of salary or 45% after 30 years -- the
+    # first version retired this member at 53, which the fund does not allow.
     _standard("60e22f7a-c853-4c68-8f65-07949bf9e054", 19,
-              "Retired in 1998 after 30 years with the Chicago House of Correction, whose "
-              "employees' pension fund (Article 19, Division 1) admits no new members.",
-              born=date(1945, 3, 14), hired=date(1968, 6, 3), service="30.00", salary="48000.00",
+              "Retired in 1998 at 55 after 30 years with the Chicago House of Correction, "
+              "whose employees' pension fund (Article 19, Division 1) admits no new members.",
+              born=date(1942, 3, 14), hired=date(1968, 6, 3), service="30.00", salary="48000.00",
               status="retired", label="Already retired", last_year=1998),
 )
 

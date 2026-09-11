@@ -107,16 +107,24 @@ _RANK_SALARY = "Salary attached to rank"
 # employee's figure cannot be computed without it.
 SOCIAL_SECURITY = FieldSpec("social_security_covered", "Covered by Social Security", "yesno")
 
+# Promoted to `checked` on 2026-09-12: Articles 5, 6, 7, 8 and 9, whose smoke
+# case passed with a figure under their own Article's formula, each worked by
+# hand against the statute. 13 and 15 passed by naming what was missing -- an
+# honest answer, but no figure, so "a figure may be unavailable" stays the true
+# label. 19 passed with a figure its statute does not pay (50% of salary where
+# §19-109(9) gives 45% for 30 years), so it stays experimental.
 FUNDS: dict[int, Fund] = {
     fund.article: fund
     for fund in (
-        Fund(5, CHICAGO, "Chicago police officer", min_hire_age=_UNIFORMED_OR_ELECTED),
-        Fund(6, CHICAGO, "Chicago firefighter", min_hire_age=_UNIFORMED_OR_ELECTED),
-        Fund(8, CHICAGO, "Chicago municipal employee"),
+        Fund(5, CHICAGO, "Chicago police officer", support_level="checked",
+             min_hire_age=_UNIFORMED_OR_ELECTED),
+        Fund(6, CHICAGO, "Chicago firefighter", support_level="checked",
+             min_hire_age=_UNIFORMED_OR_ELECTED),
+        Fund(8, CHICAGO, "Chicago municipal employee", support_level="checked"),
         Fund(11, CHICAGO, "Chicago laborer", support_level="checked"),
         Fund(12, CHICAGO, "Chicago Park District employee", support_level="checked"),
         Fund(17, CHICAGO, "Chicago Public Schools teacher"),
-        Fund(9, COOK, "Cook County employee"),
+        Fund(9, COOK, "Cook County employee", support_level="checked"),
         Fund(10, COOK, "Forest Preserve District employee"),
         Fund(2, STATE, "General Assembly member", min_hire_age=_UNIFORMED_OR_ELECTED),
         Fund(14, STATE, "State employee", extra_fields=(SOCIAL_SECURITY,)),
@@ -127,7 +135,7 @@ FUNDS: dict[int, Fund] = {
              salary_label=_RANK_SALARY),
         Fund(4, LOCAL, "Firefighter outside Chicago", min_hire_age=_UNIFORMED_OR_ELECTED,
              salary_label=_RANK_SALARY),
-        Fund(7, LOCAL, "Municipal employee (IMRF)"),
+        Fund(7, LOCAL, "Municipal employee (IMRF)", support_level="checked"),
         Fund(13, LOCAL, "Water Reclamation District employee"),
         Fund(19, LOCAL, "Closed fund member"),
     )

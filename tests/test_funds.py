@@ -67,9 +67,13 @@ def test_no_fund_is_an_article_nobody_can_belong_to() -> None:
     assert not {str(n) for n in funds.FUNDS} & NON_MEMBERSHIP_ARTICLES
 
 
-def test_only_the_pilot_pair_starts_checked() -> None:
+def test_checked_means_a_smoke_pass_with_a_figure_verified_by_hand() -> None:
+    # 11 and 12 carry the benchmark. 5, 6, 7, 8 and 9 passed `fund_smoke` with
+    # a figure under their own Article's formula, each worked by hand against
+    # the statute. A pass by naming missing inputs (13, 15) or with a figure the
+    # statute does not pay (19) is not enough: "checked" is a claim to members.
     checked = {n for n, fund in funds.FUNDS.items() if fund.support_level == "checked"}
-    assert checked == {11, 12}
+    assert checked == {5, 6, 7, 8, 9, 11, 12}
     assert {fund.support_level for fund in funds.FUNDS.values()} <= {"checked", "experimental"}
 
 
@@ -94,7 +98,7 @@ def test_every_fund_serves_the_five_common_fields_with_its_own_bounds() -> None:
 def test_support_level_reads_the_article_however_it_arrives() -> None:
     # Coverage carries the Article as a string, the record as an integer.
     assert funds.support_level("11") == "checked"
-    assert funds.support_level(5) == "experimental"
+    assert funds.support_level(16) == "experimental"
     assert funds.support_level(None) is None
     assert funds.support_level("20") is None
     assert funds.support_level("not a number") is None
@@ -186,6 +190,15 @@ def test_the_closed_fund_member_is_named() -> None:
     # Article 19 holds more than one closed fund; the persona says which.
     closed = next(p for p in personas.STANDARD if p.article_number == 19)
     assert "House of Correction" in closed.summary
+
+
+def test_the_closed_fund_member_retired_as_the_fund_allows() -> None:
+    # §19-109(9): at least 55, with 25 years of service. The first version of
+    # this persona retired at 53 and got a figure the fund could never pay.
+    closed = next(p for p in personas.STANDARD if p.article_number == 19)
+    retired_on = closed.salary_history[-1][0]
+    assert age_on(closed.birth_date, retired_on) >= 55
+    assert closed.total_service_years >= 25
 
 
 # ── Fund-specific fields ──────────────────────────────────────────

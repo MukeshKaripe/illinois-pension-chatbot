@@ -53,7 +53,7 @@ def test_the_card_says_how_well_the_fund_is_known() -> None:
     # Coverage's verdict decides which Article the figure was computed under,
     # so it outranks the record; with neither, the card makes no claim.
     state = _state()
-    state["coverage"] = {"article": "5"}
+    state["coverage"] = {"article": "16"}
     state["employee_record"] = {"article_number": 11}
     assert _card(state)["support_level"] == "experimental"
 
