@@ -7,6 +7,8 @@ import { API_BASE_URL, auth, fetchPersonas, type Persona } from "@/lib/api";
 import { BrandMark } from "@/components/BrandMark";
 import { PresetPicker } from "@/components/profile/PresetPicker";
 import { ProfileFields } from "@/components/profile/ProfileFields";
+import { SupportBadge } from "@/components/profile/SupportBadge";
+import { EXPERIMENTAL_NOTE, editsFrom, valuesFrom, type FieldValues } from "@/lib/funds";
 
 type Step = "account" | "member" | "review";
 
@@ -23,12 +25,10 @@ export default function SignupPage() {
   const [displayName, setDisplayName] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
 
-  // Edits start empty and only the ones actually touched are sent, so an
-  // untouched field keeps whatever the persona says rather than being
-  // round-tripped through this form.
-  const [hireDate, setHireDate] = useState("");
-  const [salary, setSalary] = useState("");
-  const [service, setService] = useState("");
+  // The form starts from the preset and only the fields actually touched are
+  // sent, so an untouched field keeps whatever the persona says rather than
+  // being round-tripped through this form.
+  const [values, setValues] = useState<FieldValues>({});
 
   const [error, setError] = useState("");
   const [problems, setProblems] = useState<string[]>([]);
@@ -47,9 +47,7 @@ export default function SignupPage() {
 
   const choose = (option: Persona) => {
     setChosen(option.key);
-    setHireDate(option.hire_date);
-    setSalary(option.current_annual_salary);
-    setService(option.total_service_years);
+    setValues(valuesFrom(option.fields, option));
     setProblems([]);
   };
 
@@ -65,10 +63,7 @@ export default function SignupPage() {
     setProblems([]);
     setIsSubmitting(true);
 
-    const edits: Record<string, string> = {};
-    if (hireDate !== persona.hire_date) edits.hire_date = hireDate;
-    if (salary !== persona.current_annual_salary) edits.current_annual_salary = salary;
-    if (service !== persona.total_service_years) edits.total_service_years = service;
+    const edits = editsFrom(persona.fields, valuesFrom(persona.fields, persona), values);
 
     try {
       const response = await fetch(`${API_BASE_URL}/auth/signup`, {
@@ -264,23 +259,21 @@ export default function SignupPage() {
         {step === "review" && persona && (
           <div className="space-y-6">
             <div className="p-4 rounded-xl border border-border bg-muted/50 space-y-1">
-              <p className="font-medium text-foreground">
-                {persona.fund} · Article {persona.article_number} · {persona.label}
+              <p className="flex flex-wrap items-center gap-2 font-medium text-foreground">
+                {persona.member_label} · Article {persona.article_number} · {persona.label}
+                <SupportBadge level={persona.support_level} />
               </p>
               <p className="text-sm text-muted-foreground">{persona.summary}</p>
-              <p className="text-sm text-muted-foreground">
-                Born {persona.birth_date} · {persona.employment_status}
-              </p>
+              {persona.support_level === "experimental" && (
+                <p className="text-sm text-muted-foreground">{EXPERIMENTAL_NOTE}</p>
+              )}
             </div>
 
             <ProfileFields
-              values={{ hireDate, service, salary }}
-              onChange={(next) => {
-                setHireDate(next.hireDate);
-                setService(next.service);
-                setSalary(next.salary);
-              }}
-              original={{ tier: persona.tier, current_annual_salary: persona.current_annual_salary }}
+              fields={persona.fields}
+              values={values}
+              onChange={setValues}
+              original={valuesFrom(persona.fields, persona)}
             />
 
             <div className="flex gap-3">

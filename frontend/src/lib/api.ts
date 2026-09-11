@@ -111,11 +111,32 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   return response;
 }
 
-export type Persona = {
+/** How well the assistant knows a fund — set in `funds.py`, never inferred. */
+export type SupportLevel = "checked" | "experimental";
+
+/** One field of the profile form, with the bounds of the profile's own fund. */
+export type FieldSpec = {
+  name: string;
+  label: string;
+  type: "date" | "years" | "money" | "status";
+  min: string | null;
+  max: string | null;
+  options: string[];
+};
+
+/** What a preset or profile carries about its fund (spec §6, Phase 3b). */
+export type FundFacts = {
+  /** The fund, in the words a member uses for their employer. */
+  member_label: string;
+  employer_group: string;
+  support_level: SupportLevel;
+  /** The edit form is rendered from these, so its bounds are the server's. */
+  fields: FieldSpec[];
+};
+
+export type Persona = FundFacts & {
   key: string;
   article_number: number;
-  /** The fund, in the words a member uses for their employer. */
-  fund: string;
   label: string;
   summary: string;
   tier: number;
@@ -128,12 +149,11 @@ export type Persona = {
 };
 
 /** One of the account's profiles: a preset, as edited and saved. */
-export type Profile = {
+export type Profile = FundFacts & {
   id: string;
   persona_key: string | null;
   label: string;
   article_number: number;
-  fund: string;
   tier: number;
   age: number;
   birth_date: string;
@@ -151,10 +171,8 @@ export type Me = {
   profiles: Profile[];
 };
 
-/** The fields a profile may change, within the preset's bounds. */
-export type ProfileEdits = Partial<
-  Record<"hire_date" | "total_service_years" | "current_annual_salary" | "employment_status", string>
->;
+/** The fields a profile may change, by `FieldSpec.name`, within its fund's bounds. */
+export type ProfileEdits = Record<string, string>;
 
 /** A refused edit comes back as the list of what is inconsistent, not one line. */
 export type ProfileResult = { profile: Profile | null; problems: string[] };

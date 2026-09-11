@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Pencil, Plus } from "lucide-react";
 import type { Me, Profile } from "@/lib/api";
+import { EXPERIMENTAL_NOTE } from "@/lib/funds";
+import { SupportBadge } from "./SupportBadge";
 
 interface ProfileMenuProps {
   me: Me;
@@ -69,11 +71,17 @@ export function ProfileMenu({ me, active, onSwitch, onEdit, onNew }: ProfileMenu
         >
           <div className="px-2 py-1.5">
             <p className="text-xs text-muted-foreground">This chat uses</p>
-            <p className="font-medium">{active.label}</p>
-            <p className="text-xs text-muted-foreground">
-              {active.fund} · Article {active.article_number} · age {active.age}, {years(active)} years
-              of service
+            <p className="flex flex-wrap items-center gap-2 font-medium">
+              {active.label}
+              <SupportBadge level={active.support_level} />
             </p>
+            <p className="text-xs text-muted-foreground">
+              {active.member_label} · Article {active.article_number} · age {active.age},{" "}
+              {years(active)} years of service
+            </p>
+            {active.support_level === "experimental" && (
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{EXPERIMENTAL_NOTE}</p>
+            )}
           </div>
 
           <button type="button" role="menuitem" onClick={pick(() => onEdit(active.id))} className={item}>
@@ -95,7 +103,8 @@ export function ProfileMenu({ me, active, onSwitch, onEdit, onNew }: ProfileMenu
                 >
                   <span className="font-medium">{profile.label}</span>
                   <span className="text-xs text-muted-foreground">
-                    {profile.fund} · Article {profile.article_number}
+                    {profile.member_label} · Article {profile.article_number}
+                    {profile.support_level === "experimental" && " · experimental"}
                   </span>
                 </button>
               ))}

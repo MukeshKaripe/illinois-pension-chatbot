@@ -1,5 +1,6 @@
 import { Calculator } from "lucide-react";
-import { formatMoney, sourceLabel, type CalculationCardData } from "@/lib/card";
+import { cardBadge, formatMoney, sourceLabel, type CalculationCardData } from "@/lib/card";
+import { EXPERIMENTAL_NOTE } from "@/lib/funds";
 
 interface CalculationCardProps {
   card: CalculationCardData;
@@ -19,6 +20,7 @@ const CARD_INPUTS = 4;
  */
 export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCardProps) {
   const section = card.section;
+  const badge = cardBadge(card);
   return (
     <div className="mb-4 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between gap-2">
@@ -26,9 +28,12 @@ export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCard
           <Calculator className="size-4" />
           {card.formula_name || "Calculation"}
         </span>
-        {card.estimate && (
-          <span className="rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-            Estimate
+        {badge && (
+          <span
+            title={card.support_level === "experimental" ? EXPERIMENTAL_NOTE : undefined}
+            className="rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+          >
+            {badge}
           </span>
         )}
       </div>

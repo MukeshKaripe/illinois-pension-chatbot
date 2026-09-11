@@ -6,6 +6,8 @@
  * message and one reloaded from history are read the same way.
  */
 
+import type { SupportLevel } from "./api.ts";
+
 /** `source` is null when nobody knows where the value came from. */
 export type CardInput = { name: string; label: string; value: string; source: string | null };
 
@@ -26,7 +28,16 @@ export type CalculationCardData = {
   inputs: CardInput[];
   scenarios: CardScenario[];
   blocks: Record<string, string>;
+  /** How well the assistant knows the fund the figure was computed under. */
+  support_level?: SupportLevel | null;
 };
+
+/** The card's badge: an estimate, and whether its fund is experimental. */
+export function cardBadge(card: Pick<CalculationCardData, "estimate" | "support_level">): string | null {
+  const experimental = card.support_level === "experimental";
+  if (card.estimate) return experimental ? "Estimate · experimental for this fund" : "Estimate";
+  return experimental ? "Experimental for this fund" : null;
+}
 
 const entries = (toolCalls: unknown): Record<string, unknown>[] =>
   Array.isArray(toolCalls)

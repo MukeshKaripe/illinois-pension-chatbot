@@ -33,7 +33,7 @@ export function EmptyState({ signedIn, onPick, disabled, name, profile }: EmptyS
       </h2>
       {profile ? (
         <p className="mt-2 text-muted-foreground">
-          {profile.fund} · {profile.label} · {profile.age}, {Number(profile.total_service_years)} years
+          {profile.member_label} · {profile.label} · {profile.age}, {Number(profile.total_service_years)} years
           of service
         </p>
       ) : (

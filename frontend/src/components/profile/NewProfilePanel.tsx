@@ -1,16 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  createProfile,
-  fetchPersonas,
-  type Persona,
-  type Profile,
-  type ProfileEdits,
-} from "@/lib/api";
+import { createProfile, fetchPersonas, type Persona, type Profile } from "@/lib/api";
+import { EXPERIMENTAL_NOTE, editsFrom, valuesFrom, type FieldValues } from "@/lib/funds";
 import { buttonVariants } from "@/components/ui/button";
 import { PresetPicker } from "./PresetPicker";
-import { ProfileFields, type FieldValues } from "./ProfileFields";
+import { ProfileFields } from "./ProfileFields";
+import { SupportBadge } from "./SupportBadge";
 
 /**
  * Another profile, from a preset. Never from a blank form: the record has to
@@ -20,7 +16,7 @@ export function NewProfilePanel({ onCreated }: { onCreated: (profile: Profile) =
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loadError, setLoadError] = useState("");
   const [chosen, setChosen] = useState<Persona | null>(null);
-  const [values, setValues] = useState<FieldValues>({ hireDate: "", service: "", salary: "" });
+  const [values, setValues] = useState<FieldValues>({});
   const [problems, setProblems] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -32,21 +28,14 @@ export function NewProfilePanel({ onCreated }: { onCreated: (profile: Profile) =
 
   const choose = (option: Persona) => {
     setChosen(option);
-    setValues({
-      hireDate: option.hire_date,
-      service: option.total_service_years,
-      salary: option.current_annual_salary,
-    });
+    setValues(valuesFrom(option.fields, option));
     setProblems([]);
   };
 
   const create = async () => {
     if (!chosen) return;
-    const edits: ProfileEdits = {};
-    if (values.hireDate !== chosen.hire_date) edits.hire_date = values.hireDate;
-    if (values.service !== chosen.total_service_years) edits.total_service_years = values.service;
-    if (values.salary !== chosen.current_annual_salary) edits.current_annual_salary = values.salary;
     setSaving(true);
+    const edits = editsFrom(chosen.fields, valuesFrom(chosen.fields, chosen), values);
     const result = await createProfile(chosen.key, edits);
     setSaving(false);
     if (result.profile) onCreated(result.profile);
@@ -65,18 +54,22 @@ export function NewProfilePanel({ onCreated }: { onCreated: (profile: Profile) =
       )}
 
       {!chosen ? (
-        <PresetPicker personas={personas} chosen={null} onChoose={choose} />
+        <PresetPicker personas={personas} chosen={null} onChoose={choose} columns={1} />
       ) : (
         <>
-          <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
-            <p className="font-medium">
-              {chosen.fund} · {chosen.label}
+          <div className="space-y-1 rounded-lg border border-border bg-muted/50 p-3 text-sm">
+            <p className="flex flex-wrap items-center gap-2 font-medium">
+              {chosen.member_label} · {chosen.label}
+              <SupportBadge level={chosen.support_level} />
             </p>
             <p className="text-muted-foreground">{chosen.summary}</p>
+            {chosen.support_level === "experimental" && (
+              <p className="text-xs text-muted-foreground">{EXPERIMENTAL_NOTE}</p>
+            )}
             <button
               type="button"
               onClick={() => setChosen(null)}
-              className="mt-1 text-xs text-primary hover:underline"
+              className="text-xs text-primary hover:underline"
             >
               Choose another
             </button>
@@ -94,9 +87,10 @@ export function NewProfilePanel({ onCreated }: { onCreated: (profile: Profile) =
           )}
 
           <ProfileFields
+            fields={chosen.fields}
             values={values}
             onChange={setValues}
-            original={{ tier: chosen.tier, current_annual_salary: chosen.current_annual_salary }}
+            original={valuesFrom(chosen.fields, chosen)}
             columns={1}
           />
 
