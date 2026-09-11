@@ -198,10 +198,13 @@ async def update_profile(
         if "current_annual_salary" in edits:
             # The history moves with the salary (see `personas.apply_edits`), or
             # the pension would barely move when the member changes their pay.
-            row.salary_history = [
-                EmployeeSalaryHistory(effective_date=when, annual_salary=amount)
-                for when, amount in edited.salary_history
-            ]
+            # Same dates, rescaled amounts, so update in place. Replacing the
+            # collection flushes the new rows before deleting the old ones, and
+            # the unique (employee, date) constraint refuses that -- a 500 on
+            # the first salary edit ever made, found by the live smoke test.
+            rescaled = dict(edited.salary_history)
+            for entry in row.salary_history:
+                entry.annual_salary = rescaled.get(entry.effective_date, entry.annual_salary)
     return _item(row)
 
 
