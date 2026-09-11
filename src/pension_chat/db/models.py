@@ -104,6 +104,16 @@ class Employee(Base):
         Numeric(12, 2),
         nullable=False,
     )
+    # Facts only some funds have (`funds.Fund.extra_fields`), keyed by field
+    # name -- whether a state employee is covered by Social Security, say. JSON
+    # rather than a column each, because they arrive one at a time, as a recipe
+    # for that fund needs them (migration 006).
+    extra_facts: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+    )
     is_synthetic: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

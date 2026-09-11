@@ -68,3 +68,9 @@ async def test_every_preset_is_served_with_its_funds_facts() -> None:
     assert [spec.name for spec in judge.fields] == list(personas.EDITABLE_FIELDS)
     laborer = next(option for option in options if option.key == "article-11-standard")
     assert laborer.support_level == "checked"
+    # A fund's own field travels flagged, so the form sends it under extra_facts.
+    sers = next(option for option in options if option.article_number == 14)
+    covered = next(spec for spec in sers.fields if spec.name == "social_security_covered")
+    assert (covered.type, covered.extra) == ("yesno", True)
+    assert sers.extra_facts == {"social_security_covered": True}
+    assert not any(spec.extra for spec in judge.fields)

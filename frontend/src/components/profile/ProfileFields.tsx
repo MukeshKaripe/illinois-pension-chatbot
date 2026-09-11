@@ -30,6 +30,15 @@ const STATUS_LABELS: Record<string, string> = {
   retired: "Retired",
 };
 
+/** The options a select offers, as [value, label]: yes/no fields store booleans. */
+const choices = (field: FieldSpec): [string, string][] =>
+  field.type === "yesno"
+    ? [
+        ["true", "Yes"],
+        ["false", "No"],
+      ]
+    : field.options.map((option) => [option, STATUS_LABELS[option] ?? option]);
+
 const input =
   "w-full px-3.5 py-2.5 bg-background border border-input rounded-lg focus:ring-2 focus:ring-ring/30 focus:border-ring outline-none text-foreground";
 const labelClass = "text-sm font-medium text-foreground";
@@ -64,11 +73,12 @@ export function ProfileFields({ fields, values, onChange, original, columns = 2 
               <label className={labelClass} htmlFor={id}>
                 {field.label}
               </label>
-              {field.type === "status" ? (
+              {field.type === "status" || field.type === "yesno" ? (
                 <select id={id} value={values[field.name] ?? ""} onChange={set(field.name)} className={input}>
-                  {field.options.map((option) => (
-                    <option key={option} value={option}>
-                      {STATUS_LABELS[option] ?? option}
+                  {!values[field.name] && <option value="">Not recorded</option>}
+                  {choices(field).map(([value, text]) => (
+                    <option key={value} value={value}>
+                      {text}
                     </option>
                   ))}
                 </select>

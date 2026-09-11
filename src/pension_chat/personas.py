@@ -110,6 +110,9 @@ class Persona:
     # The two pilot members keep the addresses already in the database, so
     # re-seeding stays idempotent. Everyone else signs up with their own.
     email: str | None = None
+    # Facts only some funds have (`funds.Fund.extra_fields`), as sorted
+    # (name, value) pairs so a persona stays hashable. Empty for most funds.
+    extra_facts: tuple[tuple[str, object], ...] = ()
 
     @property
     def tier(self) -> int:
@@ -251,12 +254,14 @@ ARTICLE_12_TIER_2 = Persona(
 # ── One standard member for every other fund (Phase 3b) ───────────
 #
 # So a profile can be filed under the fund someone actually works for. Each is
-# Tier 1, mid-career and active, so that what differs between them is the
-# fund's law rather than the member's stage -- the stage-specific presets above
-# stay with Articles 11 and 12, where the benchmark tests them. Values are
-# plausible for each fund's members (hire age, pay, service), not drawn from
-# anyone real. Whether the assistant can compute a figure for a fund is what its
-# smoke case in `evals/fund_smoke.yaml` finds out, and `funds.py` says so.
+# Tier 1, active, and already past their own fund's retirement threshold as the
+# Article states it (`tests/test_funds.py` holds the thresholds and their
+# sections): the smoke question is "what if I retired at the end of this
+# year?", and a member who cannot yet retire gets an honest "not yet" that says
+# nothing about whether the fund's formula works. What differs between them is
+# the fund's law rather than the member's stage -- the stage-specific presets
+# above stay with Articles 11 and 12, where the benchmark tests them. Pay and
+# hire ages are plausible for each fund's members, not drawn from anyone real.
 
 
 def _standard(
@@ -269,8 +274,9 @@ def _standard(
     service: str,
     salary: str,
     status: str = "active",
-    label: str = "Mid-career, still working",
+    label: str = "Close to retirement",
     last_year: int = _HISTORY_START_YEAR + _HISTORY_YEARS,
+    extra: dict[str, object] | None = None,
 ) -> Persona:
     return Persona(
         id=uuid.UUID(persona_id),
@@ -284,60 +290,66 @@ def _standard(
         total_service_years=Decimal(service),
         current_annual_salary=Decimal(salary),
         salary_history=_career(salary, last_year),
+        extra_facts=tuple(sorted((extra or {}).items())),
     )
 
 
 FUND_STANDARDS: tuple[Persona, ...] = (
     _standard("62193da4-55ae-4505-9dd0-43339c29915c", 2,
-              "First elected in 2003 and still serving, with 22 years of service.",
+              "First elected in 2003, with 22 years in the General Assembly.",
               born=date(1968, 4, 12), hired=date(2003, 1, 8), service="22.00", salary="89250.00"),
     _standard("5f8ea32a-ffaf-4775-a80b-3ef37d92e581", 3,
-              "Officer in a municipal police department outside Chicago, 21 years in.",
-              born=date(1980, 6, 3), hired=date(2005, 8, 15), service="21.00", salary="98000.00"),
+              "Officer in a municipal police department outside Chicago, 24 years in. "
+              "The pension is half the salary attached to the rank (Section 3-111).",
+              born=date(1975, 6, 3), hired=date(2002, 8, 15), service="24.00", salary="98000.00"),
     _standard("662db0e0-54ea-405e-ace5-bdea799e462c", 4,
-              "Firefighter in a municipal department outside Chicago, 22 years in.",
-              born=date(1979, 11, 20), hired=date(2004, 5, 3), service="22.00", salary="96500.00"),
+              "Firefighter in a municipal department outside Chicago, 24 years in. "
+              "The pension is half the salary attached to the rank (Section 4-109).",
+              born=date(1975, 11, 20), hired=date(2002, 5, 6), service="24.00", salary="96500.00"),
     _standard("176b0472-e700-41ab-8c6f-12de2b651722", 5,
               "Chicago police officer with 24 and a half years on the force.",
               born=date(1976, 2, 9), hired=date(2001, 10, 1), service="24.50", salary="112000.00"),
     _standard("7a29b230-3b3b-431b-bacf-e0926335aebb", 6,
               "Chicago firefighter with 24 years in the department.",
-              born=date(1977, 9, 14), hired=date(2002, 3, 18), service="24.00", salary="110500.00"),
+              born=date(1975, 9, 14), hired=date(2002, 3, 18), service="24.00", salary="110500.00"),
     _standard("1ff37522-f0b4-44f6-89c0-5736e0b439c5", 7,
-              "Works for a town that participates in IMRF, 20 and a half years in.",
-              born=date(1972, 12, 1), hired=date(2006, 2, 6), service="20.50", salary="61000.00"),
+              "Regular employee of a town that participates in IMRF, 20 and a half years in.",
+              born=date(1969, 12, 1), hired=date(2006, 2, 6), service="20.50", salary="61000.00"),
     _standard("b884bbe6-1ee6-4438-9f6a-6442e79c3f11", 8,
               "City of Chicago employee with 23 years of service.",
               born=date(1971, 7, 22), hired=date(2003, 5, 12), service="23.00", salary="84000.00"),
     _standard("d1b67d9c-abec-43c2-8f51-4b4ef322df55", 9,
               "Cook County employee with 21 and a half years of service.",
-              born=date(1973, 3, 30), hired=date(2004, 9, 7), service="21.50", salary="76000.00"),
+              born=date(1969, 3, 30), hired=date(2004, 9, 7), service="21.50", salary="76000.00"),
     _standard("1b48dc21-8d09-4dc9-a828-ac533b3d00eb", 10,
               "Forest Preserve District employee with 19 years of service.",
-              born=date(1974, 8, 17), hired=date(2007, 4, 2), service="19.00", salary="66000.00"),
+              born=date(1968, 8, 17), hired=date(2007, 4, 2), service="19.00", salary="66000.00"),
     _standard("0368d77a-f6c6-4653-911d-2f3bb2aaae4d", 13,
               "Metropolitan Water Reclamation District employee, 26 years in.",
               born=date(1970, 10, 5), hired=date(2000, 6, 19), service="26.00", salary="92000.00"),
     _standard("932245ac-c14c-4925-9fd0-3084b07cfdc4", 14,
-              "State of Illinois employee with 21 years of service.",
-              born=date(1972, 1, 25), hired=date(2005, 7, 1), service="21.00", salary="70000.00"),
+              "State of Illinois employee with 21 years of service, covered by Social "
+              "Security, which sets the accrual rate (Section 14-108).",
+              born=date(1965, 1, 25), hired=date(2005, 7, 1), service="21.00", salary="70000.00",
+              extra={"social_security_covered": True}),
     _standard("4eee700a-1037-4644-b1e0-509d635146ac", 15,
               "Staff member at a state university, 22 years in.",
               born=date(1971, 5, 8), hired=date(2004, 8, 16), service="22.00", salary="78000.00"),
     _standard("98dd51b8-c6a6-4a11-9dd2-50c8d1e1806e", 16,
               "Public school teacher outside Chicago with 23 years in the classroom.",
-              born=date(1975, 9, 2), hired=date(2003, 8, 18), service="23.00", salary="74000.00"),
+              born=date(1969, 9, 2), hired=date(2003, 8, 18), service="23.00", salary="74000.00"),
     _standard("bb5fb6c5-e700-48aa-81f1-90c16546129d", 17,
               "Chicago Public Schools teacher with 22 years in the classroom.",
-              born=date(1976, 4, 27), hired=date(2004, 8, 30), service="22.00", salary="92000.00"),
+              born=date(1970, 4, 27), hired=date(2004, 8, 30), service="22.00", salary="92000.00"),
     _standard("a3afe7a8-2c1c-49ea-a8ec-1d06003d6e16", 18,
               "Circuit judge since 2006, with 19 and a half years on the bench.",
               born=date(1962, 11, 11), hired=date(2006, 12, 4), service="19.50", salary="235000.00"),
     # Authored last, as the spec asks: a closed fund admits no new members, so
     # its member must be one who joined long ago -- here, already retired.
+    # Article 19 holds more than one closed fund; this is Division 1 (§19-101).
     _standard("60e22f7a-c853-4c68-8f65-07949bf9e054", 19,
-              "Retired in 1998 after 30 years. The fund admits no new members, so "
-              "everyone still in it joined long ago.",
+              "Retired in 1998 after 30 years with the Chicago House of Correction, whose "
+              "employees' pension fund (Article 19, Division 1) admits no new members.",
               born=date(1945, 3, 14), hired=date(1968, 6, 3), service="30.00", salary="48000.00",
               status="retired", label="Already retired", last_year=1998),
 )
@@ -395,6 +407,7 @@ def persona_from_row(row: Any, history: Sequence[tuple[date, Decimal]]) -> Perso
         current_annual_salary=Decimal(str(row.current_annual_salary)),
         salary_history=tuple((when, Decimal(str(amount))) for when, amount in history),
         email=row.email,
+        extra_facts=tuple(sorted((getattr(row, "extra_facts", None) or {}).items())),
     )
 
 
@@ -419,10 +432,19 @@ def apply_edits(persona: Persona, edits: dict[str, object]) -> Persona:
     payload, and this stays a pure transformation.
     """
     changes = {k: v for k, v in edits.items() if k in EDITABLE_FIELDS and v is not None}
-    if not changes:
+    extra = edits.get("extra_facts") or {}
+    if not changes and not extra:
         return persona
 
     updated = replace(persona, **changes)  # type: ignore[arg-type]
+    if extra:
+        # Kept even when the fund declares no such field, so `validate` can
+        # refuse it: this JSON arrives from an open endpoint.
+        merged = dict(persona.extra_facts)
+        merged.update(
+            {name: _coerce(persona.article_number, name, value) for name, value in extra.items()}
+        )
+        updated = replace(updated, extra_facts=tuple(sorted(merged.items())))
 
     new_salary = changes.get("current_annual_salary")
     if new_salary is not None and persona.current_annual_salary > 0:
@@ -434,6 +456,17 @@ def apply_edits(persona: Persona, edits: dict[str, object]) -> Persona:
             ),
         )
     return updated
+
+
+def _coerce(article: int, name: str, value: object) -> object:
+    """A form sends text; the fund's field type decides what is stored."""
+    fund = funds.for_article(article)
+    spec = next((s for s in fund.extra_fields if s.name == name), None) if fund else None
+    if spec is not None and spec.type == "yesno" and isinstance(value, str):
+        return {"true": True, "yes": True, "false": False, "no": False}.get(
+            value.strip().lower(), value
+        )
+    return value
 
 
 def validate(persona: Persona, today: date | None = None) -> list[str]:
@@ -500,6 +533,14 @@ def validate(persona: Persona, today: date | None = None) -> list[str]:
         # every calculation question.
         problems.append("A persona must carry salary history.")
 
+    declared = {spec.name: spec for spec in fund.extra_fields}
+    for name, value in persona.extra_facts:
+        spec = declared.get(name)
+        if spec is None:
+            problems.append(f"{name!r} is not a field for this fund.")
+        elif spec.type == "yesno" and not isinstance(value, bool):
+            problems.append(f"{spec.label} must be yes or no.")
+
     return problems
 
 
@@ -522,4 +563,5 @@ def to_employee_kwargs(
         "employment_status": persona.employment_status,
         "total_service_years": persona.total_service_years,
         "current_annual_salary": persona.current_annual_salary,
+        "extra_facts": dict(persona.extra_facts),
     }

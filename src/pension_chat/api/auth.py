@@ -79,6 +79,8 @@ class FieldOption(BaseModel):
     min: Decimal | None = None
     max: Decimal | None = None
     options: list[str] = []
+    # A fund's own field, sent and stored under `extra_facts`.
+    extra: bool = False
 
 
 class FundFacts(BaseModel):
@@ -107,6 +109,7 @@ def fund_facts(article: int) -> dict[str, object]:
                 min=spec.min,
                 max=spec.max,
                 options=list(spec.options),
+                extra=spec.name not in funds.COMMON_FIELD_NAMES,
             )
             for spec in fund.fields
         ],
@@ -127,6 +130,7 @@ class PersonaOption(FundFacts):
     employment_status: str
     total_service_years: Decimal
     current_annual_salary: Decimal
+    extra_facts: dict[str, bool | str] = {}
 
 
 class PersonaEdits(BaseModel):
@@ -145,6 +149,9 @@ class PersonaEdits(BaseModel):
     employment_status: Literal["active", "separated", "retired"] | None = None
     total_service_years: Decimal | None = None
     current_annual_salary: Decimal | None = None
+    # A fund's own fields, by name. Open by shape, so `personas.validate`
+    # refuses any name the profile's fund does not declare.
+    extra_facts: dict[str, bool | str] | None = None
 
 
 class SignupRequest(BaseModel):
@@ -332,6 +339,7 @@ async def list_personas():
             employment_status=persona.employment_status,
             total_service_years=persona.total_service_years,
             current_annual_salary=persona.current_annual_salary,
+            extra_facts=dict(persona.extra_facts),
         )
         for persona in personas.PERSONAS
     ]

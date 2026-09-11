@@ -617,6 +617,8 @@ async def _load_record(employee_id: str) -> tuple[dict, list[dict]] | None:
         "employment_status": employee.employment_status,
         "total_service_years": float(employee.total_service_years),
         "current_annual_salary": float(employee.current_annual_salary),
+        # Facts only some funds have; `build_member_facts` publishes them.
+        "extra_facts": dict(employee.extra_facts or {}),
     }
     return record, history
 

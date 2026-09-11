@@ -187,6 +187,13 @@ def build_member_facts(
         "months_before_60": months_before_60,
         "full_months_under_age_60": months_before_60,
     }
+    for alias in aliases_of("current_annual_salary"):
+        facts[alias] = facts["current_annual_salary"]
+    # Facts only some funds have (`funds.Fund.extra_fields`), under every name a
+    # derivation might give them, as the ones above are.
+    for name, value in (employee.get("extra_facts") or {}).items():
+        for alias in aliases_of(name):
+            facts[alias] = value
 
     if salary_history:
         for consecutive in (4, 5, 8):
@@ -231,6 +238,15 @@ ALIAS_GROUPS: tuple[frozenset[str], ...] = (
         "highest_average_annual_salary_4yr", "fas",
     }),
     frozenset({"withdrawal_date", "annuity_start_date", "as_of_date"}),
+    # §3-111 and §4-109 pay on "the salary attached to the rank", which on a
+    # record is the current salary rather than an average.
+    frozenset({"current_annual_salary", "salary_attached_to_rank"}),
+    # §14-108's accrual rate turns on whether a state employee is covered by
+    # Social Security (`funds.SOCIAL_SECURITY`).
+    frozenset({
+        "social_security_covered", "covered_by_social_security",
+        "is_covered_employee", "covered_employee",
+    }),
 )
 
 

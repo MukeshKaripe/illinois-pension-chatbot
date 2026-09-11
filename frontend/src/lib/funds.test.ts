@@ -4,10 +4,20 @@ import { editsFrom, groupPresets, valuesFrom } from "./funds.ts";
 import type { FieldSpec, Persona } from "./api.ts";
 
 const FIELDS: FieldSpec[] = [
-  { name: "hire_date", label: "Start date", type: "date", min: null, max: null, options: [] },
-  { name: "total_service_years", label: "Years of service", type: "years", min: "0", max: null, options: [] },
-  { name: "current_annual_salary", label: "Annual salary", type: "money", min: "0.01", max: "1000000", options: [] },
+  { name: "hire_date", label: "Start date", type: "date", min: null, max: null, options: [], extra: false },
+  { name: "total_service_years", label: "Years of service", type: "years", min: "0", max: null, options: [], extra: false },
+  { name: "current_annual_salary", label: "Annual salary", type: "money", min: "0.01", max: "1000000", options: [], extra: false },
 ];
+
+const COVERED: FieldSpec = {
+  name: "social_security_covered",
+  label: "Covered by Social Security",
+  type: "yesno",
+  min: null,
+  max: null,
+  options: [],
+  extra: true,
+};
 
 const preset = (
   key: string,
@@ -22,6 +32,7 @@ const preset = (
   employer_group,
   support_level: article === 11 || article === 12 ? "checked" : "experimental",
   fields: FIELDS,
+  extra_facts: {},
   label,
   summary: `${member_label}, mid-career.`,
   tier: 1,
@@ -101,4 +112,16 @@ test("only touched fields are sent, and a number retyped the same is not an edit
   assert.deepEqual(editsFrom(FIELDS, original, { ...original, total_service_years: "25.5" }), {
     total_service_years: "25.5",
   });
+});
+
+test("a fund's own fields are read from, and sent under, extra_facts", () => {
+  const fields = [...FIELDS, COVERED];
+  const source = { ...PRESETS[0], extra_facts: { social_security_covered: true } };
+  const original = valuesFrom(fields, source);
+  assert.equal(original.social_security_covered, "true");
+  assert.deepEqual(editsFrom(fields, original, { ...original }), {});
+  assert.deepEqual(
+    editsFrom(fields, original, { ...original, social_security_covered: "false", hire_date: "2003-05-01" }),
+    { hire_date: "2003-05-01", extra_facts: { social_security_covered: "false" } },
+  );
 });

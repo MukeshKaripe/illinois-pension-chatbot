@@ -17,7 +17,7 @@ import pytest
 
 from pension_chat import funds, personas
 from pension_chat.agent.coverage import NON_MEMBERSHIP_ARTICLES
-from pension_chat.agent.facts import aliases_of
+from pension_chat.agent.facts import age_on, aliases_of
 
 TODAY = date(2026, 9, 9)
 
@@ -144,3 +144,89 @@ def test_a_bound_can_differ_by_article() -> None:
 def test_an_article_without_a_fund_has_no_profiles() -> None:
     stray = replace(personas.ARTICLE_11_STANDARD, article_number=20)
     assert any("no profiles" in p for p in personas.validate(stray, today=TODAY))
+
+
+# Tier 1 thresholds for a retirement annuity (age, years of service), each read
+# from the Article's own eligibility section in the indexed text.
+RETIREMENT_THRESHOLDS = {
+    2: (55, 8),  # §2-119
+    3: (50, 20),  # §3-111(a)
+    4: (50, 20),  # §4-109(a)
+    5: (50, 20),  # §5-132(e)
+    6: (50, 20),  # §6-128(c)
+    7: (55, 8),  # §7-141(a)
+    8: (55, 10),  # §8-132
+    9: (55, 10),  # §9-128
+    10: (55, 10),  # §10-103: Article 9's annuities
+    13: (55, 10),  # §13-301
+    14: (60, 8),  # §14-107
+    15: (55, 8),  # §15-135
+    16: (55, 20),  # §16-132
+    17: (55, 20),  # §17-116(a)
+    18: (55, 10),  # §18-124(a)(2)-(3)
+}
+
+
+@pytest.mark.parametrize("article", sorted(RETIREMENT_THRESHOLDS))
+def test_every_working_standard_member_can_retire_by_the_end_of_this_year(article) -> None:
+    """The smoke question is "what if I retired at the end of this year?".
+
+    A member who cannot yet retire under their fund's rules gets an honest "not
+    yet", which says nothing about whether that fund's formula works -- so each
+    standard member is past their fund's Tier 1 threshold.
+    """
+    member = next(p for p in personas.STANDARD if p.article_number == article)
+    min_age, min_service = RETIREMENT_THRESHOLDS[article]
+    assert member.tier == 1
+    assert age_on(member.birth_date, date(2026, 12, 31)) >= min_age
+    assert member.total_service_years >= min_service
+
+
+def test_the_closed_fund_member_is_named() -> None:
+    # Article 19 holds more than one closed fund; the persona says which.
+    closed = next(p for p in personas.STANDARD if p.article_number == 19)
+    assert "House of Correction" in closed.summary
+
+
+# ── Fund-specific fields ──────────────────────────────────────────
+
+
+def test_state_employees_say_whether_social_security_covers_them() -> None:
+    # §14-108: a noncovered employee accrues 2.2% of final average compensation
+    # a year, a covered one 1.67%. Nothing else on the record says which.
+    sers = funds.FUNDS[14]
+    assert [(spec.name, spec.type) for spec in sers.extra_fields] == [
+        ("social_security_covered", "yesno")
+    ]
+    standard = next(p for p in personas.STANDARD if p.article_number == 14)
+    assert dict(standard.extra_facts) == {"social_security_covered": True}
+
+
+def test_police_and_fire_outside_chicago_name_their_salary_basis() -> None:
+    # §3-111 and §4-109 pay half the salary attached to the rank, not an average.
+    for article in (3, 4):
+        salary = next(s for s in funds.FUNDS[article].fields if s.name == "current_annual_salary")
+        assert salary.label == "Salary attached to rank"
+    assert "salary_attached_to_rank" in aliases_of("current_annual_salary")
+
+
+def test_an_extra_fact_is_edited_and_checked_against_its_fund() -> None:
+    standard = next(p for p in personas.STANDARD if p.article_number == 14)
+    # The form sends text; the fund's field type decides what is stored.
+    edited = personas.apply_edits(standard, {"extra_facts": {"social_security_covered": "false"}})
+    assert dict(edited.extra_facts) == {"social_security_covered": False}
+    assert personas.validate(edited, today=TODAY) == []
+
+    # An open endpoint writes this JSON, so an undeclared name is refused
+    # rather than stored.
+    stray = personas.apply_edits(standard, {"extra_facts": {"is_admin": True}})
+    assert any("not a field for this fund" in p for p in personas.validate(stray, today=TODAY))
+
+    garbled = personas.apply_edits(standard, {"extra_facts": {"social_security_covered": "maybe"}})
+    assert any("yes or no" in p for p in personas.validate(garbled, today=TODAY))
+
+    # A laborer's fund has no such field at all.
+    laborer = personas.apply_edits(
+        personas.ARTICLE_11_STANDARD, {"extra_facts": {"social_security_covered": True}}
+    )
+    assert personas.validate(laborer, today=TODAY) != []

@@ -42,6 +42,7 @@ class ProfileItem(FundFacts):
     employment_status: str
     total_service_years: Decimal
     current_annual_salary: Decimal
+    extra_facts: dict[str, bool | str] = {}
 
 
 class MeResponse(BaseModel):
@@ -79,6 +80,7 @@ def _item(row: Employee) -> ProfileItem:
         employment_status=row.employment_status,
         total_service_years=Decimal(str(row.total_service_years)),
         current_annual_salary=Decimal(str(row.current_annual_salary)),
+        extra_facts=dict(row.extra_facts or {}),
     )
 
 
@@ -194,6 +196,8 @@ async def update_profile(
         for field in personas.EDITABLE_FIELDS:
             setattr(row, field, getattr(edited, field))
         row.tier = edited.tier
+        # A new dict, not an in-place update: JSONB changes are tracked by assignment.
+        row.extra_facts = dict(edited.extra_facts)
         if "current_annual_salary" in edits:
             # The history moves with the salary (see `personas.apply_edits`), or
             # the pension would barely move when the member changes their pay.

@@ -244,7 +244,9 @@ def test_signup_cannot_set_the_fields_that_would_matter():
 def test_edits_are_limited_to_the_editable_fields():
     request = SignupRequest(**_signup(edits={"current_annual_salary": "90000.00"}))
     assert set(request.edits.model_dump(exclude_none=True)) == {"current_annual_salary"}
-    assert set(request.edits.model_dump()) <= set(personas.EDITABLE_FIELDS)
+    # `extra_facts` is the one other channel: a fund's own fields, whose names
+    # `personas.validate` checks against the profile's fund.
+    assert set(request.edits.model_dump()) <= set(personas.EDITABLE_FIELDS) | {"extra_facts"}
 
 
 def test_an_employment_status_outside_the_check_constraint_is_refused():

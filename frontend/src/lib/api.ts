@@ -118,10 +118,12 @@ export type SupportLevel = "checked" | "experimental";
 export type FieldSpec = {
   name: string;
   label: string;
-  type: "date" | "years" | "money" | "status";
+  type: "date" | "years" | "money" | "status" | "yesno";
   min: string | null;
   max: string | null;
   options: string[];
+  /** A fund's own field, read from and sent under `extra_facts`. */
+  extra: boolean;
 };
 
 /** What a preset or profile carries about its fund (spec §6, Phase 3b). */
@@ -132,6 +134,8 @@ export type FundFacts = {
   support_level: SupportLevel;
   /** The edit form is rendered from these, so its bounds are the server's. */
   fields: FieldSpec[];
+  /** Values of the fund's own fields, by name — Social Security coverage, say. */
+  extra_facts: Record<string, boolean | string>;
 };
 
 export type Persona = FundFacts & {
@@ -172,7 +176,7 @@ export type Me = {
 };
 
 /** The fields a profile may change, by `FieldSpec.name`, within its fund's bounds. */
-export type ProfileEdits = Record<string, string>;
+export type ProfileEdits = { [field: string]: string | Record<string, string> };
 
 /** A refused edit comes back as the list of what is inconsistent, not one line. */
 export type ProfileResult = { profile: Profile | null; problems: string[] };

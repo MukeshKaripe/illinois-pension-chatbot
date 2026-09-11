@@ -25,7 +25,7 @@ from decimal import Decimal
 from typing import Literal
 
 SupportLevel = Literal["checked", "experimental"]
-FieldType = Literal["date", "years", "money", "status"]
+FieldType = Literal["date", "years", "money", "status", "yesno"]
 
 EMPLOYMENT_STATUSES = ("active", "separated", "retired")
 
@@ -63,10 +63,13 @@ class Fund:
     # relational and holds for every fund alike.
     min_hire_age: int = 16
     salary_max: Decimal = Decimal("1000000")
-    # A field is added here only when a recipe for this Article reads it --
-    # typically found as a recurring `missing_inputs` entry -- and `facts.py`
-    # gains the alias that maps it into the engine. Storage for such a field is
-    # built with the first one; none exists yet.
+    # What the fund calls the salary its pension is computed from, when that is
+    # not an average of past years.
+    salary_label: str = "Annual salary"
+    # A field is added here only when a recipe for this Article reads it and
+    # `facts.py` has the alias that maps it into the engine. Values live in
+    # `employees.extra_facts` (migration 006) and reach the engine through
+    # `facts.build_member_facts`.
     extra_fields: tuple[FieldSpec, ...] = ()
 
     @property
@@ -77,7 +80,7 @@ class Fund:
             FieldSpec("employment_status", "Employment status", "status",
                       options=EMPLOYMENT_STATUSES),
             FieldSpec("total_service_years", "Years of service", "years", min=Decimal("0")),
-            FieldSpec("current_annual_salary", "Annual salary", "money",
+            FieldSpec("current_annual_salary", self.salary_label, "money",
                       min=Decimal("0.01"), max=self.salary_max),
             *self.extra_fields,
         )
@@ -95,6 +98,15 @@ GROUP_ORDER = (CHICAGO, COOK, STATE, LOCAL)
 _UNIFORMED_OR_ELECTED = 21
 _JUDGE = 25
 
+# §3-111(a) and §4-109(a) pay half "the salary attached to the rank" held on
+# the last day of service -- the salary itself, not an average of past years.
+_RANK_SALARY = "Salary attached to rank"
+
+# §14-108: a noncovered employee accrues 2.2% of final average compensation a
+# year, a covered one 1.67%. Nothing else on a record says which, so a state
+# employee's figure cannot be computed without it.
+SOCIAL_SECURITY = FieldSpec("social_security_covered", "Covered by Social Security", "yesno")
+
 FUNDS: dict[int, Fund] = {
     fund.article: fund
     for fund in (
@@ -107,12 +119,14 @@ FUNDS: dict[int, Fund] = {
         Fund(9, COOK, "Cook County employee"),
         Fund(10, COOK, "Forest Preserve District employee"),
         Fund(2, STATE, "General Assembly member", min_hire_age=_UNIFORMED_OR_ELECTED),
-        Fund(14, STATE, "State employee"),
+        Fund(14, STATE, "State employee", extra_fields=(SOCIAL_SECURITY,)),
         Fund(15, STATE, "State university employee"),
         Fund(16, STATE, "Teacher outside Chicago"),
         Fund(18, STATE, "Judge", min_hire_age=_JUDGE),
-        Fund(3, LOCAL, "Police officer outside Chicago", min_hire_age=_UNIFORMED_OR_ELECTED),
-        Fund(4, LOCAL, "Firefighter outside Chicago", min_hire_age=_UNIFORMED_OR_ELECTED),
+        Fund(3, LOCAL, "Police officer outside Chicago", min_hire_age=_UNIFORMED_OR_ELECTED,
+             salary_label=_RANK_SALARY),
+        Fund(4, LOCAL, "Firefighter outside Chicago", min_hire_age=_UNIFORMED_OR_ELECTED,
+             salary_label=_RANK_SALARY),
         Fund(7, LOCAL, "Municipal employee (IMRF)"),
         Fund(13, LOCAL, "Water Reclamation District employee"),
         Fund(19, LOCAL, "Closed fund member"),

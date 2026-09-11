@@ -139,3 +139,27 @@ def test_missing_birth_date_does_not_fabricate_an_age():
     facts = build_member_facts({**EMPLOYEE, "birth_date": None}, HISTORY, today=TODAY)
 
     assert "age" not in facts
+
+
+def test_fund_specific_facts_reach_the_engine_under_every_name() -> None:
+    from datetime import date as _date
+
+    from pension_chat.agent.facts import build_member_facts
+
+    facts = build_member_facts(
+        {
+            "birth_date": "1965-01-25",
+            "hire_date": "2005-07-01",
+            "employment_status": "active",
+            "total_service_years": 21,
+            "current_annual_salary": 70000,
+            "extra_facts": {"social_security_covered": True},
+        },
+        [],
+        today=_date(2026, 9, 9),
+    )
+    # A state employee's coverage, under the names a derivation of §14-108 may pick.
+    assert facts["social_security_covered"] is True
+    assert facts["covered_by_social_security"] is True
+    # §3-111's basis is the salary itself, under the statute's own name.
+    assert facts["salary_attached_to_rank"] == facts["current_annual_salary"] == 70000.0

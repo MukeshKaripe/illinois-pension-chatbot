@@ -67,8 +67,12 @@ export type FieldValues = Record<string, string>;
 
 export function valuesFrom(fields: FieldSpec[], source: object): FieldValues {
   const record = source as Record<string, unknown>;
+  const extra = (record.extra_facts ?? {}) as Record<string, unknown>;
   return Object.fromEntries(
-    fields.map((field) => [field.name, record[field.name] == null ? "" : String(record[field.name])]),
+    fields.map((field) => {
+      const value = field.extra ? extra[field.name] : record[field.name];
+      return [field.name, value == null ? "" : String(value)];
+    }),
   );
 }
 
@@ -81,12 +85,15 @@ const NUMERIC = new Set<FieldSpec["type"]>(["years", "money"]);
  */
 export function editsFrom(fields: FieldSpec[], original: FieldValues, values: FieldValues): ProfileEdits {
   const edits: ProfileEdits = {};
+  const extra: Record<string, string> = {};
   for (const field of fields) {
     const next = (values[field.name] ?? "").trim();
     if (next === "") continue;
     const before = original[field.name] ?? "";
     const same = NUMERIC.has(field.type) ? Number(next) === Number(before) : next === before;
-    if (!same) edits[field.name] = next;
+    if (!same) (field.extra ? extra : edits)[field.name] = next;
   }
+  // A fund's own fields travel together, as the server stores them.
+  if (Object.keys(extra).length) edits.extra_facts = extra;
   return edits;
 }
