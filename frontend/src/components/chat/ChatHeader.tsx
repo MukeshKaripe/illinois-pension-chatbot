@@ -7,9 +7,11 @@ interface ChatHeaderProps {
   onNewChat: () => void;
   /** On a phone the sidebar is hidden by default, so New chat always shows there. */
   showNewChatOnDesktop: boolean;
+  /** The profile chip, when signed in. */
+  right?: React.ReactNode;
 }
 
-export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop }: ChatHeaderProps) {
+export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop, right }: ChatHeaderProps) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
       <Button variant="ghost" size="icon" onClick={onToggleSidebar} aria-label="Toggle sidebar">
@@ -31,7 +33,7 @@ export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop }:
           40 ILCS 5
         </span>
       </h1>
-      {/* Phase 3: the profile chip sits at the right end of this bar. */}
+      {right && <div className="ml-auto">{right}</div>}
     </header>
   );
 }

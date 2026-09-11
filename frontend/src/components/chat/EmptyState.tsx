@@ -1,5 +1,6 @@
 import { ArrowLeftRight, BadgeCheck, Calculator, Scale } from "lucide-react";
-import { ANONYMOUS_STARTERS, type StarterKind } from "@/lib/starters";
+import type { Profile } from "@/lib/api";
+import { ANONYMOUS_STARTERS, startersFor, type StarterKind } from "@/lib/starters";
 
 const ICONS: Record<StarterKind, typeof Scale> = {
   law: Scale,
@@ -13,26 +14,41 @@ interface EmptyStateProps {
   onPick: (prompt: string) => void;
   /** True while the conversation is still being created. */
   disabled: boolean;
+  /** The account's display name, when there is one. */
+  name?: string | null;
+  /** The profile a new chat uses, when signed in. */
+  profile?: Profile | null;
 }
 
-export function EmptyState({ signedIn, onPick, disabled }: EmptyStateProps) {
+export function EmptyState({ signedIn, onPick, disabled, name, profile }: EmptyStateProps) {
+  const starters = profile ? startersFor(profile) : ANONYMOUS_STARTERS;
+
   return (
     <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col justify-center px-4 py-12">
       <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
         Illinois Pension Code · 40 ILCS 5
       </p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-tight">Hello</h2>
-      <p className="mt-2 text-muted-foreground">
-        Ask about your pension under the Illinois Pension Code — what a Section says, who it
-        covers, or roughly what a pension would come to.
-      </p>
+      <h2 className="mt-3 text-3xl font-semibold tracking-tight">
+        Hello{name ? `, ${name}` : ""}
+      </h2>
+      {profile ? (
+        <p className="mt-2 text-muted-foreground">
+          {profile.fund} · {profile.label} · {profile.age}, {Number(profile.total_service_years)} years
+          of service
+        </p>
+      ) : (
+        <p className="mt-2 text-muted-foreground">
+          Ask about your pension under the Illinois Pension Code — what a Section says, who it
+          covers, or roughly what a pension would come to.
+        </p>
+      )}
 
       <div className="mt-8 grid gap-3 sm:grid-cols-2">
-        {ANONYMOUS_STARTERS.map(({ kind, label, prompt }) => {
+        {starters.map(({ kind, label, prompt }) => {
           const Icon = ICONS[kind];
           return (
             <button
-              key={kind}
+              key={prompt}
               type="button"
               disabled={disabled}
               onClick={() => onPick(prompt)}

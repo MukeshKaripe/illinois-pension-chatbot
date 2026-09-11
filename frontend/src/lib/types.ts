@@ -23,9 +23,14 @@ export type SessionSummary = {
   title: string | null;
   started_at?: string;
   last_active_at: string;
+  /** The profile the conversation uses (signed in only). */
+  profile_id?: string | null;
+  profile_label?: string | null;
 };
 
 /** What the side drawer is showing, if anything. */
 export type Panel =
   | { kind: "section"; section: string }
-  | { kind: "calculation"; card: CalculationCardData };
+  | { kind: "calculation"; card: CalculationCardData }
+  | { kind: "profile-edit"; profileId: string }
+  | { kind: "profile-new" };

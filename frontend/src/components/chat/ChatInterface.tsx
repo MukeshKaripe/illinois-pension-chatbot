@@ -7,8 +7,14 @@ import {
   anonymousSession,
   auth,
   credentialHeaders,
+  fetchMe,
   fetchWithAuth,
+  setPrimaryProfile,
+  type Me,
 } from "@/lib/api";
+import { NewProfilePanel } from "@/components/profile/NewProfilePanel";
+import { ProfileMenu } from "@/components/profile/ProfileMenu";
+import { ProfilePanel } from "@/components/profile/ProfilePanel";
 import { takeFrames, type SseEvent } from "@/lib/sse";
 import type { Citation, Message, Panel, SessionSummary } from "@/lib/types";
 import { CalculationPanel } from "./CalculationPanel";
@@ -42,6 +48,10 @@ export function ChatInterface() {
   const [signedIn, setSignedIn] = useState(false);
   // The side drawer: a section's text or a calculation, beside the chat.
   const [panel, setPanel] = useState<Panel | null>(null);
+  // Who is signed in and their profiles (`GET /me`), and the profile this chat
+  // uses -- null meaning the account's primary.
+  const [me, setMe] = useState<Me | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const router = useRouter();
 
   // Guards against a stale response landing after a second click: whichever
@@ -59,7 +69,7 @@ export function ChatInterface() {
     if (!isDesktop()) setSidebar(null);
   };
 
-  const createNewSession = async () => {
+  const createNewSession = async (profileId?: string) => {
     // Clear the view before the network call, not after — the backend round
     // trip to Azure Postgres is real (see api/sessions.py::create_session),
     // and a member should see the empty conversation the instant they click
@@ -69,10 +79,15 @@ export function ChatInterface() {
     const requestId = ++sessionRequestId.current;
     setMessages([]);
     setSessionId(null);
+    setActiveProfileId(profileId ?? null);
     closeSidebarOnPhone();
 
     try {
-      const res = await fetchWithAuth("/sessions", { method: "POST" });
+      const res = await fetchWithAuth("/sessions", {
+        method: "POST",
+        // No body means the account's primary profile (or an anonymous chat).
+        body: profileId ? JSON.stringify({ profile_id: profileId }) : undefined,
+      });
       if (requestId !== sessionRequestId.current) return;
       if (res.ok) {
         const data = await res.json();
@@ -85,7 +100,13 @@ export function ChatInterface() {
         const now = new Date().toISOString();
         createdHere.current.add(data.session_id);
         setSessions((prev) => [
-          { id: data.session_id, title: null, started_at: now, last_active_at: now },
+          {
+            id: data.session_id,
+            title: null,
+            started_at: now,
+            last_active_at: now,
+            profile_id: profileId ?? me?.primary_profile_id ?? null,
+          },
           ...prev,
         ]);
         setSessionId(data.session_id);
@@ -114,12 +135,17 @@ export function ChatInterface() {
       }
 
       try {
-        const res = await fetchWithAuth("/sessions");
+        // Together: the greeting and the profile chip need `/me` as soon as
+        // the list does, and the database is a round trip away either way.
+        const [res, meNow] = await Promise.all([fetchWithAuth("/sessions"), fetchMe()]);
+        if (meNow) setMe(meNow);
         if (res.ok) {
           const data: SessionSummary[] = await res.json();
           setSessions(data);
-          if (data.length > 0) setSessionId(data[0].id);
-          else createNewSession();
+          if (data.length > 0) {
+            setSessionId(data[0].id);
+            setActiveProfileId(data[0].profile_id ?? null);
+          } else createNewSession();
         }
       } catch (err) {
         console.error("Failed to load sessions", err);
@@ -160,6 +186,7 @@ export function ChatInterface() {
   const selectSession = (id: string) => {
     abortRef.current?.abort();
     setPanel(null);
+    setActiveProfileId(sessions.find((s) => s.id === id)?.profile_id ?? null);
     setSessionId(id);
     closeSidebarOnPhone();
   };
@@ -286,6 +313,19 @@ export function ChatInterface() {
     }
   };
 
+  const refreshMe = async () => {
+    const next = await fetchMe();
+    if (next) setMe(next);
+  };
+
+  const activeProfile =
+    me?.profiles.find((p) => p.id === (activeProfileId ?? me.primary_profile_id)) ?? null;
+  const labelById = new Map((me?.profiles ?? []).map((p) => [p.id, p.label]));
+  const editing =
+    panel?.kind === "profile-edit"
+      ? (me?.profiles.find((p) => p.id === panel.profileId) ?? null)
+      : null;
+
   const sidebarClass =
     sidebar === true
       ? "translate-x-0"
@@ -310,8 +350,14 @@ export function ChatInterface() {
           sessions={sessions}
           currentSessionId={sessionId}
           onSelectSession={selectSession}
-          onNewSession={createNewSession}
+          // Wrapped: passed directly, the click event would arrive as a profile id.
+          onNewSession={() => createNewSession()}
           signedIn={signedIn}
+          profileLabel={
+            labelById.size > 1
+              ? (s) => (s.profile_id && labelById.get(s.profile_id)) || s.profile_label || null
+              : undefined
+          }
           onLogout={() => {
             auth.signOut();
             router.push("/login");
@@ -322,13 +368,30 @@ export function ChatInterface() {
       <div className="flex min-w-0 flex-1 flex-col">
         <ChatHeader
           onToggleSidebar={() => setSidebar((prev) => !(prev ?? isDesktop()))}
-          onNewChat={createNewSession}
+          onNewChat={() => createNewSession()}
           showNewChatOnDesktop={sidebar === false}
+          right={
+            signedIn && me && activeProfile ? (
+              <ProfileMenu
+                me={me}
+                active={activeProfile}
+                onSwitch={(id) => createNewSession(id)}
+                onEdit={(id) => setPanel({ kind: "profile-edit", profileId: id })}
+                onNew={() => setPanel({ kind: "profile-new" })}
+              />
+            ) : null
+          }
         />
 
         <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
-            <EmptyState signedIn={signedIn} onPick={send} disabled={!sessionId} />
+            <EmptyState
+              signedIn={signedIn}
+              onPick={send}
+              disabled={!sessionId}
+              name={me?.display_name}
+              profile={signedIn ? activeProfile : null}
+            />
           ) : (
             <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-8">
               {messages.map((m) => (
@@ -363,13 +426,45 @@ export function ChatInterface() {
 
       {panel && (
         <Drawer
-          title={panel.kind === "section" ? "Statute text" : "Calculation"}
+          title={
+            panel.kind === "section"
+              ? "Statute text"
+              : panel.kind === "calculation"
+                ? "Calculation"
+                : panel.kind === "profile-edit"
+                  ? "Edit profile"
+                  : "New profile"
+          }
           onClose={() => setPanel(null)}
         >
           {panel.kind === "section" ? (
             <EvidencePanel key={panel.section} section={panel.section} />
-          ) : (
+          ) : panel.kind === "calculation" ? (
             <CalculationPanel card={panel.card} />
+          ) : panel.kind === "profile-edit" ? (
+            editing && (
+              <ProfilePanel
+                key={editing.id}
+                profile={editing}
+                isPrimary={editing.id === me?.primary_profile_id}
+                onSaved={async () => {
+                  await refreshMe();
+                  setPanel(null);
+                }}
+                onMakePrimary={async () => {
+                  await setPrimaryProfile(editing.id);
+                  await refreshMe();
+                }}
+              />
+            )
+          ) : (
+            <NewProfilePanel
+              onCreated={async (profile) => {
+                await refreshMe();
+                setPanel(null);
+                createNewSession(profile.id);
+              }}
+            />
           )}
         </Drawer>
       )}

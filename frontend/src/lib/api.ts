@@ -112,6 +112,8 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
 export type Persona = {
   key: string;
   article_number: number;
+  /** The fund, in the words a member uses for their employer. */
+  fund: string;
   label: string;
   summary: string;
   tier: number;
@@ -122,6 +124,69 @@ export type Persona = {
   total_service_years: string;
   current_annual_salary: string;
 };
+
+/** One of the account's profiles: a preset, as edited and saved. */
+export type Profile = {
+  id: string;
+  persona_key: string | null;
+  label: string;
+  article_number: number;
+  fund: string;
+  tier: number;
+  age: number;
+  birth_date: string;
+  hire_date: string;
+  employment_status: string;
+  total_service_years: string;
+  current_annual_salary: string;
+};
+
+/** Who is signed in, and every profile they have — one call, `GET /me`. */
+export type Me = {
+  email: string;
+  display_name: string | null;
+  primary_profile_id: string | null;
+  profiles: Profile[];
+};
+
+/** The fields a profile may change, within the preset's bounds. */
+export type ProfileEdits = Partial<
+  Record<"hire_date" | "total_service_years" | "current_annual_salary" | "employment_status", string>
+>;
+
+/** A refused edit comes back as the list of what is inconsistent, not one line. */
+export type ProfileResult = { profile: Profile | null; problems: string[] };
+
+async function profileResult(response: Response): Promise<ProfileResult> {
+  const data = await response.json().catch(() => ({}));
+  if (response.ok) return { profile: data as Profile, problems: [] };
+  if (Array.isArray(data?.detail?.problems)) return { profile: null, problems: data.detail.problems };
+  if (Array.isArray(data?.detail)) {
+    return { profile: null, problems: data.detail.map((d: { msg?: string }) => d.msg ?? String(d)) };
+  }
+  return { profile: null, problems: [String(data?.detail ?? "That did not work. Please try again.")] };
+}
+
+export async function fetchMe(): Promise<Me | null> {
+  const response = await fetchWithAuth("/me");
+  return response.ok ? response.json() : null;
+}
+
+export async function createProfile(persona: string, edits: ProfileEdits): Promise<ProfileResult> {
+  return profileResult(
+    await fetchWithAuth("/profiles", { method: "POST", body: JSON.stringify({ persona, edits }) }),
+  );
+}
+
+export async function updateProfile(id: string, edits: ProfileEdits): Promise<ProfileResult> {
+  return profileResult(
+    await fetchWithAuth(`/profiles/${id}`, { method: "PATCH", body: JSON.stringify({ edits }) }),
+  );
+}
+
+export async function setPrimaryProfile(id: string): Promise<boolean> {
+  return (await fetchWithAuth(`/profiles/${id}/primary`, { method: "POST" })).ok;
+}
 
 export async function fetchPersonas(): Promise<Persona[]> {
   const response = await fetch(`${API_BASE_URL}/auth/personas`);

@@ -11,6 +11,9 @@ interface SidebarProps {
   onNewSession: () => void;
   onLogout: () => void;
   signedIn: boolean;
+  /** The profile a conversation uses, shown as a second line when an account
+   *  has more than one; absent otherwise. */
+  profileLabel?: (session: SessionSummary) => string | null;
 }
 
 export function Sidebar({
@@ -20,6 +23,7 @@ export function Sidebar({
   onNewSession,
   onLogout,
   signedIn,
+  profileLabel,
 }: SidebarProps) {
   const groups = groupSessions(sessions, new Date());
 
@@ -47,19 +51,23 @@ export function Sidebar({
               <ul className="space-y-0.5">
                 {group.items.map((session) => {
                   const current = session.id === currentSessionId;
+                  const profile = profileLabel?.(session);
                   return (
                     <li key={session.id}>
                       <button
                         type="button"
                         onClick={() => onSelectSession(session.id)}
                         aria-current={current ? "page" : undefined}
-                        className={`relative w-full truncate rounded-md px-2.5 py-1.5 text-left text-sm ${
+                        className={`relative w-full rounded-md px-2.5 py-1.5 text-left text-sm ${
                           current
                             ? "bg-sidebar-accent text-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-brass"
                             : "text-foreground/80 hover:bg-sidebar-accent"
                         }`}
                       >
-                        {session.title || "New conversation"}
+                        <span className="block truncate">{session.title || "New conversation"}</span>
+                        {profile && (
+                          <span className="block truncate text-xs text-muted-foreground">{profile}</span>
+                        )}
                       </button>
                     </li>
                   );
