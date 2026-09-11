@@ -13,6 +13,8 @@
   --font-serif: var(--font-source-serif);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-geist-sans);
+  --color-seal: var(--seal);
+  --color-brass: var(--brass);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,70 +53,78 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* "Civic calm" — warm paper, deep ink, one teal accent (spec §3). */
+/*
+ * "Civic calm", statute & seal (spec §3): cool paper, navy ink, Illinois navy as
+ * the one working accent. Brass is not an accent — it marks identity (the §
+ * seal) and place (the active conversation), and nothing else.
+ */
 :root {
   color-scheme: light;
   --radius: 0.625rem;
-  --background: oklch(0.985 0.004 85);
-  --foreground: oklch(0.23 0.02 250);
+  --background: oklch(0.984 0.003 250);
+  --foreground: oklch(0.24 0.03 258);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.23 0.02 250);
+  --card-foreground: oklch(0.24 0.03 258);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.23 0.02 250);
-  --primary: oklch(0.46 0.08 195);
-  --primary-foreground: oklch(0.985 0.004 85);
-  --secondary: oklch(0.96 0.006 85);
-  --secondary-foreground: oklch(0.23 0.02 250);
-  --muted: oklch(0.96 0.006 85);
-  --muted-foreground: oklch(0.50 0.015 250);
-  --accent: oklch(0.96 0.006 85);
-  --accent-foreground: oklch(0.23 0.02 250);
+  --popover-foreground: oklch(0.24 0.03 258);
+  --primary: oklch(0.40 0.10 258);
+  --primary-foreground: oklch(0.985 0.003 250);
+  --secondary: oklch(0.955 0.006 250);
+  --secondary-foreground: oklch(0.24 0.03 258);
+  --muted: oklch(0.955 0.006 250);
+  --muted-foreground: oklch(0.50 0.02 255);
+  --accent: oklch(0.955 0.006 250);
+  --accent-foreground: oklch(0.24 0.03 258);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.90 0.008 85);
-  --input: oklch(0.90 0.008 85);
+  --border: oklch(0.905 0.008 250);
+  --input: oklch(0.905 0.008 250);
   --ring: var(--primary);
+  /* The seal is the same navy in both themes: it is a mark, not a surface. */
+  --seal: oklch(0.36 0.10 258);
+  --brass: oklch(0.74 0.11 80);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.965 0.006 85);
-  --sidebar-foreground: oklch(0.23 0.02 250);
-  --sidebar-primary: oklch(0.46 0.08 195);
-  --sidebar-primary-foreground: oklch(0.985 0.004 85);
-  --sidebar-accent: oklch(0.93 0.008 85);
-  --sidebar-accent-foreground: oklch(0.23 0.02 250);
-  --sidebar-border: oklch(0.90 0.008 85);
+  --sidebar: oklch(0.965 0.006 250);
+  --sidebar-foreground: oklch(0.24 0.03 258);
+  --sidebar-primary: oklch(0.40 0.10 258);
+  --sidebar-primary-foreground: oklch(0.985 0.003 250);
+  --sidebar-accent: oklch(0.925 0.01 250);
+  --sidebar-accent-foreground: oklch(0.24 0.03 258);
+  --sidebar-border: oklch(0.905 0.008 250);
   --sidebar-ring: var(--primary);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --background: oklch(0.19 0.012 250);
-    --foreground: oklch(0.93 0.006 85);
-    --card: oklch(0.23 0.012 250);
-    --card-foreground: oklch(0.93 0.006 85);
-    --popover: oklch(0.23 0.012 250);
-    --popover-foreground: oklch(0.93 0.006 85);
-    --primary: oklch(0.72 0.09 195);
-    --primary-foreground: oklch(0.19 0.012 250);
-    --secondary: oklch(0.26 0.012 250);
-    --secondary-foreground: oklch(0.93 0.006 85);
-    --muted: oklch(0.26 0.012 250);
-    --muted-foreground: oklch(0.70 0.012 250);
-    --accent: oklch(0.26 0.012 250);
-    --accent-foreground: oklch(0.93 0.006 85);
+    --background: oklch(0.18 0.018 258);
+    --foreground: oklch(0.93 0.008 250);
+    --card: oklch(0.22 0.02 258);
+    --card-foreground: oklch(0.93 0.008 250);
+    --popover: oklch(0.22 0.02 258);
+    --popover-foreground: oklch(0.93 0.008 250);
+    --primary: oklch(0.74 0.10 255);
+    --primary-foreground: oklch(0.18 0.018 258);
+    --secondary: oklch(0.25 0.02 258);
+    --secondary-foreground: oklch(0.93 0.008 250);
+    --muted: oklch(0.25 0.02 258);
+    --muted-foreground: oklch(0.70 0.02 255);
+    --accent: oklch(0.25 0.02 258);
+    --accent-foreground: oklch(0.93 0.008 250);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(0.32 0.012 250);
-    --input: oklch(0.32 0.012 250);
-    --sidebar: oklch(0.21 0.012 250);
-    --sidebar-foreground: oklch(0.93 0.006 85);
-    --sidebar-primary: oklch(0.72 0.09 195);
-    --sidebar-primary-foreground: oklch(0.19 0.012 250);
-    --sidebar-accent: oklch(0.26 0.012 250);
-    --sidebar-accent-foreground: oklch(0.93 0.006 85);
-    --sidebar-border: oklch(0.32 0.012 250);
+    --border: oklch(0.31 0.02 258);
+    --input: oklch(0.31 0.02 258);
+    --brass: oklch(0.80 0.11 82);
+    --sidebar: oklch(0.20 0.019 258);
+    --sidebar-foreground: oklch(0.93 0.008 250);
+    --sidebar-primary: oklch(0.74 0.10 255);
+    --sidebar-primary-foreground: oklch(0.18 0.018 258);
+    --sidebar-accent: oklch(0.25 0.02 258);
+    --sidebar-accent-foreground: oklch(0.93 0.008 250);
+    --sidebar-border: oklch(0.31 0.02 258);
   }
 }
 
@@ -134,13 +144,14 @@
 }
 
 /*
- * Assistant answers read as a set document: serif body, UI face for headings and
- * tables (spec §3). Unlayered, so it outranks the typography plugin's `.prose`.
+ * Answers are sans. The serif is reserved for the law itself: a quoted
+ * provision renders as a panel set like a page of the Code, so the typeface
+ * tells the member when the statute is speaking rather than the assistant.
+ * Unlayered, so it outranks the typography plugin's `.prose`.
  */
 .prose.answer {
-  font-family: var(--font-serif);
-  font-size: 17px;
-  line-height: 1.65;
+  font-size: 16.5px;
+  line-height: 1.7;
   --tw-prose-body: var(--foreground);
   --tw-prose-headings: var(--foreground);
   --tw-prose-bold: var(--foreground);
@@ -156,11 +167,22 @@
   --tw-prose-th-borders: var(--border);
   --tw-prose-td-borders: var(--border);
 }
-.prose.answer :where(h1, h2, h3, h4, table) {
-  font-family: var(--font-sans);
-}
 .prose.answer :where(table) {
   font-size: 15px;
+}
+.prose.answer :where(blockquote) {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-style: normal;
+  font-weight: 400;
+  background: var(--muted);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 0.75em 1.1em;
+}
+.prose.answer :where(blockquote p:first-of-type)::before,
+.prose.answer :where(blockquote p:last-of-type)::after {
+  content: none;
 }
 
 /* The waiting line: a slow sweep of ink across muted text (spec §4). */

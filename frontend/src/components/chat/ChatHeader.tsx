@@ -1,5 +1,6 @@
 import { PanelLeft, SquarePen } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BrandMark } from "@/components/BrandMark";
 
 interface ChatHeaderProps {
   onToggleSidebar: () => void;
@@ -23,7 +24,13 @@ export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop }:
       >
         <SquarePen className="size-[18px]" />
       </Button>
-      <h1 className="ml-2 text-sm font-semibold">Illinois Pension Assistant</h1>
+      <h1 className="ml-2 flex items-center gap-2 text-sm font-semibold">
+        <BrandMark />
+        Illinois Pension Assistant
+        <span className="hidden rounded border border-border px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground sm:inline">
+          40 ILCS 5
+        </span>
+      </h1>
       {/* Phase 3: the profile chip sits at the right end of this bar. */}
     </header>
   );

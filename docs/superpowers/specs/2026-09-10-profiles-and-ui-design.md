@@ -36,28 +36,38 @@ One source of truth: the tokens in `frontend/src/app/globals.css`. Components us
 
 | Token | Light | Dark |
 |---|---|---|
-| `--background` | `oklch(0.985 0.004 85)` warm off-white | `oklch(0.19 0.012 250)` |
-| `--foreground` | `oklch(0.23 0.02 250)` ink | `oklch(0.93 0.006 85)` |
-| `--card`, `--popover` | `oklch(1 0 0)` | `oklch(0.23 0.012 250)` |
-| `--muted` | `oklch(0.96 0.006 85)` | `oklch(0.26 0.012 250)` |
-| `--muted-foreground` | `oklch(0.50 0.015 250)` | `oklch(0.70 0.012 250)` |
-| `--border`, `--input` | `oklch(0.90 0.008 85)` | `oklch(0.32 0.012 250)` |
-| `--primary` (deep teal) | `oklch(0.46 0.08 195)` | `oklch(0.72 0.09 195)` |
-| `--primary-foreground` | `oklch(0.985 0.004 85)` | `oklch(0.19 0.012 250)` |
+| `--background` | `oklch(0.984 0.003 250)` cool paper | `oklch(0.18 0.018 258)` |
+| `--foreground` | `oklch(0.24 0.03 258)` navy ink | `oklch(0.93 0.008 250)` |
+| `--card`, `--popover` | `oklch(1 0 0)` | `oklch(0.22 0.02 258)` |
+| `--muted` | `oklch(0.955 0.006 250)` | `oklch(0.25 0.02 258)` |
+| `--muted-foreground` | `oklch(0.50 0.02 255)` | `oklch(0.70 0.02 255)` |
+| `--border`, `--input` | `oklch(0.905 0.008 250)` | `oklch(0.31 0.02 258)` |
+| `--primary` (Illinois navy) | `oklch(0.40 0.10 258)` | `oklch(0.74 0.10 255)` |
+| `--primary-foreground` | `oklch(0.985 0.003 250)` | `oklch(0.18 0.018 258)` |
 | `--ring` | `var(--primary)` | `var(--primary)` |
-| `--sidebar` | `oklch(0.965 0.006 85)` | `oklch(0.21 0.012 250)` |
+| `--seal` (brand mark ground) | `oklch(0.36 0.10 258)` | same |
+| `--brass` (identity only) | `oklch(0.74 0.11 80)` | `oklch(0.80 0.11 82)` |
+| `--sidebar` | `oklch(0.965 0.006 250)` | `oklch(0.20 0.019 258)` |
+
+### Identity — "statute & seal" (revised 2026-09-11)
+The first pass read as a copy of Claude's design (warm cream, big serif greeting, serif answers). Identity now comes from the subject: a statute book and the State of Illinois.
+- **Brass is not an accent.** It appears in two places only — the § seal and the active-conversation marker. Navy remains the one working accent.
+- **The § seal** (`components/BrandMark.tsx`, `app/icon.svg`): brass § on navy, in the header, sign-in, sign-up and favicon, beside a muted "40 ILCS 5" tag.
+- **Citations read as legal references:** "§ 11-134 · Retirement annuity", tabular figures.
+- **Starter prompts are grouped by purpose** — Understand the law, Check eligibility, Estimate a pension, Compare options — each with an icon, under an eyebrow "Illinois Pension Code · 40 ILCS 5".
 
 `@custom-variant dark` changes from the `.dark` class to `@media (prefers-color-scheme: dark)`, and the dark values are defined in a matching media block. Contrast: body text and muted text meet WCAG AA on their backgrounds in both themes.
 
 ### Type
 - **UI:** Geist Sans (already loaded), 15–16px.
-- **Reading:** Source Serif 4 (`next/font/google`) for assistant answers and statute quotes, 17px, line-height 1.65.
+- **Answers:** Geist Sans, 16.5px, line-height 1.7.
+- **The law:** Source Serif 4 (`next/font/google`) only for quoted statute text — a muted panel with a navy rule, 17px — and the § seal. The typeface tells the member when the statute is speaking rather than the assistant.
 - **Figures:** `font-variant-numeric: tabular-nums` on tables, calculation cards and any money figure.
 - Page title: "Illinois Pension Assistant".
 
 ### Layout and restraint
 - Conversation column max 720px, centred.
-- User turns: a right-aligned bubble on `--muted`. Assistant turns: full-width serif text, no bubble.
+- User turns: a right-aligned bubble on `--muted`. Assistant turns: full-width text, no bubble.
 - Radius 10px base. Shadows only on popovers, menus and drawers. Transitions 150ms ease-out on those only; no bounce, no pulse.
 - Icons: lucide, 16/18px, one stroke weight.
 - Mobile (≤ 768px): sidebar becomes an overlay; drawers become bottom sheets; the page never scrolls horizontally.
@@ -88,7 +98,7 @@ One source of truth: the tokens in `frontend/src/app/globals.css`. Components us
 | retired | "How do annual increases work on my pension?" |
 | always (fills to four) | "Compare retiring at 60, 62 and 65." / "What counts as salary for my pension?" / "What happens to my pension if I leave early?" |
 
-Anonymous prompts: "What does Article 11 cover?", "How is a pension calculated for a Chicago laborer?", "What is the difference between Tier 1 and Tier 2?", "Estimate a pension for someone aged 60 with 25 years of service."
+Anonymous prompts, one per purpose: Understand the law — "What does Article 11 cover?"; Check eligibility — "When can a Chicago laborer retire with a full pension?"; Estimate a pension — "Estimate a pension for someone aged 60 with 25 years of service."; Compare options — "What is the difference between Tier 1 and Tier 2?"
 
 Clicking a prompt sends it immediately.
 

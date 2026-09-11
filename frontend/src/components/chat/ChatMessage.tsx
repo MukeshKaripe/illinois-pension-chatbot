@@ -1,6 +1,5 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen } from "lucide-react";
 import type { Message } from "@/lib/types";
 
 interface ChatMessageProps {
@@ -64,12 +63,13 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             return (
               <div
                 key={section}
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground"
-                title={detail?.title ?? ""}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs"
+                title={`40 ILCS 5/${section}`}
               >
-                <BookOpen size={12} className="text-primary" />
-                <span className="font-medium text-foreground">40 ILCS 5/{section}</span>
-                {detail?.title && <span className="max-w-[16rem] truncate">{detail.title}</span>}
+                <span className="font-medium tabular-nums text-primary">§ {section}</span>
+                {detail?.title && (
+                  <span className="max-w-[16rem] truncate text-muted-foreground">· {detail.title}</span>
+                )}
               </div>
             );
           })}

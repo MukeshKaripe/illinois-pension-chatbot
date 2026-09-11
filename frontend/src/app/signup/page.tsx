@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { API_BASE_URL, auth, fetchPersonas, type Persona } from "@/lib/api";
+import { BrandMark } from "@/components/BrandMark";
 
 /**
  * Tier as the statute has it, mirrored here only to show the consequence of a
@@ -123,7 +124,10 @@ export default function SignupPage() {
 
       <div className="w-full max-w-2xl p-8 space-y-8 bg-card rounded-xl border border-border">
         <div className="text-center space-y-2">
-          <h1 className="font-serif text-3xl tracking-tight">
+          <div className="flex justify-center">
+            <BrandMark size="lg" />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">
             Create an account
           </h1>
           <p className="text-sm text-muted-foreground">

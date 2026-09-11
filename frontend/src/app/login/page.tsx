@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { API_BASE_URL, auth } from "@/lib/api";
 import { buttonVariants } from "@/components/ui/button";
+import { BrandMark } from "@/components/BrandMark";
 
 const field =
   "w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30";
@@ -48,7 +49,10 @@ export default function LoginPage() {
     <main className="flex min-h-dvh items-center justify-center bg-background px-4 py-12 text-foreground">
       <div className="w-full max-w-sm space-y-8">
         <div className="space-y-2 text-center">
-          <h1 className="font-serif text-3xl tracking-tight">Illinois Pension Assistant</h1>
+          <div className="flex justify-center">
+            <BrandMark size="lg" />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">Illinois Pension Assistant</h1>
           <p className="text-sm text-muted-foreground">Sign in to your account</p>
         </div>
 

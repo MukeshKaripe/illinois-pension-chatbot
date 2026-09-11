@@ -53,8 +53,10 @@ export function Sidebar({
                         type="button"
                         onClick={() => onSelectSession(session.id)}
                         aria-current={current ? "page" : undefined}
-                        className={`w-full truncate rounded-md px-2 py-1.5 text-left text-sm ${
-                          current ? "bg-sidebar-accent text-foreground" : "text-foreground/80 hover:bg-sidebar-accent"
+                        className={`relative w-full truncate rounded-md px-2.5 py-1.5 text-left text-sm ${
+                          current
+                            ? "bg-sidebar-accent text-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-brass"
+                            : "text-foreground/80 hover:bg-sidebar-accent"
                         }`}
                       >
                         {session.title || "New conversation"}
