@@ -1,0 +1,62 @@
+/**
+ * The calculation card, as the server sends it inside a message's `tool_calls`
+ * (see `agent/card.py`), and the few helpers that read it.
+ *
+ * The card and the "stopped" marker both live in the audit trail, so a live
+ * message and one reloaded from history are read the same way.
+ */
+
+export type CardInput = { name: string; label: string; value: string; source: string };
+
+export type CardScenario = {
+  label: string;
+  annual_amount?: string | null;
+  monthly_amount?: string | null;
+};
+
+export type CalculationCardData = {
+  type: "card";
+  formula_name?: string | null;
+  section?: string | null;
+  subsection?: string | null;
+  estimate: boolean;
+  annual_amount?: string | null;
+  monthly_amount?: string | null;
+  inputs: CardInput[];
+  scenarios: CardScenario[];
+  blocks: Record<string, string>;
+};
+
+const entries = (toolCalls: unknown): Record<string, unknown>[] =>
+  Array.isArray(toolCalls)
+    ? toolCalls.filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null)
+    : [];
+
+export function cardFrom(toolCalls: unknown): CalculationCardData | null {
+  const found = entries(toolCalls).find((t) => t.type === "card");
+  return found ? (found as unknown as CalculationCardData) : null;
+}
+
+export function isStopped(toolCalls: unknown): boolean {
+  return entries(toolCalls).some((t) => t.type === "stopped");
+}
+
+/** Dollars, whether the server sent "32126.78" or "$32,126.78". */
+export function formatMoney(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const amount = Number(String(value).replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(amount)) return String(value);
+  return amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+/** The worksheet's provenance classes, in the member's words. */
+const SOURCE_LABELS: Record<string, string> = {
+  record: "Record",
+  stated: "You said",
+  hypothetical: "Scenario",
+  assumed: "Assumed",
+  derived: "Derived",
+  withheld: "On file, not used",
+};
+
+export const sourceLabel = (source: string): string => SOURCE_LABELS[source] ?? source;
