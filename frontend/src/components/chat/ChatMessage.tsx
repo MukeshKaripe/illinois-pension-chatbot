@@ -1,13 +1,18 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { cardFrom, isStopped, type CalculationCardData } from "@/lib/card";
+import { linkSections, sectionFromHref } from "@/lib/sections";
 import type { Message } from "@/lib/types";
+import { CalculationCard } from "./CalculationCard";
 
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
+  onOpenSection: (section: string) => void;
+  onOpenCalculation: (card: CalculationCardData) => void;
 }
 
-export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming, onOpenSection, onOpenCalculation }: ChatMessageProps) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -21,6 +26,12 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   // Nothing streamed yet: the status line below the list speaks for it.
   if (!message.content && isStreaming) return null;
 
+  // Card and stopped state live in the audit trail, so a live message and a
+  // reloaded one render identically.
+  const card = cardFrom(message.tool_calls);
+  const stopped = message.stopped || isStopped(message.tool_calls);
+  const verified = message.verified_citations ?? [];
+
   // Markdown is re-parsed on every token, so a half-written table renders as
   // literal pipes until its row closes. Everything up to the last blank line is
   // complete enough to parse; the tail after it is shown as plain text and
@@ -31,6 +42,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
 
   return (
     <div>
+      {card && !isStreaming && (
+        <CalculationCard
+          card={card}
+          onOpen={() => onOpenCalculation(card)}
+          onOpenSection={onOpenSection}
+        />
+      )}
+
       {message.content && (
         <div className="prose answer max-w-none">
           <ReactMarkdown
@@ -43,34 +62,60 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                   <table {...props} />
                 </div>
               ),
+              // Section references the answer rested on open the statute text
+              // beside the chat; anything else is an ordinary external link.
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              a: ({ node, href, children, ...props }) => {
+                const section = sectionFromHref(href);
+                if (section) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onOpenSection(section)}
+                      className="font-medium text-primary underline decoration-primary/30 underline-offset-2 hover:decoration-primary"
+                    >
+                      {children}
+                    </button>
+                  );
+                }
+                return (
+                  <a href={href} target="_blank" rel="noreferrer" {...props}>
+                    {children}
+                  </a>
+                );
+              },
             }}
           >
-            {settled}
+            {linkSections(settled, verified)}
           </ReactMarkdown>
           {tail && <div className="whitespace-pre-wrap">{tail}</div>}
         </div>
       )}
 
-      {message.stopped && <p className="mt-2 text-xs text-muted-foreground">Stopped</p>}
+      {stopped && (
+        <p className="mt-2 text-xs text-muted-foreground">Stopped — not finished or checked</p>
+      )}
 
       {/* Only the provisions the answer actually relied on, and that passed
           verification. Listing every retrieved section implied a reliance the
           answer did not have. */}
-      {message.verified_citations && message.verified_citations.length > 0 && (
+      {verified.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {message.verified_citations.map((section) => {
+          {verified.map((section) => {
             const detail = (message.citations ?? []).find((c) => c.section === section);
             return (
-              <div
+              <button
                 key={section}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs"
+                type="button"
+                onClick={() => onOpenSection(section)}
+                className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs hover:bg-muted"
                 title={`40 ILCS 5/${section}`}
               >
                 <span className="font-medium tabular-nums text-primary">§ {section}</span>
                 {detail?.title && (
                   <span className="max-w-[16rem] truncate text-muted-foreground">· {detail.title}</span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>

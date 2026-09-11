@@ -1,5 +1,7 @@
 /** Shapes the chat UI holds. The server's JSON is read into these at the edge. */
 
+import type { CalculationCardData } from "./card";
+
 export type Citation = { section: string; title?: string };
 
 export type Message = {
@@ -22,3 +24,8 @@ export type SessionSummary = {
   started_at?: string;
   last_active_at: string;
 };
+
+/** What the side drawer is showing, if anything. */
+export type Panel =
+  | { kind: "section"; section: string }
+  | { kind: "calculation"; card: CalculationCardData };

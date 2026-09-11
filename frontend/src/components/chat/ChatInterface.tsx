@@ -10,11 +10,14 @@ import {
   fetchWithAuth,
 } from "@/lib/api";
 import { takeFrames, type SseEvent } from "@/lib/sse";
-import type { Citation, Message, SessionSummary } from "@/lib/types";
+import type { Citation, Message, Panel, SessionSummary } from "@/lib/types";
+import { CalculationPanel } from "./CalculationPanel";
 import { ChatHeader } from "./ChatHeader";
 import { ChatMessage } from "./ChatMessage";
 import { Composer } from "./Composer";
+import { Drawer } from "./Drawer";
 import { EmptyState } from "./EmptyState";
+import { EvidencePanel } from "./EvidencePanel";
 import { Sidebar } from "./Sidebar";
 import { StatusLine } from "./StatusLine";
 
@@ -37,6 +40,8 @@ export function ChatInterface() {
   const [agentStatus, setAgentStatus] = useState("");
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  // The side drawer: a section's text or a calculation, beside the chat.
+  const [panel, setPanel] = useState<Panel | null>(null);
   const router = useRouter();
 
   // Guards against a stale response landing after a second click: whichever
@@ -60,6 +65,7 @@ export function ChatInterface() {
     // and a member should see the empty conversation the instant they click
     // "New chat" rather than watch the old one sit there for it.
     abortRef.current?.abort();
+    setPanel(null);
     const requestId = ++sessionRequestId.current;
     setMessages([]);
     setSessionId(null);
@@ -153,6 +159,7 @@ export function ChatInterface() {
 
   const selectSession = (id: string) => {
     abortRef.current?.abort();
+    setPanel(null);
     setSessionId(id);
     closeSidebarOnPhone();
   };
@@ -325,7 +332,13 @@ export function ChatInterface() {
           ) : (
             <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-8">
               {messages.map((m) => (
-                <ChatMessage key={m.id} message={m} isStreaming={m.id === streamingMessageId} />
+                <ChatMessage
+                  key={m.id}
+                  message={m}
+                  isStreaming={m.id === streamingMessageId}
+                  onOpenSection={(section) => setPanel({ kind: "section", section })}
+                  onOpenCalculation={(card) => setPanel({ kind: "calculation", card })}
+                />
               ))}
               <StatusLine text={agentStatus} />
             </div>
@@ -347,6 +360,19 @@ export function ChatInterface() {
           </p>
         </div>
       </div>
+
+      {panel && (
+        <Drawer
+          title={panel.kind === "section" ? "Statute text" : "Calculation"}
+          onClose={() => setPanel(null)}
+        >
+          {panel.kind === "section" ? (
+            <EvidencePanel key={panel.section} section={panel.section} />
+          ) : (
+            <CalculationPanel card={panel.card} />
+          )}
+        </Drawer>
+      )}
     </div>
   );
 }
