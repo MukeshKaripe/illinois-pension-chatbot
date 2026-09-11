@@ -11,6 +11,8 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import anyio
+from sqlalchemy import event, exc
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -36,6 +38,27 @@ engine = create_async_engine(
     pool_recycle=settings.db_pool_recycle_seconds,
 )
 
+@event.listens_for(engine.sync_engine, "checkout")
+def discard_closed_connection(
+    dbapi_connection: object, connection_record: object, connection_proxy: object
+) -> None:
+    """Refuse a pooled connection whose socket is already closed.
+
+    `pool_pre_ping` would catch this with a SELECT on every checkout -- a full
+    round trip to Azure, which is why it is off. asyncpg knows locally whether
+    its connection is closed, so this costs nothing; raising DisconnectionError
+    makes the pool discard the connection and hand out another.
+
+    What closes one while it sits in the pool: a request cancelled mid-cleanup
+    (Stop, a closed tab) or a dropped network. The next request used to receive
+    it and fail -- "connection is closed", a 500 straight after a Stop, even
+    with the session helpers' cleanup shielded.
+    """
+    driver = getattr(dbapi_connection, "driver_connection", None)
+    if driver is not None and driver.is_closed():
+        raise exc.DisconnectionError("pooled connection was already closed")
+
+
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -54,7 +77,8 @@ async def get_db_session(
         employee_id: The authenticated employee's UUID (from JWT).
         session_token: Anonymous session token for unauthenticated sessions.
     """
-    async with async_session_factory() as session:
+    session = async_session_factory()
+    try:
         # Both identities in one statement.
         #
         # Via `set_config(..., is_local => true)` rather than `SET LOCAL`, which
@@ -72,12 +96,22 @@ async def get_db_session(
             ),
             {"eid": str(employee_id or ""), "st": session_token or ""},
         )
-        try:
-            yield session
-            await session.commit()
-        except Exception:
+        yield session
+        await session.commit()
+    except BaseException:
+        # Cancellation included. A client disconnect -- Stop, a closed tab --
+        # cancels the request's scope, and in a cancelled scope every unshielded
+        # await is cancelled again. Closed by `async with` under that, SQLAlchemy
+        # could not finish rolling back or terminating the connection, and the
+        # next request checked out a closed one: "connection is closed", a 500
+        # straight after a Stop. Shielded, cleanup completes whatever cancelled
+        # the work. (tests/test_session_cleanup.py)
+        with anyio.CancelScope(shield=True):
             await session.rollback()
-            raise
+        raise
+    finally:
+        with anyio.CancelScope(shield=True):
+            await session.close()
 
 
 @asynccontextmanager
@@ -93,11 +127,16 @@ async def get_admin_session() -> AsyncGenerator[AsyncSession, None]:
     Legitimate users: the admin API, the health check, and the login path, which
     looks an employee up by email before there is any identity to scope to.
     """
-    async with async_session_factory() as session:
+    session = async_session_factory()
+    try:
         await session.execute(sa_text("SELECT set_config('app.admin', 'on', true)"))
-        try:
-            yield session
-            await session.commit()
-        except Exception:
+        yield session
+        await session.commit()
+    except BaseException:
+        # As in get_db_session: cleanup must survive a cancelled request.
+        with anyio.CancelScope(shield=True):
             await session.rollback()
-            raise
+        raise
+    finally:
+        with anyio.CancelScope(shield=True):
+            await session.close()
