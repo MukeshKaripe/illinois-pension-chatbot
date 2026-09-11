@@ -17,14 +17,28 @@ from collections.abc import Mapping
 from typing import Any
 
 from pension_chat.agent import blocks
-from pension_chat.agent.worksheet import WorkSheet
+from pension_chat.agent.facts import aliases_of
+from pension_chat.agent.worksheet import Fact, WorkSheet
 
 #: The computed blocks the calculation drawer shows, in order.
 DRAWER_BLOCKS = ("WORKED_STEPS", "COMPARISON", "ASSUMPTIONS")
 
-#: The source of an input the sheet holds no fact for: the engine computed it
-#: from others -- final average salary from the salary history, most often.
-SOURCE_DERIVED = "derived"
+
+def _fact_for(sheet: WorkSheet, name: str) -> Fact | None:
+    """The sheet's fact for an input, under the input's own name or any alias.
+
+    Recipes name inputs in the statute's words (`highest_average_annual_salary_4yr`)
+    while a member's statement lands under another name for the same quantity
+    (`final_average_salary`) -- `facts.ALIAS_GROUPS` says they are one. Looking
+    up the recipe's name alone labelled a salary the member stated "derived".
+    """
+    fact = sheet.fact(name)
+    if fact is not None:
+        return fact
+    for alias in sorted(aliases_of(name) - {name}):
+        if (fact := sheet.fact(alias)) is not None:
+            return fact
+    return None
 
 
 def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, Any] | None:
@@ -34,15 +48,19 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
         if not base.get("ok"):
             continue
 
+        origins = state.get("input_sources") or {}
         inputs = []
         for name, value in (base.get("inputs_used") or {}).items():
-            fact = sheet.fact(name)
+            fact = _fact_for(sheet, name)
             inputs.append(
                 {
                     "name": name,
                     "label": blocks._label(name),
                     "value": value,
-                    "source": fact.source if fact else SOURCE_DERIVED,
+                    # The turn's own record first -- resolve_inputs knows where
+                    # each value came from -- then the sheet; when neither
+                    # knows, no label rather than a guess shown to the member.
+                    "source": origins.get(name) or (fact.source if fact else None),
                 }
             )
 

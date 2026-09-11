@@ -52,8 +52,12 @@ export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCard
             <div key={input.name}>
               <dt className="text-xs text-muted-foreground">{input.label}</dt>
               <dd className="tabular-nums">
-                {input.value}{" "}
-                <span className="text-[11px] text-muted-foreground">· {sourceLabel(input.source)}</span>
+                {input.value}
+                {input.source && (
+                  <span className="ml-1 text-[11px] text-muted-foreground">
+                    · {sourceLabel(input.source)}
+                  </span>
+                )}
               </dd>
             </div>
           ))}

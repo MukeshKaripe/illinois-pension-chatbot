@@ -60,7 +60,13 @@ from pension_chat.agent.retrieval import (
     retrieve_coverage,
 )
 from pension_chat.agent.state import PensionAgentState
-from pension_chat.agent.worksheet import SOURCE_ASSUMED, WorkSheet
+from pension_chat.agent.worksheet import (
+    SOURCE_ASSUMED,
+    SOURCE_DERIVED,
+    SOURCE_RECORD,
+    SOURCE_STATED,
+    WorkSheet,
+)
 from pension_chat.calculation.applicability import (
     evaluate_predicates,
     facts_for_evaluation,
@@ -922,6 +928,42 @@ def apply_assumptions(
     return filled, still_missing
 
 
+def _input_origins(
+    *,
+    resolved: dict[str, Any],
+    taken: dict[str, Any],
+    assumed: dict[str, Any],
+    sheet: WorkSheet,
+    question: str,
+) -> dict[str, str]:
+    """Where each resolved input came from, decided here because here it is known.
+
+    - Filled by the assumption policy: `assumed`.
+    - Read out of the conversation by the model: `stated` when the member wrote
+      that value in this message, otherwise `derived` -- "I am 60" states an
+      age; the months before 60 are worked out from it.
+    - Otherwise it came through the facts layer: the sheet's own label when it
+      has one (a framing default is `assumed`, an earlier statement `stated`),
+      else `record`.
+
+    The calculation card shows these to the member, so a guess here is a false
+    claim about their own figure. The card used to reconstruct them from the
+    sheet, which holds a stated value only when the model also reported it as a
+    revision -- the same question came out "stated" on one run, "derived" on
+    the next.
+    """
+    origins: dict[str, str] = {}
+    for name in resolved:
+        if name in assumed:
+            origins[name] = SOURCE_ASSUMED
+        elif name in taken:
+            origins[name] = SOURCE_STATED if _stated_in(taken[name], question) else SOURCE_DERIVED
+        else:
+            fact = sheet.fact(name)
+            origins[name] = fact.source if fact is not None else SOURCE_RECORD
+    return origins
+
+
 async def resolve_inputs(state: PensionAgentState) -> dict:
     """Assemble the values each recipe needs, and report what is missing.
 
@@ -953,6 +995,8 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
 
     from_record = {name: facts[name] for name in declared if name in facts}
     resolved = dict(from_record)
+    # Values taken from the conversation, so `_input_origins` can say so.
+    taken: dict[str, Any] = {}
     outstanding = [spec for name, spec in declared.items() if name not in resolved]
 
     # Extract whenever an input is still unresolved, and also whenever the user
@@ -1010,6 +1054,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
                 )
                 continue
             resolved[name] = value
+            taken[name] = value
 
     # Where the member stated something their record contradicts, the stated
     # value is used and the difference is surfaced in the answer rather than
@@ -1048,6 +1093,13 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
 
     return {
         "resolved_inputs": resolved,
+        "input_sources": _input_origins(
+            resolved=resolved,
+            taken=taken,
+            assumed=assumed,
+            sheet=sheet,
+            question=state["question"],
+        ),
         # An input the sheet holds is not missing, and an input it holds but
         # cannot use under this premise is not missing either -- it is withheld,
         # and saying so is the difference between "tell me your age" and "your

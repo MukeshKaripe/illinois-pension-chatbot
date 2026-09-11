@@ -66,15 +66,41 @@ def test_an_authoritative_recipe_is_not_labelled_an_estimate() -> None:
     assert card["estimate"] is False
 
 
-def test_each_input_says_where_it_came_from() -> None:
+def test_the_turns_own_record_of_origins_wins() -> None:
+    # `resolve_inputs` knows where each value came from as it resolves it; the
+    # sheet only sometimes does. Seen live: identical questions labelled the
+    # same stated salary "stated" on one run and "derived" on the next.
+    state = _state()
+    state["input_sources"] = {"service_years": "stated", "final_average_salary": "derived"}
+    card = _card(state)
+    assert card is not None
+    sources = {entry["name"]: entry["source"] for entry in card["inputs"]}
+    assert sources == {"service_years": "stated", "final_average_salary": "derived"}
+
+
+def test_without_a_record_of_origins_the_sheet_speaks_or_nothing_does() -> None:
     card = _card(_state())
     assert card is not None
     sources = {entry["name"]: entry["source"] for entry in card["inputs"]}
     # On the record, so the sheet says so.
     assert sources["service_years"] == "record"
-    # Not a fact anyone stated or filed: the engine derived it from history.
-    assert sources["final_average_salary"] == "derived"
+    # Nobody knows where this one came from, so no label is claimed for it.
+    assert sources["final_average_salary"] is None
     assert all(entry["label"] for entry in card["inputs"])
+
+
+def test_a_stated_value_is_found_under_its_alias() -> None:
+    # Recipes name inputs in the statute's words; the member's statement lands
+    # under another name for the same quantity. Seen live: a salary the member
+    # stated was labelled "derived" because only the recipe's name was looked up.
+    state = _state()
+    base = state["calculation_result"]["retirement_annuity"]["base"]
+    base["inputs_used"]["highest_average_annual_salary_4yr"] = "70000.00"
+    state["assumptions"] = {"final_average_salary": {"value": "70000.00", "source": "stated"}}
+    card = _card(state)
+    assert card is not None
+    sources = {entry["name"]: entry["source"] for entry in card["inputs"]}
+    assert sources["highest_average_annual_salary_4yr"] == "stated"
 
 
 def test_the_drawer_gets_only_the_calculation_blocks() -> None:

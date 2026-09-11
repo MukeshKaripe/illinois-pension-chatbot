@@ -29,6 +29,10 @@ SOURCE_STATED = "stated"
 SOURCE_HYPOTHETICAL = "hypothetical"
 SOURCE_ASSUMED = "assumed"
 SOURCE_WITHHELD = "withheld"
+#: A label, not a sheet source: an input worked out from other facts this turn
+#: (the months before 60 from a stated age). Never stored on the sheet;
+#: `nodes._input_origins` uses it so the calculation card can say so.
+SOURCE_DERIVED = "derived"
 
 #: Sources a computed figure is allowed to rest on. `withheld` is deliberately
 #: absent: the value is known, and using it anyway is the bug this exists to stop.

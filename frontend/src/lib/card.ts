@@ -6,7 +6,8 @@
  * message and one reloaded from history are read the same way.
  */
 
-export type CardInput = { name: string; label: string; value: string; source: string };
+/** `source` is null when nobody knows where the value came from. */
+export type CardInput = { name: string; label: string; value: string; source: string | null };
 
 export type CardScenario = {
   label: string;
@@ -59,4 +60,6 @@ const SOURCE_LABELS: Record<string, string> = {
   withheld: "On file, not used",
 };
 
-export const sourceLabel = (source: string): string => SOURCE_LABELS[source] ?? source;
+/** Empty for an unknown origin: the card shows no label rather than a guess. */
+export const sourceLabel = (source: string | null | undefined): string =>
+  source ? (SOURCE_LABELS[source] ?? source) : "";

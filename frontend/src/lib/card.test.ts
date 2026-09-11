@@ -42,4 +42,6 @@ test("sources read in the member's words", () => {
   assert.equal(sourceLabel("record"), "Record");
   assert.equal(sourceLabel("stated"), "You said");
   assert.equal(sourceLabel("something-new"), "something-new");
+  // Unknown origin: no label at all, rather than a guess.
+  assert.equal(sourceLabel(null), "");
 });

@@ -164,6 +164,10 @@ class PensionAgentState(TypedDict, total=False):
 
     # Inputs resolved for execution, and the ones that could not be resolved
     resolved_inputs: Annotated[dict[str, Any], merge_dicts]
+    # Where each resolved input came from -- record, stated, derived, assumed --
+    # decided by `resolve_inputs` as it resolves them. The calculation card
+    # shows it, so it must be known rather than reconstructed.
+    input_sources: dict[str, str]
     missing_inputs: list[dict]
     # Inputs where the member stated a value their record contradicts
     input_overrides: list[dict]
@@ -327,6 +331,7 @@ def initial_state(
         "recipe_provenance": [],
         "derivation_failures": [],
         "resolved_inputs": {},
+        "input_sources": {},
         "missing_inputs": [],
         "input_overrides": [],
         "validation_errors": [],
