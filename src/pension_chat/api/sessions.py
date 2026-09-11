@@ -21,9 +21,10 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 from sqlalchemy import select, update
+from sqlalchemy import text as sa_text
 
 from pension_chat.api.auth import TokenData, get_current_user
-from pension_chat.db.models import Session, SessionMessage
+from pension_chat.db.models import Employee, Session, SessionMessage
 from pension_chat.db.session import get_admin_session, get_db_session
 from pension_chat.sse import (
     sse_done,
@@ -120,11 +121,20 @@ class CreateSessionResponse(BaseModel):
     session_token: str | None = None
 
 
+class CreateSessionRequest(BaseModel):
+    # Which of the account's profiles the conversation acts as; the primary
+    # profile when omitted. Ignored for an anonymous session.
+    profile_id: uuid.UUID | None = None
+
+
 class SessionListItem(BaseModel):
     id: str
     title: str | None
     started_at: str
     last_active_at: str
+    # The profile the conversation acts as, for the sidebar's second line.
+    profile_id: str | None = None
+    profile_label: str | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -146,17 +156,20 @@ class MessageResponse(BaseModel):
 
 @router.post("/sessions", response_model=CreateSessionResponse)
 async def create_session(
+    body: CreateSessionRequest | None = None,
     user: TokenData | None = Depends(get_current_user),
 ):
     """Start a new chat session.
 
     Anonymous if no token — returns a session_token the client must send.
-    Bound to employee_id if authenticated.
+    Signed in, it acts as one of the account's profiles: the one asked for, or
+    the account's primary.
     """
+    if user is not None:
+        return await _create_profile_session(user, body.profile_id if body else None)
+
     async with get_admin_session() as db:
-        session = Session(
-            employee_id=user.employee_id if user else None,
-        )
+        session = Session(employee_id=None)
         db.add(session)
         # `flush()` alone is enough: the postgresql+asyncpg dialect flushes
         # single-row inserts with an implicit `RETURNING`, so `id`,
@@ -168,13 +181,38 @@ async def create_session(
         # is needed here either.
         await db.flush()
 
-        session_id = str(session.id)
-        session_token = session.session_token if user is None else None
-
         return CreateSessionResponse(
-            session_id=session_id,
-            session_token=session_token,
+            session_id=str(session.id),
+            session_token=session.session_token,
         )
+
+
+async def _create_profile_session(
+    user: TokenData, profile_id: uuid.UUID | None
+) -> CreateSessionResponse:
+    """A signed-in member's new conversation, in one statement.
+
+    The ownership check and the primary-profile fallback are both part of the
+    insert, so a signed-in "New chat" costs no more round trips than an
+    anonymous one. A profile that is not this account's -- or that does not
+    exist -- inserts nothing, which the account policy (004) would refuse anyway.
+    """
+    async with get_db_session(account_id=user.account_id) as db:
+        result = await db.execute(
+            sa_text(
+                "INSERT INTO sessions (employee_id) "
+                "SELECT e.id FROM employees e JOIN accounts a ON a.id = e.account_id "
+                "WHERE a.id = :aid "
+                "AND e.id = COALESCE(CAST(:pid AS uuid), a.primary_employee_id) "
+                "RETURNING id"
+            ),
+            {"aid": str(user.account_id), "pid": str(profile_id) if profile_id else None},
+        )
+        new_id = result.scalar_one_or_none()
+
+    if new_id is None:
+        raise HTTPException(status_code=404, detail="No such profile")
+    return CreateSessionResponse(session_id=str(new_id))
 
 
 @router.get("/sessions", response_model=list[SessionListItem])
@@ -189,23 +227,27 @@ async def list_sessions(
     if user is None:
         return []
 
-    async with get_db_session(employee_id=user.employee_id) as db:
+    # Every profile's conversations, under the account policy (004).
+    async with get_db_session(account_id=user.account_id) as db:
         result = await db.execute(
-            select(Session)
-            .where(Session.employee_id == user.employee_id)
+            select(Session, Employee.label)
+            .join(Employee, Employee.id == Session.employee_id)
+            .where(Employee.account_id == user.account_id)
             .order_by(Session.last_active_at.desc())
         )
-        sessions = result.scalars().all()
+        rows = result.all()
 
-        return [
-            SessionListItem(
-                id=str(s.id),
-                title=s.title,
-                started_at=s.started_at.isoformat(),
-                last_active_at=s.last_active_at.isoformat(),
-            )
-            for s in sessions
-        ]
+    return [
+        SessionListItem(
+            id=str(s.id),
+            title=s.title,
+            started_at=s.started_at.isoformat(),
+            last_active_at=s.last_active_at.isoformat(),
+            profile_id=str(s.employee_id),
+            profile_label=label,
+        )
+        for s, label in rows
+    ]
 
 
 @router.post("/sessions/{session_id}/messages")
@@ -232,14 +274,21 @@ async def send_message(
     # has to tell a session that does not exist from one that is not yours.
     # Everything after it is scoped.
     async with get_admin_session() as db:
-        result = await db.execute(select(Session).where(Session.id == session_uuid))
-        session = result.scalar_one_or_none()
+        result = await db.execute(
+            select(Session, Employee.account_id)
+            .outerjoin(Employee, Employee.id == Session.employee_id)
+            .where(Session.id == session_uuid)
+        )
+        found = result.one_or_none()
+        session, owner_account = found if found is not None else (None, None)
 
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
 
         if session.employee_id is not None:
-            if user is None or user.employee_id != session.employee_id:
+            # A profile's conversation belongs to the account that owns the
+            # profile (004); the token names the account.
+            if user is None or owner_account != user.account_id:
                 raise HTTPException(status_code=403, detail="Access denied")
         else:
             # Anonymous session — check session_token from header
@@ -249,7 +298,8 @@ async def send_message(
 
         needs_title = session.title is None
 
-    employee_id = user.employee_id if user else None
+    # The profile this conversation acts as: the session's own, not the token's.
+    employee_id = session.employee_id
 
     def _scoped():
         """A session scoped to whoever this request belongs to.
@@ -504,15 +554,20 @@ async def get_messages(
     # As above: the access check runs unrestricted, the message read does not.
     async with get_admin_session() as db:
         result = await db.execute(
-            select(Session).where(Session.id == session_uuid)
+            select(Session, Employee.account_id)
+            .outerjoin(Employee, Employee.id == Session.employee_id)
+            .where(Session.id == session_uuid)
         )
-        session = result.scalar_one_or_none()
+        found = result.one_or_none()
+        session, owner_account = found if found is not None else (None, None)
 
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
 
         if session.employee_id is not None:
-            if user is None or user.employee_id != session.employee_id:
+            # A profile's conversation belongs to the account that owns the
+            # profile (004); the token names the account.
+            if user is None or owner_account != user.account_id:
                 raise HTTPException(status_code=403, detail="Access denied")
         else:
             provided_token = request.headers.get("X-Session-Token", "")

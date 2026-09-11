@@ -64,7 +64,7 @@ def _session_returning(value):
 @pytest.mark.asyncio
 async def test_an_ordinary_member_is_refused(monkeypatch):
     monkeypatch.setattr("pension_chat.api.auth.get_admin_session", _session_returning(False))
-    user = TokenData(employee_id=uuid.uuid4(), email="member@example.com")
+    user = TokenData(account_id=uuid.uuid4(), email="member@example.com")
 
     with pytest.raises(HTTPException) as raised:
         await require_admin(user)
@@ -79,7 +79,7 @@ async def test_an_ordinary_member_is_refused(monkeypatch):
 async def test_a_member_whose_row_has_gone_is_refused(monkeypatch):
     """A valid token outliving its row must not be read as permission."""
     monkeypatch.setattr("pension_chat.api.auth.get_admin_session", _session_returning(None))
-    user = TokenData(employee_id=uuid.uuid4(), email="ghost@example.com")
+    user = TokenData(account_id=uuid.uuid4(), email="ghost@example.com")
 
     with pytest.raises(HTTPException):
         await require_admin(user)
@@ -88,7 +88,7 @@ async def test_a_member_whose_row_has_gone_is_refused(monkeypatch):
 @pytest.mark.asyncio
 async def test_an_administrator_passes_through(monkeypatch):
     monkeypatch.setattr("pension_chat.api.auth.get_admin_session", _session_returning(True))
-    user = TokenData(employee_id=uuid.uuid4(), email="admin@example.com")
+    user = TokenData(account_id=uuid.uuid4(), email="admin@example.com")
 
     assert await require_admin(user) is user
 

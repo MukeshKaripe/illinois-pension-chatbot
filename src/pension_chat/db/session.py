@@ -70,12 +70,15 @@ async_session_factory = async_sessionmaker(
 async def get_db_session(
     employee_id: uuid.UUID | None = None,
     session_token: str | None = None,
+    account_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[AsyncSession, None]:
     """Yield an async session with RLS variables set.
 
     Args:
-        employee_id: The authenticated employee's UUID (from JWT).
+        employee_id: The profile being acted as -- a conversation's own.
         session_token: Anonymous session token for unauthenticated sessions.
+        account_id: The signed-in account (004), for reading and changing the
+            account's own profiles and listing its conversations.
     """
     session = async_session_factory()
     try:
@@ -92,9 +95,14 @@ async def get_db_session(
         await session.execute(
             sa_text(
                 "SELECT set_config('app.current_employee_id', :eid, true),"
-                "       set_config('app.current_session_token', :st, true)"
+                "       set_config('app.current_session_token', :st, true),"
+                "       set_config('app.current_account_id', :aid, true)"
             ),
-            {"eid": str(employee_id or ""), "st": session_token or ""},
+            {
+                "eid": str(employee_id or ""),
+                "st": session_token or "",
+                "aid": str(account_id or ""),
+            },
         )
         yield session
         await session.commit()

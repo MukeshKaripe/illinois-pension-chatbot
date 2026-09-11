@@ -38,6 +38,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_LENGTH = 128
 BCRYPT_MAX_BYTES = 72
+# What the greeting says; bounded so a pasted paragraph does not become a heading.
+MAX_DISPLAY_NAME = 60
 
 # OAuth2 scheme - tokenUrl points to our login endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
@@ -47,9 +49,25 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # ── Schemas ───────────────────────────────────────────────────────
 
+def _display_name(value: str | None) -> str | None:
+    """Whitespace collapsed and bounded; None when not given."""
+    if value is None:
+        return None
+    name = " ".join(value.split())
+    if not 1 <= len(name) <= MAX_DISPLAY_NAME:
+        raise ValueError(f"Display name must be 1 to {MAX_DISPLAY_NAME} characters.")
+    return name
+
+
 class UserRegister(BaseModel):
     email: str
     password: str
+    display_name: str | None = None
+
+    @field_validator("display_name")
+    @classmethod
+    def _a_name(cls, value: str | None) -> str | None:
+        return _display_name(value)
 
 
 class PersonaOption(BaseModel):
@@ -57,6 +75,8 @@ class PersonaOption(BaseModel):
 
     key: str
     article_number: int
+    # The fund, in the words a member uses for their employer.
+    fund: str
     label: str
     summary: str
     tier: int
@@ -91,8 +111,15 @@ class SignupRequest(BaseModel):
 
     email: EmailStr
     password: str
+    # Optional to the API, so older clients keep working; the sign-up form asks.
+    display_name: str | None = None
     persona: str
     edits: PersonaEdits = PersonaEdits()
+
+    @field_validator("display_name")
+    @classmethod
+    def _a_name(cls, value: str | None) -> str | None:
+        return _display_name(value)
 
     @field_validator("email")
     @classmethod
@@ -134,7 +161,13 @@ class TokenResponse(BaseModel):
 
 
 class TokenData(BaseModel):
-    employee_id: uuid.UUID
+    """Who is signed in: an account (004), not a profile.
+
+    Which profile a request acts as is decided per conversation -- a session
+    row names its profile -- so the token carries none.
+    """
+
+    account_id: uuid.UUID
     email: str
 
 
@@ -153,7 +186,9 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes)
     )
-    to_encode.update({"exp": expire})
+    # `typ` names what `sub` is. Tokens issued before accounts (004) carried an
+    # employee id there, and `get_current_user` refuses anything without this.
+    to_encode.update({"exp": expire, "typ": "account"})
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -168,15 +203,18 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> TokenD
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
-        employee_id = payload.get("sub")
+        account_id = payload.get("sub")
         email = payload.get("email")
-        if employee_id is None or email is None:
+        if account_id is None or email is None or payload.get("typ") != "account":
+            # A token from before accounts (004) names an employee, not an
+            # account. A 401 makes the client sign out cleanly rather than
+            # fail later on a lookup that finds nothing.
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return TokenData(employee_id=uuid.UUID(employee_id), email=email)
+        return TokenData(account_id=uuid.UUID(account_id), email=email)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -212,10 +250,10 @@ async def require_admin(user: TokenData = Depends(require_auth)) -> TokenData:
     revoked, and these endpoints are cold enough that the round trip is free.
     """
     async with get_admin_session() as session:
-        from pension_chat.db.models import Employee
+        from pension_chat.db.models import Account
 
         result = await session.execute(
-            select(Employee.is_admin).where(Employee.id == user.employee_id)
+            select(Account.is_admin).where(Account.id == user.account_id)
         )
         if not result.scalar_one_or_none():
             # Deliberately the same shape of answer as an unknown endpoint would
@@ -244,6 +282,7 @@ async def list_personas():
         PersonaOption(
             key=persona.key,
             article_number=persona.article_number,
+            fund=personas.FUND_NAMES[persona.article_number],
             label=persona.label,
             summary=persona.summary,
             tier=persona.tier,
@@ -295,18 +334,31 @@ async def signup(body: SignupRequest):
             detail={"persona": persona.key, "problems": problems},
         )
 
+    new_account_id = uuid.uuid4()
     new_id = uuid.uuid4()
-    from pension_chat.db.models import Employee, EmployeeSalaryHistory
+    from pension_chat.db.models import Account, Employee, EmployeeSalaryHistory
 
     try:
-        async with get_db_session(employee_id=new_id) as session:
+        # Both identities: the account policy admits the new account row, the
+        # employee and account policies each admit the new profile.
+        async with get_db_session(account_id=new_account_id, employee_id=new_id) as session:
+            # Field by field, never Model(**payload): this endpoint is open, and
+            # splat construction is a mass-assignment hole straight onto is_admin.
+            account = Account(
+                id=new_account_id,
+                email=body.email,
+                hashed_password=hash_password(body.password),
+                display_name=body.display_name,
+            )
+            session.add(account)
+            # The account first, then the profile, then the link back: the two
+            # rows reference each other, so one has to exist before the other.
+            await session.flush()
             session.add(
                 Employee(
-                    # Field by field, never Employee(**payload): this endpoint is
-                    # open, and splat construction is a mass-assignment hole
-                    # straight onto is_admin.
-                    email=body.email,
-                    hashed_password=hash_password(body.password),
+                    account_id=new_account_id,
+                    persona_key=persona.key,
+                    label=persona.label,
                     **personas.to_employee_kwargs(edited, employee_id=new_id),
                 )
             )
@@ -319,6 +371,7 @@ async def signup(body: SignupRequest):
                         annual_salary=salary,
                     )
                 )
+            account.primary_employee_id = new_id
             await session.commit()
     except IntegrityError:
         # Attempted rather than pre-checked. A check-then-insert races, and the
@@ -330,7 +383,9 @@ async def signup(body: SignupRequest):
         ) from None
 
     return TokenResponse(
-        access_token=create_access_token(data={"sub": str(new_id), "email": body.email}),
+        access_token=create_access_token(
+            data={"sub": str(new_account_id), "email": body.email}
+        ),
         employee_id=str(new_id),
     )
 
@@ -349,13 +404,17 @@ async def register(body: UserRegister):
     another column's behaviour is how this becomes an account-takeover path the
     first time some other code creates a row without one.
     """
+    email = body.email.strip().lower()
     async with get_admin_session() as session:
-        from pension_chat.db.models import Employee
+        from pension_chat.db.models import Account, Employee
 
+        # Since 004 a claim creates an account over the seeded row, so "not yet
+        # linked to an account" joins "no password" as the invariant.
         result = await session.execute(
             select(Employee).where(
-                func.lower(Employee.email) == body.email.strip().lower(),
+                func.lower(Employee.email) == email,
                 Employee.hashed_password.is_(None),
+                Employee.account_id.is_(None),
             )
         )
         employee = result.scalar_one_or_none()
@@ -367,18 +426,25 @@ async def register(body: UserRegister):
                        "Use /signup to create an account instead.",
             )
 
-        if employee.hashed_password is not None:
+        account = Account(
+            email=email,
+            hashed_password=hash_password(body.password),
+            display_name=body.display_name,
+        )
+        session.add(account)
+        try:
+            await session.flush()
+        except IntegrityError:
+            # An account already uses this address.
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Account already registered. Please login.",
-            )
-
-        employee.hashed_password = hash_password(body.password)
+            ) from None
+        employee.account_id = account.id
+        account.primary_employee_id = employee.id
         await session.commit()
 
-        token = create_access_token(
-            data={"sub": str(employee.id), "email": employee.email}
-        )
+        token = create_access_token(data={"sub": str(account.id), "email": email})
         return TokenResponse(
             access_token=token,
             employee_id=str(employee.id),
@@ -389,33 +455,28 @@ async def register(body: UserRegister):
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Login with email/password and receive a JWT token."""
     async with get_admin_session() as session:
-        from pension_chat.db.models import Employee
+        from pension_chat.db.models import Account
 
         result = await session.execute(
-            select(Employee).where(
-                func.lower(Employee.email) == form_data.username.strip().lower()
+            select(Account).where(
+                func.lower(Account.email) == form_data.username.strip().lower()
             )
         )
-        employee = result.scalar_one_or_none()
+        account = result.scalar_one_or_none()
 
-        if employee is None or employee.hashed_password is None:
+        if (
+            account is None
+            or account.hashed_password is None
+            or not verify_password(form_data.password, account.hashed_password)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        if not verify_password(form_data.password, employee.hashed_password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        token = create_access_token(
-            data={"sub": str(employee.id), "email": employee.email}
-        )
+        token = create_access_token(data={"sub": str(account.id), "email": account.email})
         return TokenResponse(
             access_token=token,
-            employee_id=str(employee.id),
+            employee_id=str(account.primary_employee_id) if account.primary_employee_id else None,
         )

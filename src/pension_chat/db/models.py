@@ -76,8 +76,11 @@ class Employee(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
-    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    # For JWT auth (replaces Entra oid claim)
+    # Optional since 004: sign-in lives on `Account`, and a profile beyond an
+    # account's first has no address of its own. Kept for the pilot's seeded
+    # members, whom `/register` finds by it.
+    email: Mapped[str | None] = mapped_column(Text, unique=True, nullable=True)
+    # Superseded by `Account.hashed_password` (004); kept for the downgrade.
     hashed_password: Mapped[str | None] = mapped_column(Text, nullable=True)
     article_number: Mapped[int] = mapped_column(
         SmallInteger,
@@ -106,14 +109,24 @@ class Employee(Base):
         nullable=False,
         server_default="true",
     )
-    # Read per request by `require_admin` rather than carried as a token claim:
-    # a claim inside a 24-hour token cannot be revoked, and the admin endpoints
-    # are cold enough that the round trip costs nothing.
+    # Superseded by `Account.is_admin` (004), which `require_admin` reads. Kept
+    # so a downgrade can hand the flag back; dropped by the cleanup migration.
     is_admin: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         server_default="false",
     )
+    # The account this profile belongs to (004). NULL for a seeded pilot member
+    # nobody has claimed yet.
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("accounts.id"),
+        nullable=True,
+        index=True,
+    )
+    # The preset this profile started from, and its member-facing name.
+    persona_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -139,6 +152,45 @@ class Employee(Base):
         back_populates="employee", cascade="all, delete-orphan"
     )
     sessions: Mapped[list[Session]] = relationship(back_populates="employee")
+
+
+class Account(Base):
+    """A sign-in: one person, any number of profiles (004).
+
+    A profile is an `Employee` row; this is who may use it. `is_admin` lives
+    here, read per request by `require_admin` rather than carried as a token
+    claim: a claim inside a 24-hour token cannot be revoked, and the admin
+    endpoints are cold enough that the round trip costs nothing.
+    """
+
+    __tablename__ = "accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    # Unique on lower(email), by index (004).
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    hashed_password: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="false",
+    )
+    # The profile a new chat uses unless another is chosen. `use_alter`: the
+    # two tables reference each other, so one constraint has to come second.
+    primary_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employees.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
 
 
 class EmployeeSalaryHistory(Base):

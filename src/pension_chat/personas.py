@@ -30,9 +30,11 @@ fixed, and the two originals keep the values that database already holds.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
 from pension_chat.agent.facts import age_on, derive_tier
 
@@ -117,7 +119,7 @@ ARTICLE_11_STANDARD = Persona(
     id=uuid.UUID("de75c498-20cc-446d-8858-ec26303349fa"),
     key="article-11-standard",
     article_number=11,
-    label="Standard",
+    label="Mid-career, still working",
     summary="Mid-career, Tier 1, still working. 21.5 years of service at 56.",
     birth_date=date(1970, 5, 15),
     hire_date=date(2005, 3, 1),
@@ -135,7 +137,7 @@ ARTICLE_11_NEAR_RETIREMENT = Persona(
     id=uuid.UUID("b1f0a4c2-5d3e-4a71-9c88-0f2e6d7a1b34"),
     key="article-11-near-retirement",
     article_number=11,
-    label="Near retirement",
+    label="Close to retirement",
     summary=(
         "59 with 31 years of service — close enough to age 60 for the "
         "early-retirement reduction to matter, and close enough to the 80% cap "
@@ -153,7 +155,7 @@ ARTICLE_11_TIER_2 = Persona(
     id=uuid.UUID("c4a7e912-88b6-4f05-a3d1-7e5c0b93f2aa"),
     key="article-11-tier-2",
     article_number=11,
-    label="Tier 2",
+    label="Joined after 2011",
     summary="First joined in 2014, so Section 1-160 governs the accrual rather than Article 11 alone.",
     birth_date=date(1988, 10, 23),
     hire_date=date(2014, 4, 14),
@@ -203,7 +205,7 @@ ARTICLE_12_STANDARD = Persona(
     id=uuid.UUID("8b33966a-8d4d-47e5-8fbf-fc950239f111"),
     key="article-12-standard",
     article_number=12,
-    label="Standard",
+    label="Mid-career, still working",
     summary="Park employee, Tier 1, 25 years of service at 57.",
     birth_date=date(1968, 9, 2),
     hire_date=date(2001, 7, 16),
@@ -221,7 +223,7 @@ ARTICLE_12_TIER_2 = Persona(
     id=uuid.UUID("f7d21c48-6a35-4b90-8c1e-2b9f5d03e614"),
     key="article-12-tier-2",
     article_number=12,
-    label="Tier 2",
+    label="Joined after 2011",
     summary=(
         "Park employee who first joined in 2016 — Section 1-160 reaches "
         "Article 12 the same way it reaches Article 11."
@@ -255,6 +257,15 @@ SEEDED: tuple[Persona, ...] = (ARTICLE_11_STANDARD, ARTICLE_12_STANDARD)
 # asked about — that path does not need a persona.
 OFFERED_ARTICLES = (11, 12)
 
+#: Each offered Article's fund, in the words a member uses for their employer.
+#: The picker leads with this and shows the Article number after it: members
+#: know who they work for, not which Article covers them (that is the whole
+#: reason `agent/coverage.py` exists).
+FUND_NAMES: dict[int, str] = {
+    11: "Chicago laborers",
+    12: "Chicago Park District",
+}
+
 
 def by_key(key: str) -> Persona | None:
     return next((p for p in PERSONAS if p.key == key), None)
@@ -267,6 +278,31 @@ def by_id(persona_id: uuid.UUID | str) -> Persona | None:
 
 def for_article(article_number: int) -> tuple[Persona, ...]:
     return tuple(p for p in PERSONAS if p.article_number == article_number)
+
+
+def persona_from_row(row: Any, history: Sequence[tuple[date, Decimal]]) -> Persona:
+    """A stored profile as a Persona, so `apply_edits` and `validate` apply to it.
+
+    A profile starts from a preset and is then edited, so every value is the
+    row's; the preset lends only what the row does not store (its summary). The
+    Article comes from the row and nothing here can change it -- another
+    Article is another profile.
+    """
+    template = by_key(row.persona_key) if row.persona_key else by_id(row.id)
+    return Persona(
+        id=row.id,
+        key=row.persona_key or (template.key if template else "custom"),
+        article_number=row.article_number,
+        label=row.label or (template.label if template else "Profile"),
+        summary=template.summary if template else "",
+        birth_date=row.birth_date,
+        hire_date=row.hire_date,
+        employment_status=row.employment_status,
+        total_service_years=Decimal(str(row.total_service_years)),
+        current_annual_salary=Decimal(str(row.current_annual_salary)),
+        salary_history=tuple((when, Decimal(str(amount))) for when, amount in history),
+        email=row.email,
+    )
 
 
 # ── Editing a persona ─────────────────────────────────────────────
