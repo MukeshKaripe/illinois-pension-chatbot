@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage
@@ -314,6 +315,34 @@ async def send_message(
                 for m in reversed(prior.scalars().all())
             ]
 
+    async def save_stopped_answer(text: str, user_turn: asyncio.Task[None] | None) -> None:
+        """Keep an answer the member stopped, and say what it is.
+
+        Stop closes the connection, which cancels the stream -- and in a
+        cancelled scope every unshielded await is cancelled again, so the
+        answer used to vanish on reload while the member's question, written on
+        its own task, survived. Shielded here. The row is marked stopped and was
+        never verified, so `guardrail_passed` stays NULL rather than claim either.
+        """
+        with anyio.CancelScope(shield=True):
+            try:
+                if user_turn is not None:
+                    # The question lands before the answer, as on the normal path.
+                    await user_turn
+                async with _scoped() as db:
+                    db.add(
+                        SessionMessage(
+                            session_id=session_uuid,
+                            role="assistant",
+                            content=text,
+                            tool_calls=[{"type": "stopped"}],
+                            guardrail_passed=None,
+                        )
+                    )
+                    await db.commit()
+            except Exception:
+                logger.exception("Failed to persist a stopped answer")
+
     async def event_stream():
         """Stream the turn: preamble → status → answer tokens → done.
 
@@ -327,7 +356,12 @@ async def send_message(
         answer_parts: list[str] = []
         replaced_answer: str | None = None
         final_state: dict = {}
+        card: dict | None = None
         stream_failed = False
+        save_task: asyncio.Task[None] | None = None
+        # Set once the stream has run to its end, whichever way. Until then the
+        # `finally` below owns persistence: a disconnect skips everything after it.
+        completed = False
 
         try:
             # Templated, keyword-selected, no model call — this is the first
@@ -375,23 +409,37 @@ async def send_message(
                     yield sse_error(event["message"])
                 elif kind == "done":
                     final_state = event.get("state") or {}
+                    card = event.get("card")
+            completed = True
         except Exception:
+            completed = True
             stream_failed = True
             logger.exception("Error in SSE stream")
             yield sse_error(
                 "Something went wrong while answering. Please try again."
             )
+        finally:
+            # A disconnect (Stop) arrives as CancelledError or GeneratorExit --
+            # BaseExceptions, so `except Exception` never sees them and nothing
+            # below this block runs. Keep what the member watched stream in.
+            if not completed and answer_parts:
+                await save_stopped_answer("".join(answer_parts), save_task)
 
         # The user's turn must land before the assistant's, so that reloading
         # the conversation shows them in order.
         try:
-            await save_task
+            if save_task is not None:
+                await save_task
         except Exception:
             logger.exception("Failed to persist user message")
 
         answer = replaced_answer or "".join(answer_parts)
         if stream_failed and not answer:
             return
+
+        # The calculation card rides in the audit trail: it is provenance too,
+        # and there it needs no column of its own.
+        tool_calls = _audit_trail(final_state) + ([card] if card else [])
 
         # Persist the assistant turn, including the audit metadata the
         # architecture requires (§7.1): citations, and whether the answer passed
@@ -411,7 +459,7 @@ async def send_message(
                     # all: there is no column for the verified list, and this one
                     # is ours to define.
                     citations=_verified_citations(final_state),
-                    tool_calls=_audit_trail(final_state),
+                    tool_calls=tool_calls,
                     guardrail_passed=final_state.get("guardrail_passed", True),
                 )
                 db.add(assistant_msg)
@@ -426,7 +474,7 @@ async def send_message(
         yield sse_done(
             message_id=msg_id,
             citations=final_state.get("citations"),
-            tool_calls=_audit_trail(final_state),
+            tool_calls=tool_calls,
             guardrail_passed=final_state.get("guardrail_passed", True),
             verified_citations=(final_state.get("guardrail_report") or {}).get(
                 "verified_citations", []

@@ -39,6 +39,7 @@ from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
 from pension_chat.agent.blocks import MarkerSubstituter
+from pension_chat.agent.card import calculation_card
 from pension_chat.agent.checkpointer import (
     SqlAlchemyCheckpointSaver,
     thread_config,
@@ -468,7 +469,19 @@ async def run_agent_stream(
         "time_to_first_token": first_token_at or 0.0,
         "total": time.perf_counter() - started,
     }
-    yield {"type": "done", "state": state}
+    # The card's figures come from the interpreter, but it sits beside an answer;
+    # when verification replaced that answer its figures are unverified too, and
+    # the card goes with them.
+    card = None
+    if report.passed:
+        card = calculation_card(
+            state,
+            WorkSheet.from_state(
+                state,
+                record_usable=not _coverage_elsewhere(cast(PensionAgentState, state)),
+            ),
+        )
+    yield {"type": "done", "state": state, "card": card}
 
 
 def turn_record(state: dict) -> dict[str, Any] | None:
