@@ -1,0 +1,143 @@
+# One case per member fund, run as that fund's standard persona (spec §9, Phase 3b).
+#
+# A fund is offered as a profile only if its case here does not produce a figure
+# from another Article's law, and it moves from `experimental` to `checked` in
+# `funds.py` only when its case passes -- a decision made in config, never
+# inferred. A pass means both: coverage resolves to the persona's own Article,
+# and the calculation question gets either a figure resting on that Article's
+# sections or the inputs it lacks (`fund_figure`). What it deliberately does not
+# test is whether a figure is *right*; that is the benchmark's job, and the
+# reason passing here is necessary for `checked` rather than sufficient.
+#
+# 11 and 12 are positive controls: already checked, and a failure there means
+# the case is wrong rather than the fund.
+
+category: fund_smoke
+
+cases:
+  - id: F02
+    name: General Assembly member
+    employee: article-2-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "2", fund_figure: "2" }
+
+  - id: F03
+    name: Police officer outside Chicago
+    employee: article-3-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "3", fund_figure: "3" }
+
+  - id: F04
+    name: Firefighter outside Chicago
+    employee: article-4-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "4", fund_figure: "4" }
+
+  - id: F05
+    name: Chicago police officer
+    employee: article-5-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "5", fund_figure: "5" }
+
+  - id: F06
+    name: Chicago firefighter
+    employee: article-6-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "6", fund_figure: "6" }
+
+  - id: F07
+    name: Municipal employee (IMRF)
+    employee: article-7-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "7", fund_figure: "7" }
+
+  - id: F08
+    name: Chicago municipal employee
+    employee: article-8-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "8", fund_figure: "8" }
+
+  - id: F09
+    name: Cook County employee
+    employee: article-9-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "9", fund_figure: "9" }
+
+  - id: F10
+    name: Forest Preserve District employee
+    employee: article-10-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "10", fund_figure: "10" }
+
+  - id: F11
+    name: Chicago laborer (positive control)
+    employee: article-11-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "11", fund_figure: "11" }
+
+  - id: F12
+    name: Chicago Park District employee (positive control)
+    employee: article-12-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "12", fund_figure: "12" }
+
+  - id: F13
+    name: Water Reclamation District employee
+    employee: article-13-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "13", fund_figure: "13" }
+
+  - id: F14
+    name: State employee
+    employee: article-14-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "14", fund_figure: "14" }
+
+  - id: F15
+    name: State university employee
+    employee: article-15-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "15", fund_figure: "15" }
+
+  - id: F16
+    name: Teacher outside Chicago
+    employee: article-16-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "16", fund_figure: "16" }
+
+  - id: F17
+    name: Chicago Public Schools teacher
+    employee: article-17-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "17", fund_figure: "17" }
+
+  - id: F18
+    name: Judge
+    employee: article-18-standard
+    turns:
+      - q: Roughly what would my pension be if I retired at the end of this year?
+        expect: { coverage_article: "18", fund_figure: "18" }
+
+  - id: F19
+    name: Closed fund member, already retired
+    employee: article-19-standard
+    turns:
+      # Retired, so the question is about the annuity being paid, not one to come.
+      - q: Roughly how much is my pension each year?
+        expect: { coverage_article: "19", fund_figure: "19" }

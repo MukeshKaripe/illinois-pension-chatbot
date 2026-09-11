@@ -183,3 +183,31 @@ def test_the_critical_cases_are_the_ones_worth_failing_a_run_over():
         # end as the acceptance test.
         "E90", "E91",
     }
+
+
+def _ran(section: str, ok: bool = True) -> dict:
+    return {"section": section, "base": {"ok": ok}}
+
+
+@pytest.mark.parametrize(
+    ("calculation", "missing", "blocked", "fails"),
+    [
+        # Its own law: a figure under Article 5 for a Chicago police officer.
+        ({"retirement_annuity": _ran("5-167")}, [], None, False),
+        # The failure the smoke eval exists for: another Article's formula.
+        ({"retirement_annuity": _ran("11-134")}, [], None, True),
+        # Honest gaps: an input the fund needs, or a recipe the validator refused.
+        ({}, ["salary_attached_to_rank"], None, False),
+        ({}, [], "validator: missing evidence", False),
+        # A failed attempt is not a figure, whatever section it names.
+        ({"retirement_annuity": _ran("11-134", ok=False)}, ["service_years"], None, False),
+        # Asked for a figure and gave neither a figure nor a reason.
+        ({}, [], None, True),
+    ],
+)
+def test_a_fund_smoke_case_passes_on_its_own_law_or_an_honest_gap(
+    calculation, missing, blocked, fails
+):
+    result = {"calculation": calculation, "missing_inputs": missing, "execution_blocked": blocked}
+    problems = _harness().fund_figure_problems(result, "5")
+    assert bool(problems) is fails, problems

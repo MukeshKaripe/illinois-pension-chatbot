@@ -247,6 +247,34 @@ def _inputs_used(result: dict) -> dict:
     return used
 
 
+def fund_figure_problems(result: dict, article: str) -> list[str]:
+    """Spec §9's smoke rule for a fund: a figure from its own law, or an honest gap.
+
+    The failure this exists to catch is the one the spec's risk list names: a
+    fund whose formula rests on a different salary basis (police, fire) getting
+    a figure from another Article's recipe. A missing input or a validator
+    rejection is an honest answer; a borrowed formula is a wrong number with a
+    real citation on it.
+    """
+    ran = [
+        entry
+        for entry in (result["calculation"] or {}).values()
+        if (entry.get("base") or {}).get("ok")
+    ]
+    if ran:
+        foreign = sorted(
+            {
+                str(entry.get("section"))
+                for entry in ran
+                if not str(entry.get("section") or "").startswith(f"{article}-")
+            }
+        )
+        return [f"figure computed under {foreign}, not Article {article}"] if foreign else []
+    if result["missing_inputs"] or result["execution_blocked"]:
+        return []
+    return ["no figure, and no missing input or blocked recipe to say why"]
+
+
 def check(result: dict, earlier: list[dict]) -> list[str]:
     """Deterministic pass/fail signals. Judgement calls stay with the reader."""
     problems: list[str] = []
@@ -415,6 +443,9 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         actual = (result["coverage"] or {}).get("article")
         if str(actual) != str(article):
             problems.append(f"coverage article {actual!r}, expected {article!r}")
+
+    if (fund := expect.get("fund_figure")) is not None:
+        problems.extend(fund_figure_problems(result, str(fund)))
 
     if (frame := expect.get("hypothetical")) is not None:
         held = bool(result["hypothetical_frame"])

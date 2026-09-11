@@ -75,15 +75,35 @@ async def seed():
         # outright, and while the column defaulted to `gen_random_uuid()` a
         # freshly seeded database bound both cases to nothing at all -- without
         # failing, because a case with no such employee simply runs anonymous.
-        for persona in personas.SEEDED:
+        #
+        # Beside them, one standard member for every other fund (Phase 3b),
+        # which is what `evals/fund_smoke.yaml` runs as. No email and no
+        # account: nobody signs in as them, and `/register` claims only a row
+        # with an email to match.
+        known_articles = set(
+            (await db.execute(select(PensionArticle.article_number))).scalars()
+        )
+        for persona in (*personas.SEEDED, *personas.FUND_STANDARDS):
+            name = persona.email or persona.key
+            if persona.article_number not in known_articles:
+                # The foreign key needs the Article's row, and its name comes
+                # from ingestion rather than from a second list kept here.
+                print(f"  ! Article {persona.article_number} is not ingested; "
+                      f"skipping {name} (run scripts/ingest_articles.py)")
+                continue
             existing = await db.execute(
                 select(Employee).where(Employee.id == persona.id)
             )
             if existing.scalar_one_or_none() is not None:
-                print(f"  · Employee {persona.email} already exists, skipping")
+                print(f"  · Employee {name} already exists, skipping")
                 continue
 
-            db.add(Employee(email=persona.email, **personas.to_employee_kwargs(persona)))
+            db.add(Employee(
+                email=persona.email,
+                persona_key=persona.key,
+                label=persona.label,
+                **personas.to_employee_kwargs(persona),
+            ))
             await db.flush()
 
             for eff_date, salary in persona.salary_history:
@@ -93,7 +113,7 @@ async def seed():
                     annual_salary=salary,
                 ))
 
-            print(f"  ✓ Created employee: {persona.email} "
+            print(f"  ✓ Created employee: {name} "
                   f"(Article {persona.article_number}, Tier {persona.tier}, "
                   f"hired {persona.hire_date}, "
                   f"salary ${persona.current_annual_salary:,.2f})")
