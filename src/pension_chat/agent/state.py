@@ -132,6 +132,10 @@ class PensionAgentState(TypedDict, total=False):
     # ── Execution State ───────────────────────────────────────────
     employee_record: dict | None
     salary_history: list[dict]
+    # The record and salary history as loaded on the conversation's first turn,
+    # {record, salary_history}. Durable: later turns rebuild their facts from it,
+    # so editing a profile changes new chats and not one already under way.
+    pinned_record: dict | None
     # Deterministic facts computed from the record (age, service, FAS, ...)
     member_facts: Annotated[dict[str, Any], merge_dicts]
 
@@ -232,6 +236,9 @@ DURABLE_KEYS: frozenset[str] = frozenset({
     "hypothetical_frame",
     "open_question",
     "clarifications_asked",
+    # The record this conversation started with (spec §6): an answer resting on
+    # facts that change under it mid-conversation contradicts the one before it.
+    "pinned_record",
 })
 
 # Merged keys need `CLEAR` rather than an empty value: `{}` merges to nothing
@@ -323,6 +330,7 @@ def initial_state(
         "answerable_part": "",
         "stale_figures": [],
         "employee_record": None,
+        "pinned_record": None,
         "salary_history": [],
         "member_facts": {},
         "retrieved_sections": [],

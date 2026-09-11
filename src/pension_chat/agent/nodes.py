@@ -537,17 +537,48 @@ async def retrieve_policy(state: PensionAgentState) -> dict:
 
 
 async def fetch_employee_record(state: PensionAgentState) -> dict:
-    """Load the authenticated member's record and salary history.
+    """Load the member's record and salary history for this turn.
 
     Salary history is not optional detail: Article 11's minimum-annuity formulas
     are written on "the highest average annual salary for any 4 consecutive
     years", which cannot be computed from a single current-salary column.
+
+    **A conversation keeps the record it loaded on its first turn** (spec §6).
+    Profiles are editable, and a profile edited mid-conversation must change new
+    chats, not this one -- whose earlier answers rest on the facts it started
+    with. The first load is pinned in `pinned_record` (durable) and every later
+    turn rebuilds its facts from the pin, which also saves a database round trip.
+    A pin is used only for the profile it was taken from.
     """
     started = time.perf_counter()
     employee_id = state.get("employee_id")
     if not employee_id:
         return {"employee_record": None, "salary_history": []}
 
+    pinned = state.get("pinned_record") or {}
+    if (pinned.get("record") or {}).get("id") == str(employee_id):
+        record, history = pinned["record"], pinned["salary_history"]
+    else:
+        loaded = await _load_record(employee_id)
+        if loaded is None:
+            return {"employee_record": None, "salary_history": []}
+        record, history = loaded
+
+    facts = build_member_facts(
+        record, [(date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"]))) for h in history]
+    )
+
+    return {
+        "employee_record": record,
+        "salary_history": history,
+        "member_facts": facts,
+        "pinned_record": {"record": record, "salary_history": history},
+        "timings": {"fetch_employee_record": time.perf_counter() - started},
+    }
+
+
+async def _load_record(employee_id: str) -> tuple[dict, list[dict]] | None:
+    """The record and salary history as stored, or None if unavailable."""
     try:
         # Scoped to this member: the policy on `employees` and, through it, on
         # `employee_salary_history` will return nothing for anyone else's id.
@@ -562,7 +593,7 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
             )
             employee = result.scalar_one_or_none()
             if employee is None:
-                return {"employee_record": None, "salary_history": []}
+                return None
 
             history = [
                 {
@@ -575,7 +606,7 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
             ]
     except Exception:
         logger.exception("Failed to load employee record %s", employee_id)
-        return {"employee_record": None, "salary_history": []}
+        return None
 
     record = {
         "id": str(employee.id),
@@ -587,17 +618,7 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
         "total_service_years": float(employee.total_service_years),
         "current_annual_salary": float(employee.current_annual_salary),
     }
-
-    facts = build_member_facts(
-        record, [(date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"]))) for h in history]
-    )
-
-    return {
-        "employee_record": record,
-        "salary_history": history,
-        "member_facts": facts,
-        "timings": {"fetch_employee_record": time.perf_counter() - started},
-    }
+    return record, history
 
 
 # ── 3. Recipe resolution ──────────────────────────────────────────
