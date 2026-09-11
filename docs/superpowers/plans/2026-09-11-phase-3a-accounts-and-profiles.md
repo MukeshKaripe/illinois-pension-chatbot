@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Additive and reversible.** 004 drops nothing; `downgrade()` hands sign-in back to the employee rows and restores `employees.email NOT NULL` (placeholders for profile rows that have none). Old sign-in columns on `employees` stay until a later cleanup migration.
+- **Additive and reversible.** 005 drops nothing; `downgrade()` hands sign-in back to the employee rows and restores `employees.email NOT NULL` (placeholders for profile rows that have none). Old sign-in columns on `employees` stay until a later cleanup migration.
 - The app role has NOBYPASSRLS (003): the migration's data copy runs after `set_config('app.admin', 'on', true)`.
 - Policies follow 003's pattern: `USING (p OR ADMIN) WITH CHECK (p OR ADMIN)`, identities read through `NULLIF(current_setting(…, true), '')`.
 - `get_admin_session` users stay exactly {auth, admin, sessions, checkpointer, main}. The anonymous path (`session_token`, its predicate, `BASIS_UNRESOLVED`) is untouched.
@@ -21,8 +21,8 @@
 
 ## Tasks
 
-### Task 1: Migration 004 and models
-- `alembic/versions/004_accounts.py`: `accounts(id, email, hashed_password, display_name, is_admin, primary_employee_id → employees ON DELETE SET NULL, created_at)`, unique `lower(email)`; `employees` + `account_id` (FK, indexed), `persona_key`, `label`; `employees.email` nullable. Copy: every employee with a password becomes an account over its own row (`primary_employee_id`), linked back via `account_id`. RLS on `accounts` (enable + force). Policies: `accounts_self_access` (`id = account`), `employees_account_access` (`account_id = account`), `sessions_account_access` (`employee_id IN (SELECT id FROM employees WHERE account_id = account)`); messages and checkpoints inherit through `sessions`.
+### Task 1: Migration 005 and models
+- `alembic/versions/005_accounts.py` (follows `004_admin_role`): `accounts(id, email, hashed_password, display_name, is_admin, primary_employee_id → employees ON DELETE SET NULL, created_at)`, unique `lower(email)`; `employees` + `account_id` (FK, indexed), `persona_key`, `label`; `employees.email` nullable. Copy: every employee with a password becomes an account over its own row (`primary_employee_id`), linked back via `account_id`. RLS on `accounts` (enable + force). Policies: `accounts_self_access` (`id = account`), `employees_account_access` (`account_id = account`), `sessions_account_access` (`employee_id IN (SELECT id FROM employees WHERE account_id = account)`); messages and checkpoints inherit through `sessions`.
 - `db/models.py`: `Account`; `Employee.email` optional, `account_id`, `persona_key`, `label`.
 - `db/session.py`: `get_db_session(..., account_id=None)` sets `app.current_account_id` in the same `set_config` statement.
 
