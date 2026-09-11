@@ -299,6 +299,11 @@ async def assess_coverage(state: PensionAgentState) -> dict:
     # never touches the corpus.
     if reference.kind == coverage_mod.STATUS:
         update = {"self_reference": reference.to_dict()}
+        # A remark about status says nothing about which Article governs, so
+        # coverage stays where a quiet turn leaves it. Returning without one left
+        # every first turn that mentioned retiring with no verdict at all.
+        if not established:
+            update["coverage"] = _record_coverage(record_article, turn)
         on_file = (employee or {}).get("employment_status")
         if (
             reference.act == coverage_mod.ASSERTED
