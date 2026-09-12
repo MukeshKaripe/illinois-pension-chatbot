@@ -543,11 +543,24 @@ async def main() -> int:
     parser.add_argument("--json", dest="json_path", help="write the full report here")
     parser.add_argument("--quiet", action="store_true", help="omit answer text")
     parser.add_argument(
+        "--mode",
+        choices=("pipeline", "loop"),
+        default="pipeline",
+        help="which agent to run the suite against (loop lands in Phase 3)",
+    )
+    parser.add_argument(
         "--include-blocked",
         action="store_true",
         help="also run cases needing corpus that is not ingested yet",
     )
     args = parser.parse_args()
+
+    if args.mode == "loop":
+        print(
+            "--mode loop is not available yet: the agent loop lands in Phase 3. "
+            "Run without --mode to measure the pipeline."
+        )
+        return 2
 
     # Redirected to a file, Python buffers stdout and a twenty-minute run shows
     # nothing at all until it exits. Progress on a long run is most of what the
@@ -644,8 +657,12 @@ async def main() -> int:
     )
 
     if args.json_path:
+        # A report that cannot say which agent produced it is not a baseline.
+        # `report` is a list of cases, so the mode needs a wrapper; nothing
+        # reads these files today, and a future reader takes ["cases"].
         Path(args.json_path).write_text(
-            json.dumps(report, indent=2, default=str), encoding="utf-8"
+            json.dumps({"mode": args.mode, "cases": report}, indent=2, default=str),
+            encoding="utf-8",
         )
         print(f"report written to {args.json_path}")
 
