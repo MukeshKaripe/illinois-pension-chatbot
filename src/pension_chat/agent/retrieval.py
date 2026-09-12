@@ -29,6 +29,7 @@ from typing import Any
 
 from azure.search.documents.models import VectorizedQuery
 
+from pension_chat.agent import corpus
 from pension_chat.agent.llm import get_async_search_client, get_llm
 from pension_chat.config import get_settings
 
@@ -61,9 +62,10 @@ _MIN_SECTION_CHARS = 1200
 
 
 def reset_caches() -> None:
-    """Drop cached statute text and query embeddings."""
+    """Drop cached statute text, query embeddings, and the corpus graph."""
     _SECTION_CACHE.clear()
     _EMBED_CACHE.clear()
+    corpus.reset_corpus_cache()
 
 
 @dataclass
@@ -574,23 +576,37 @@ async def _follow_references(
     char_budget: int,
     limit: int,
 ) -> list[RetrievedSection]:
-    """Pull in the sections that the retrieved text itself points at.
+    """Pull in the sections that the retrieved text points at.
 
-    Only the highest-scoring sections' references are followed, and only one
-    hop — following every reference transitively pulls in most of the Article.
+    Ranked by how many of the retrieved sections name each target, not by which
+    retrieved section happened to rank highest. The old rule read the top three
+    and took the first two references it found, so a definition named only by
+    the fourth-best hit was unreachable -- and Section 11-134 computes on
+    service "as defined in Section 11-216", which is exactly that shape.
+
+    Falls back to the sections' own `referenced_sections` if the corpus cannot
+    be built, so a search outage degrades to the previous behaviour rather than
+    dropping cross-references entirely.
     """
     already = {section.section for section in assembled}
-    wanted: list[str] = []
 
-    for section in assembled[:3]:
-        for ref in section.referenced_sections:
-            normalised = str(ref).split("(")[0].strip()
-            if normalised and normalised not in already and normalised not in wanted:
-                wanted.append(normalised)
-        if len(wanted) >= limit:
-            break
+    try:
+        built = await corpus.load_corpus()
+        edges = {s.section: built.cites(s.section) for s in assembled}
+    except Exception as exc:  # pragma: no cover - exercised only on an outage
+        logger.warning("Corpus unavailable, falling back to per-section refs: %s", exc)
+        edges = {s.section: tuple(s.referenced_sections) for s in assembled}
 
-    wanted = wanted[:limit]
+    # How many of the retrieved sections lean on each target. A target two
+    # sections cite is likelier to be load-bearing than one cited once.
+    weight: dict[str, int] = {}
+    for targets in edges.values():
+        for raw in targets:
+            target = corpus.normalize_section(raw)
+            if target and target not in already:
+                weight[target] = weight.get(target, 0) + 1
+
+    wanted = sorted(weight, key=lambda s: (-weight[s], corpus.section_sort_key(s)))[:limit]
     if not wanted:
         return []
 
