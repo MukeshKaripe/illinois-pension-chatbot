@@ -144,3 +144,51 @@ async def test_the_corpus_is_built_once_per_process(monkeypatch):
     corpus.reset_corpus_cache()
     await corpus.load_corpus()
     assert builds == 2
+
+
+async def test_related_sections_walks_either_direction(monkeypatch):
+    async def fake_scan():
+        return [
+            chunk("11-134", "11", "Minimum annuities", ["11-216"]),
+            chunk("11-216", "11", "Computation of service", []),
+        ]
+
+    monkeypatch.setattr(corpus, "_scan_index", fake_scan)
+
+    assert await corpus.related_sections("11-134") == ("11-216",)
+    assert await corpus.related_sections("11-134(a)", "cites") == ("11-216",)
+    assert await corpus.related_sections("11-216", "cited_by") == ("11-134",)
+
+
+async def test_an_unknown_direction_is_refused_rather_than_guessed(monkeypatch):
+    """A typo'd direction must not silently return the forward edges.
+
+    This argument reaches here from a model-authored tool call, where "citedBy"
+    and "backward" are exactly the kinds of near-misses to expect.
+    """
+    async def fake_scan():
+        return [chunk("11-134", "11", "Minimum annuities", ["11-216"])]
+
+    monkeypatch.setattr(corpus, "_scan_index", fake_scan)
+
+    with pytest.raises(ValueError, match="cites"):
+        await corpus.related_sections("11-134", "backward")
+
+
+async def test_outline_is_one_articles_headings_in_order(monkeypatch):
+    async def fake_scan():
+        return [
+            chunk("11-134", "11", "Minimum annuities"),
+            chunk("11-130", "11", "Age and service annuity"),
+            chunk("12-118", "12", "Employee defined"),
+        ]
+
+    monkeypatch.setattr(corpus, "_scan_index", fake_scan)
+
+    eleven = await corpus.outline(11)
+    assert [(n.section, n.title) for n in eleven] == [
+        ("11-130", "Age and service annuity"),
+        ("11-134", "Minimum annuities"),
+    ]
+    assert [n.section for n in await corpus.outline("12")] == ["12-118"]
+    assert await corpus.outline(99) == ()

@@ -206,3 +206,32 @@ async def load_corpus() -> Corpus:
                 sum(len(v) for v in _CORPUS._cites.values()),
             )
     return _CORPUS
+
+
+#: The only directions `related_sections` accepts. Spelled out so a model's
+#: near-miss ("backward", "citedBy") is refused rather than read as the default.
+DIRECTIONS = ("cites", "cited_by")
+
+
+async def related_sections(section: str, direction: str = "cites") -> tuple[str, ...]:
+    """Walk one hop of the citation graph.
+
+    `cites` is what this section depends on; `cited_by` is what depends on it,
+    which is where an exception hides.
+    """
+    if direction not in DIRECTIONS:
+        raise ValueError(f"direction must be one of {DIRECTIONS}, not {direction!r}")
+    built = await load_corpus()
+    return built.cites(section) if direction == "cites" else built.cited_by(section)
+
+
+async def outline(article: str | int) -> tuple[SectionNode, ...]:
+    """Every heading in one Article, in statutory order.
+
+    The Code's own vocabulary for its own concepts: a member asks about
+    "retiring early without losing too much", and the heading that answers it
+    says "annuity reduction". Reading the outline is how that gap is crossed
+    without guessing.
+    """
+    built = await load_corpus()
+    return built.outline(str(article))
