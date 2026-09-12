@@ -17,8 +17,10 @@ same reason: statute text is immutable until a re-ingestion restarts the API.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from pension_chat.agent.llm import get_async_search_client
@@ -97,4 +99,110 @@ async def _scan_index() -> list[dict]:
 
 def reset_corpus_cache() -> None:
     """Drop the built corpus. For tests and for a post-ingestion rebuild."""
-    return None
+    global _CORPUS
+    _CORPUS = None
+
+
+@dataclass(frozen=True)
+class SectionNode:
+    """One section as the outline knows it: its id, its Article, its heading."""
+
+    section: str
+    article: str
+    title: str
+
+
+class Corpus:
+    """The Code's structure: which sections exist, and which point at which."""
+
+    def __init__(
+        self,
+        nodes: dict[str, SectionNode],
+        cites: dict[str, tuple[str, ...]],
+        cited_by: dict[str, tuple[str, ...]],
+    ) -> None:
+        self.nodes = nodes
+        self._cites = cites
+        self._cited_by = cited_by
+
+    def cites(self, section: str) -> tuple[str, ...]:
+        """The sections this one names, in statutory order."""
+        return self._cites.get(normalize_section(section), ())
+
+    def cited_by(self, section: str) -> tuple[str, ...]:
+        """The sections that name this one -- the exception you did not look for."""
+        return self._cited_by.get(normalize_section(section), ())
+
+    def outline(self, article: str) -> tuple[SectionNode, ...]:
+        """Every section of one Article, in the order the Code prints them."""
+        wanted = str(article)
+        return tuple(
+            sorted(
+                (n for n in self.nodes.values() if n.article == wanted),
+                key=lambda n: section_sort_key(n.section),
+            )
+        )
+
+
+_CORPUS: Corpus | None = None
+_BUILD_LOCK = asyncio.Lock()
+
+
+def _build(docs: list[dict]) -> Corpus:
+    """Collapse chunks into sections, then edges, then the inverse of the edges."""
+    nodes: dict[str, SectionNode] = {}
+    forward: dict[str, set[str]] = {}
+
+    for doc in docs:
+        section = normalize_section(doc.get("section") or "")
+        if not section:
+            continue
+        if section not in nodes:
+            nodes[section] = SectionNode(
+                section=section,
+                article=str(doc.get("article") or ""),
+                title=str(doc.get("section_title") or ""),
+            )
+        targets = forward.setdefault(section, set())
+        for raw in doc.get("referenced_sections") or []:
+            target = normalize_section(raw)
+            # A section naming its own subsections is not a dependency on
+            # anything; left in, every section cites itself and `cited_by`
+            # returns noise for the sections that matter most.
+            if target and target != section:
+                targets.add(target)
+
+    backward: dict[str, set[str]] = {}
+    for source, targets in forward.items():
+        for target in targets:
+            backward.setdefault(target, set()).add(source)
+
+    def in_order(ids: set[str]) -> tuple[str, ...]:
+        return tuple(sorted(ids, key=section_sort_key))
+
+    return Corpus(
+        nodes=nodes,
+        cites={s: in_order(t) for s, t in forward.items()},
+        cited_by={s: in_order(t) for s, t in backward.items()},
+    )
+
+
+async def load_corpus() -> Corpus:
+    """The built corpus, scanning the index on first use only.
+
+    Locked because two concurrent tool calls on the first turn would otherwise
+    both scan -- twice the latency for one result.
+    """
+    global _CORPUS
+    if _CORPUS is not None:
+        return _CORPUS
+    async with _BUILD_LOCK:
+        if _CORPUS is None:
+            docs = await _scan_index()
+            _CORPUS = _build(docs)
+            logger.info(
+                "Corpus built: %d sections, %d citing edges",
+                len(_CORPUS.nodes),
+                sum(len(v) for v in _CORPUS._cites.values()),
+            )
+    return _CORPUS

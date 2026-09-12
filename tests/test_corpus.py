@@ -81,3 +81,66 @@ def test_sections_order_the_way_the_code_prints_them():
         "11-134",
         "11-134.1",
     ]
+
+
+async def test_the_graph_runs_backwards_as_well_as_forwards(monkeypatch):
+    """The backward edge is the whole point.
+
+    Section 11-134 computes on service "as defined in Section 11-216", so a
+    reader of 11-216 needs to know 11-134 leans on it. Forward edges were
+    already in the index and nothing had ever inverted them.
+    """
+    async def fake_scan():
+        return [
+            chunk("11-134", "11", "Minimum annuities", ["11-216", "11-134(f-1)"]),
+            chunk("11-130", "11", "Age and service annuity", ["11-216"]),
+            chunk("11-216", "11", "Computation of service", []),
+        ]
+
+    monkeypatch.setattr(corpus, "_scan_index", fake_scan)
+    built = await corpus.load_corpus()
+
+    assert built.cites("11-134") == ("11-216",), "a self-reference is not an edge"
+    assert built.cited_by("11-216") == ("11-130", "11-134")
+    assert built.cited_by("11-134") == ()
+    assert built.cites("not-a-section") == ()
+
+
+async def test_chunks_of_one_section_collapse_into_one_node(monkeypatch):
+    """The index stores a record per subsection, not per section.
+
+    Section 11-134 is a dozen chunks. Treated as a dozen nodes, its references
+    are counted a dozen times and its title arrives from whichever chunk landed
+    last.
+    """
+    async def fake_scan():
+        return [
+            chunk("11-134", "11", "Minimum annuities", ["11-216"]),
+            chunk("11-134", "11", "Minimum annuities", ["11-216", "11-131"]),
+        ]
+
+    monkeypatch.setattr(corpus, "_scan_index", fake_scan)
+    built = await corpus.load_corpus()
+
+    assert list(built.nodes) == ["11-134"]
+    assert built.cites("11-134") == ("11-131", "11-216")
+
+
+async def test_the_corpus_is_built_once_per_process(monkeypatch):
+    """A full index scan on every tool call would be indefensible."""
+    builds = 0
+
+    async def fake_scan():
+        nonlocal builds
+        builds += 1
+        return [chunk("11-134", "11", "Minimum annuities", [])]
+
+    monkeypatch.setattr(corpus, "_scan_index", fake_scan)
+
+    await corpus.load_corpus()
+    await corpus.load_corpus()
+    assert builds == 1
+
+    corpus.reset_corpus_cache()
+    await corpus.load_corpus()
+    assert builds == 2
