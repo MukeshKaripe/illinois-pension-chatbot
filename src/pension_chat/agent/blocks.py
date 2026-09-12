@@ -212,14 +212,6 @@ def render_assumptions(sheet: WorkSheet) -> str:
     return "**What I assumed**\n\n" + "\n".join(lines)
 
 
-def render_basis(citations: Sequence[str]) -> str:
-    """The provisions the answer rested on, once, at the end."""
-    if not citations:
-        return ""
-    joined = " · ".join(f"[40 ILCS 5/{section}]" for section in citations)
-    return f"**Legal basis** {joined}"
-
-
 def render_status(rung: int) -> str:
     return f"**{STATUS_LABELS.get(rung, '')}**"
 

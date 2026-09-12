@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Pencil, Plus } from "lucide-react";
+import { ChevronUp, LogOut, Pencil, Plus } from "lucide-react";
 import type { Me, Profile } from "@/lib/api";
 import { EXPERIMENTAL_NOTE } from "@/lib/funds";
 import { SupportBadge } from "./SupportBadge";
@@ -13,6 +13,7 @@ interface ProfileMenuProps {
   onSwitch: (profileId: string) => void;
   onEdit: (profileId: string) => void;
   onNew: () => void;
+  onLogout: () => void;
 }
 
 const years = (profile: Profile) => Number(profile.total_service_years);
@@ -22,8 +23,13 @@ const years = (profile: Profile) => Number(profile.total_service_years);
  *
  * Switching starts a new chat rather than changing this one: a conversation's
  * coverage decisions, assumptions and scenarios are bound to one record.
+ *
+ * Lives at the foot of the sidebar and opens upward, so identity sits where a
+ * reader of any other assistant already looks for it. Sign-out is the last item
+ * inside it rather than a button of its own: it is something you do to the
+ * account, and the account is what this row names.
  */
-export function ProfileMenu({ me, active, onSwitch, onEdit, onNew }: ProfileMenuProps) {
+export function ProfileMenu({ me, active, onSwitch, onEdit, onNew, onLogout }: ProfileMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -57,17 +63,30 @@ export function ProfileMenu({ me, active, onSwitch, onEdit, onNew }: ProfileMenu
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex max-w-[16rem] items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted"
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-sidebar-accent"
       >
-        <span className="truncate font-medium">{active.label}</span>
-        <span className="shrink-0 tabular-nums text-muted-foreground">· Art. {active.article_number}</span>
-        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        <span
+          aria-hidden
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground"
+        >
+          {active.label.trim().charAt(0).toUpperCase()}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{active.label}</span>
+          <span className="block truncate text-xs tabular-nums text-muted-foreground">
+            Article {active.article_number}
+          </span>
+        </span>
+        <ChevronUp
+          className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
       </button>
 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2 text-sm shadow-lg"
+          className="absolute bottom-full left-0 z-50 mb-2 w-full rounded-lg border border-border bg-popover p-2 text-sm shadow-lg"
         >
           <div className="px-2 py-1.5">
             <p className="text-xs text-muted-foreground">This chat uses</p>
@@ -119,6 +138,12 @@ export function ProfileMenu({ me, active, onSwitch, onEdit, onNew }: ProfileMenu
           <p className="px-2 pt-1 text-[11px] leading-snug text-muted-foreground">
             Switching starts a new chat. This one stays in your history.
           </p>
+
+          <div className="my-1 border-t border-border" />
+          <button type="button" role="menuitem" onClick={pick(onLogout)} className={item}>
+            <LogOut className="size-3.5" />
+            Sign out
+          </button>
         </div>
       )}
     </div>

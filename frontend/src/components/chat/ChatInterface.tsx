@@ -378,10 +378,28 @@ export function ChatInterface() {
               ? (s) => (s.profile_id && labelById.get(s.profile_id)) || s.profile_label || null
               : undefined
           }
-          onLogout={() => {
-            auth.signOut();
-            router.push("/login");
-          }}
+          footer={
+            signedIn && me && activeProfile ? (
+              <ProfileMenu
+                me={me}
+                active={activeProfile}
+                onSwitch={(id) => createNewSession(id)}
+                // A panel opens over the chat, which the drawer covers on a phone.
+                onEdit={(id) => {
+                  setPanel({ kind: "profile-edit", profileId: id });
+                  closeSidebarOnPhone();
+                }}
+                onNew={() => {
+                  setPanel({ kind: "profile-new" });
+                  closeSidebarOnPhone();
+                }}
+                onLogout={() => {
+                  auth.signOut();
+                  router.push("/login");
+                }}
+              />
+            ) : null
+          }
         />
       </aside>
 
@@ -390,17 +408,6 @@ export function ChatInterface() {
           onToggleSidebar={() => setSidebar((prev) => !(prev ?? isDesktop()))}
           onNewChat={() => createNewSession()}
           showNewChatOnDesktop={sidebar === false}
-          right={
-            signedIn && me && activeProfile ? (
-              <ProfileMenu
-                me={me}
-                active={activeProfile}
-                onSwitch={(id) => createNewSession(id)}
-                onEdit={(id) => setPanel({ kind: "profile-edit", profileId: id })}
-                onNew={() => setPanel({ kind: "profile-new" })}
-              />
-            ) : null
-          }
         />
 
         <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">

@@ -2179,9 +2179,6 @@ async def prepare_answer(state: PensionAgentState) -> dict:
         elif slot == "ASSUMPTIONS":
             if rendered := blocks.render_assumptions(sheet):
                 computed[slot] = rendered
-        elif slot == "BASIS":
-            if rendered := blocks.render_basis([c["section"] for c in citations]):
-                computed[slot] = rendered
 
     order = "\n".join(
         f"{index}. {slot}" + (" (I will insert this; emit the marker "

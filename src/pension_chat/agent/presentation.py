@@ -109,7 +109,7 @@ def shape_for(sheet: WorkSheet, state: dict[str, Any]) -> str:
 
 
 #: Slots Python renders. Everything else is prose the model writes.
-COMPUTED_SLOTS = frozenset({"STATUS", "WORKED_STEPS", "COMPARISON", "ASSUMPTIONS", "BASIS"})
+COMPUTED_SLOTS = frozenset({"STATUS", "WORKED_STEPS", "COMPARISON", "ASSUMPTIONS"})
 
 
 @dataclass(frozen=True)
@@ -124,7 +124,7 @@ class Template:
 TEMPLATES: dict[str, Template] = {
     "figure": Template(
         shape="figure",
-        slots=("STATUS", "lede", "WORKED_STEPS", "why", "ASSUMPTIONS", "alternatives", "BASIS"),
+        slots=("STATUS", "lede", "WORKED_STEPS", "why", "ASSUMPTIONS", "alternatives"),
         guidance=(
             "lede: the amount, annual first with monthly in brackets, and the "
             "circumstances it assumes. One or two sentences.\n"
@@ -137,7 +137,7 @@ TEMPLATES: dict[str, Template] = {
     ),
     "comparison": Template(
         shape="comparison",
-        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS", "BASIS"),
+        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS"),
         guidance=(
             "lede: name the range -- the soonest option and the best one -- so a "
             "member who reads no further still has the answer. Never open with "
@@ -153,7 +153,7 @@ TEMPLATES: dict[str, Template] = {
     ),
     "legal": Template(
         shape="legal",
-        slots=("lede", "detail", "BASIS"),
+        slots=("lede", "detail"),
         guidance=(
             "lede: answer the question outright in plain English, before any "
             "subsection is named.\n"
@@ -163,7 +163,7 @@ TEMPLATES: dict[str, Template] = {
     ),
     "partial": Template(
         shape="partial",
-        slots=("lede", "detail", "outside", "BASIS"),
+        slots=("lede", "detail", "outside"),
         guidance=(
             "lede: answer the part of the question the Pension Code covers.\n"
             "detail: the conditions that bear on it.\n"
@@ -174,7 +174,7 @@ TEMPLATES: dict[str, Template] = {
     ),
     "clarify": Template(
         shape="clarify",
-        slots=("STATUS", "lede", "established", "question", "BASIS"),
+        slots=("STATUS", "lede", "established", "question"),
         guidance=(
             "lede: name what is unclear and why it matters to them. One sentence.\n"
             "established: what you already have, in one short sentence, so it is "

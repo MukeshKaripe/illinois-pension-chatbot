@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cardFrom, isStopped, type CalculationCardData } from "@/lib/card";
@@ -13,6 +17,9 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ message, isStreaming, onOpenSection, onOpenCalculation }: ChatMessageProps) {
+  // Above the early returns: a hook after them would run conditionally.
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -98,26 +105,52 @@ export function ChatMessage({ message, isStreaming, onOpenSection, onOpenCalcula
 
       {/* Only the provisions the answer actually relied on, and that passed
           verification. Listing every retrieved section implied a reliance the
-          answer did not have. */}
+          answer did not have.
+
+          Collapsed by default, and the only place the answer's sources are
+          gathered: the prose already carries them inline as clickable
+          citations, and a "Legal basis" line used to restate them a third time
+          from the backend. Click rather than hover, because hover has no touch
+          equivalent and would put the chips out of reach on a phone. */}
       {verified.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {verified.map((section) => {
-            const detail = (message.citations ?? []).find((c) => c.section === section);
-            return (
-              <button
-                key={section}
-                type="button"
-                onClick={() => onOpenSection(section)}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs hover:bg-muted"
-                title={`40 ILCS 5/${section}`}
-              >
-                <span className="font-medium tabular-nums text-primary">§ {section}</span>
-                {detail?.title && (
-                  <span className="max-w-[16rem] truncate text-muted-foreground">· {detail.title}</span>
-                )}
-              </button>
-            );
-          })}
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setSourcesOpen((open) => !open)}
+            aria-expanded={sourcesOpen}
+            className="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ChevronRight
+              className={`size-3.5 transition-transform ${sourcesOpen ? "rotate-90" : ""}`}
+              aria-hidden
+            />
+            Legal basis
+            <span className="tabular-nums">
+              · {verified.length} {verified.length === 1 ? "provision" : "provisions"}
+            </span>
+          </button>
+
+          {sourcesOpen && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {verified.map((section) => {
+                const detail = (message.citations ?? []).find((c) => c.section === section);
+                return (
+                  <button
+                    key={section}
+                    type="button"
+                    onClick={() => onOpenSection(section)}
+                    className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs hover:bg-muted"
+                    title={`40 ILCS 5/${section}`}
+                  >
+                    <span className="font-medium tabular-nums text-primary">§ {section}</span>
+                    {detail?.title && (
+                      <span className="max-w-[16rem] truncate text-muted-foreground">· {detail.title}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

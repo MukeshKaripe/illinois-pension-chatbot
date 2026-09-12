@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut, Plus, UserPlus } from "lucide-react";
+import { Plus, UserPlus } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { groupSessions } from "@/lib/history";
 import type { SessionSummary } from "@/lib/types";
@@ -9,8 +9,10 @@ interface SidebarProps {
   currentSessionId: string | null;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
-  onLogout: () => void;
   signedIn: boolean;
+  /** Identity, at the foot of the drawer: the profile menu, which owns
+   *  sign-out. Absent for an anonymous visitor, who has neither. */
+  footer?: React.ReactNode;
   /** The profile a conversation uses, shown as a second line when an account
    *  has more than one; absent otherwise. */
   profileLabel?: (session: SessionSummary) => string | null;
@@ -21,8 +23,8 @@ export function Sidebar({
   currentSessionId,
   onSelectSession,
   onNewSession,
-  onLogout,
   signedIn,
+  footer,
   profileLabel,
 }: SidebarProps) {
   const groups = groupSessions(sessions, new Date());
@@ -89,14 +91,7 @@ export function Sidebar({
         )}
       </nav>
 
-      {signedIn && (
-        <div className="border-t border-sidebar-border p-3">
-          <Button variant="ghost" className="h-9 w-full justify-start" onClick={onLogout}>
-            <LogOut />
-            Sign out
-          </Button>
-        </div>
-      )}
+      {footer && <div className="border-t border-sidebar-border p-2">{footer}</div>}
     </div>
   );
 }
