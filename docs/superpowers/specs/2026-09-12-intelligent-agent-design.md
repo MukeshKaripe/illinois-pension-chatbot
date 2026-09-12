@@ -108,7 +108,7 @@ Seven tools, each wrapping code that already exists.
 | `search_statute(queries, articles, why)` | `retrieval.retrieve` | appends to `retrieved_sections`; **returns its own relevance scores plainly**, so weak results are visible rather than inferred |
 | `get_section(id)` | `fetch_sections` | unfiltered, any Article |
 | `outline(article)` | index `section_title` | §3 — the map |
-| `related_sections(id, direction)` | `section_references` table | §3 — `cites` / **`cited_by`** |
+| `related_sections(id, direction)` | `corpus.py` citation graph | §3 — `cites` / **`cited_by`** |
 | `check_coverage(description, act)` | `retrieve_coverage` + `assess` + `adjudicate` | returns verdict + `basis` + why it was reached; `act` is supplied by the **model**, not a regex (see §2.1) |
 | `lookup_recipes` / `derive_recipe` | `registry` + `derivation` + `validator` | a miss returns **why** it missed |
 | `compute_benefit(recipe, inputs, label)` | `resolve_inputs` → `validate_recipes` → `execute_calculations`, internals untouched | the only path to a number |
@@ -244,11 +244,35 @@ Today those forward edges are used exactly once: `_follow_references`
 targets, out of 20% of the character budget. That is a garnish on a search
 result, not navigation.
 
-Derive the full edge set from the index into `section_references`
-(migration 007: `from_section`, `to_section`), and **invert it**. Backward edges
-are the new capability: *what else in the Code points at §11-134.* In statute the
-thing that ruins an answer is almost always an exception living elsewhere, and
-nothing today can see one.
+Derive the full edge set from the index and **invert it**. Backward edges are the
+new capability: *what else in the Code points at §11-134.* In statute the thing
+that ruins an answer is almost always an exception living elsewhere, and nothing
+today can see one.
+
+**Built in memory, not in Postgres** — amended after Phase 1 shipped; the spec
+originally called for a `section_references` table and migration 007. Three
+reasons, in the order they matter:
+
+1. **The public surface is two functions.** Nothing outside `agent/corpus.py`
+   touches anything but `related_sections()` and `outline()`, and `_build()`
+   already produces the whole structure in one pass. Persisting it later is a
+   `to_rows()` plus a "read the table, else scan" branch inside `load_corpus()`
+   — nothing else in the codebase moves. The decision is cheap to reverse,
+   which is what makes deferring it correct rather than lazy.
+2. **A table goes stale; the index cannot.** The edges derive from the search
+   index, so a Postgres copy is wrong the moment an Article is re-ingested —
+   the failure class `indexer.prune_stale_records` exists to prevent. A build
+   over the live index is always consistent with what it was built from.
+3. **The corpus is bounded by law.** 40 ILCS 5 is 24 Articles; the measured
+   2,406 sections and 1,964 edges are close to final. The ~6s build scales with
+   the statute, not with usage, and it runs at startup beside the other
+   warm-ups rather than on a member's turn.
+
+Revisit on a named trigger, not on taste: more than ~3 API replicas, where 6s
+× N per deploy starts to matter; an admin UI that browses the graph; or a
+startup budget under 10s. If it does move, **write it from the ingestion
+pipeline** — that is the version that cannot go stale, because the graph is
+then rebuilt exactly when the index is.
 
 ### The map
 
@@ -515,18 +539,25 @@ mechanism that lets an unverified answer teach the system.
 
 ### Phase 0 — build the instrument first
 
-Three suites, written to **fail** against the current pipeline, baseline
-recorded:
+Five suites in total, but **each lands with the phase it gates** — amended when
+the Phase 0 plan was written. Only three belong here: `gold_stance` asserts
+behaviour that replaces the Phase 4 CONTEXT-block deletions, and
+`gold_capabilities` asserts Phase 2 features, so written now each would fail
+only for "not built yet", which measures nothing. The three below need no new
+feature to be meaningful — only the loop.
+
+A further rule, learned from writing them: **a Phase 0 case that passes is
+suspect.** Each case is marked honestly, `active` where the behaviour exists
+today and must not regress, `expected_fail` (with the harness's required `gap:`)
+where it is the loop's job. Phase 3 flipping those to `active` *is* the cutover
+evidence.
+
+Written to **fail** against the current pipeline, baseline recorded:
 
 - `evals/gold_conversational.yaml` — multi-part questions answered whole; a first
   retrieval that misses and a second that finds; "if I work two more years"
   producing a figure; a police-officer hypothetical producing a figure; a
   question needing no tool getting none; recipe reuse on a re-asked question.
-- `evals/gold_stance.yaml` — the six cases from §5, asserting behaviour, never a
-  block's wording.
-- `evals/gold_capabilities.yaml` — thresholds surfaced, alternatives ranked with
-  figures, ranges quoted when material, projection and stand-in origins correct
-  on the card.
 - `evals/gold_goal_completion.yaml` — the suite that measures helpfulness rather
   than mechanism, because an agent can call tools competently and still answer
   the wrong question. Cases: "can I retire at 58 and how much?" returns
@@ -548,10 +579,10 @@ recorded:
 
 | Phase | Work | Ships value alone? |
 |---|---|---|
-| 1 | §3 corpus: `section_references` (migration 007), build script over the existing index, `outline` / `related_sections` | yes — improves pipeline retrieval too |
-| 2 | §4 calculation: `lookup_recipes`, `thresholds.py`, `projection.py`, ranges into `calculation_results` | yes — exercised through the existing pipeline |
+| 1 | §3 corpus: `agent/corpus.py` — citation graph and outline over the existing index, `_follow_references` rewired to it | **shipped** — improves pipeline retrieval too |
+| 2 | §4 calculation: `lookup_recipes`, `thresholds.py`, `projection.py`, ranges into `calculation_results`, and `evals/gold_capabilities.yaml` | yes — exercised through the existing pipeline |
 | 3 | §2 loop: `llm.call_with_tools`, `agent/tools.py`, `agent/loop.py`, `compose`, behind `agent_mode` | pipeline untouched |
-| 4 | §5 deletions: six CONTEXT blocks, one at a time, each gated on its eval | — |
+| 4 | §5 deletions: `evals/gold_stance.yaml`, then the blocks one at a time, each gated on its case | — |
 | 5 | §6 learning: `answer_evidence`, captured failures, registry usage + admin actions | yes |
 | 6 | Cutover: flip the default, delete the pipeline, rewrite `CLAUDE.md` | — |
 
@@ -615,5 +646,7 @@ of work, independent of everything here.
 | Loop bounds | multi-resource budget; sub-budget removes a tool | fixed iteration count |
 | Epistemic model | keep the existing per-fact statuses; add `attributed`, `superseded`, `CORRECTED`; the model supplies the act | a parallel `USER_ASSERTED`/`INFERRED` taxonomy *(it renames what `WorkSheet` and `coverage.basis` already carry)* |
 | CONTEXT blocks | four delete, one rewrite, one becomes a tool result | delete all six |
+| Citation graph storage | in memory, rebuilt per process from the index | a `section_references` table and migration 007 *(derived data that goes stale on re-ingestion, for a benefit nothing needs yet)* |
+| Eval suites | each lands with the phase it gates | all five written in Phase 0 *(two would fail only for "not built yet")* |
 | Goal tracking | completion self-report at `compose`, measured by evals | a `user_goal` / `subgoals` struct computed up front *(it is `needs_figure` in better clothes — the same decide-early-never-revise failure this spec exists to remove)* |
 | Exhaustion | deterministic unresolved-cross-reference list handed to `compose` | "answer from what you found"; a model-judged sufficiency score |
