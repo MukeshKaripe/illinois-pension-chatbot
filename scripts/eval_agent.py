@@ -312,6 +312,14 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         if phrase.lower() in answer.lower():
             problems.append(f"said {phrase!r}")
 
+    # At least one, not all: an answer may disclose an assumption in any of
+    # several natural phrasings, and demanding a particular one tests the
+    # wording rather than the behaviour.
+    if wanted := expect.get("mentions"):
+        lowered = answer.lower()
+        if not any(str(phrase).lower() in lowered for phrase in wanted):
+            problems.append(f"said none of {list(wanted)}")
+
     if expect.get("article_only"):
         stray = [a for a in result["articles"] if a and a != expect["article_only"]]
         if stray:
