@@ -21,13 +21,23 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Needs goal decomposition (Phase 3). `needs_figure` flattens a two-part
-      question into one, so the eligibility half arrives only if the prose
-      happens to cover it.
+      Measured against the pipeline on 2026-09-13. Both halves of the question
+      are answered, so goal decomposition was not the gap -- but the figure is
+      internally contradictory. The inputs it computed on were
+      age_at_annuity_start 58, months_before_age_60 44, service_years 21.5,
+      withdrawal_date today: 44 months is the reduction for a member of 56, and
+      21.5 years is the service they have now. So it takes the 58 for the label
+      and computes the retire-now figure underneath it. Needs projection
+      (Phase 2) reaching every input a future date moves, not just the one the
+      member named.
     turns:
       - q: I'm thinking of retiring at 58. Am I eligible, and how much would I get?
         expect:
           calculation: true
+          # Two years on from 56 is 23.5 years of service. Without this the
+          # case passes on a figure whose own inputs disagree -- which is how
+          # it passed on the baseline run.
+          uses_input: { service_years: 23.5 }
           # The eligibility half, in the Code's own terms.
           mentions: ["eligib", "qualif", "20 years", "age 55"]
           cites: ["11-134|11-130"]
@@ -35,10 +45,11 @@ cases:
   - id: L04
     name: A correction modifies the scenario rather than starting over
     employee: article-11-standard
-    status: expected_fail
-    gap: >
-      Needs conversational state the agent reasons over rather than a scenario
-      list a regex corroborates (Phase 3).
+    # Passes on the pipeline, so it guards rather than measures: a named
+    # retirement age is a revision `extract_scenarios` can already see, which
+    # is why this works where L01 turn 2 ("assume I get a 3% raise") does not.
+    # The raise is not a fact the worksheet holds, so nothing goes stale.
+    status: active
     turns:
       - q: what would I get if I worked two more years?
         expect: { calculation: true }
@@ -53,9 +64,12 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Needs the turn read as a continuation (Phase 3). Today "what about my
-      wife?" carries no benefit vocabulary, so the survivor provisions are not
-      what gets retrieved.
+      Measured against the pipeline on 2026-09-13. "What about my wife?" carries
+      no benefit vocabulary, so retrieval returned 11-148.1, 11-167, 11-110.1
+      and 11-149 rather than the survivor annuity sections, the answer said
+      none of "survivor", "widow" or "spouse", and the guardrail rejected what
+      was written (ASSUMPTION_NOT_DISCLOSED) so the member saw the fallback.
+      Needs the turn read as a continuation of what came before it (Phase 3).
     turns:
       - q: what would my pension be if I retired at the end of this year?
         expect: { calculation: true }

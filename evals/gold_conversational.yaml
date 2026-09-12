@@ -16,12 +16,14 @@ cases:
   - id: L07
     name: A question in the member's words, answered from the Code's
     employee: article-11-standard
-    status: expected_fail
-    gap: >
-      Needs iterative retrieval (Phase 3) and the heading vocabulary (Phase 1,
-      landed). "Losing too much" appears nowhere in the statute; the Code says
-      "annuity reduction". One query written before any statute is seen cannot
-      recover from missing on the first attempt.
+    # Passes on the pipeline, so it guards rather than measures. Worth being
+    # honest about why: the member's own figure pulls 11-134 and the 11-133
+    # family in regardless, so the colloquial phrasing is never really tested.
+    # A case that measures *iterative* retrieval needs a question whose first
+    # query genuinely misses, and which question that is can only be found by
+    # measuring. Phase 3 should write one from an observed miss rather than a
+    # guess -- guessing is what produced this case.
+    status: active
     turns:
       - q: can I retire early without losing too much?
         expect:
@@ -33,23 +35,38 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Needs the stand-in input origin (Phase 2) and the deletion of the
-      answers_other_article calculation ban (Phase 3). Today naming another
-      fund's Article sets requires_calculation = False, so no figure is
-      reachable however much the member supplies.
+      Measured against the pipeline on 2026-09-13, and the failure is upstream
+      of where this case was aimed. The frame was created -- premise "Chicago
+      police officer with my salary and service" -- but with article: None,
+      because nothing resolved the description to a fund. So retrieval stayed on
+      Article 11 and returned 11-134, 11-130, 11-131: the member's own law,
+      answering a question about somebody else's. That is the harmful shape, not
+      merely an unhelpful one. Needs coverage resolving a described job inside a
+      supposition (Phase 3), then the stand-in input origin (Phase 2).
     turns:
       - q: if I were a Chicago police officer with my salary and service, what would I get?
         expect:
           calculation: true
           # It is a supposition throughout, and must read as one.
           conditional: true
-          # Article 4's own law, never Article 11's formula wearing its name.
-          article_only: "4"
+          # Article 5 is the Chicago police fund -- Article 3 is police outside
+          # Chicago, 4 is fire outside Chicago, 6 is Chicago fire. This case
+          # asserted 4 until the baseline run made the mistake visible.
+          article_only: "5"
 
   - id: L09
     name: A question that needs no member and no calculation
     employee: article-11-standard
-    status: active
+    status: expected_fail
+    gap: >
+      Measured against the pipeline on 2026-09-13. It correctly plans no
+      calculation and quotes no figure, but retrieval returned 11-178, 11-149,
+      11-160.1, 11-221.1, 11-170.1 and 11-169 -- none of the sections that say
+      what Article 11 is. Hybrid search over "what is Article 11?" has nothing
+      to match on in 11-101 "Creation of fund", so the most basic question about
+      an Article cannot reach the Article's own opening sections. This is the
+      case the Phase 1 outline tool was built for: list the headings, see
+      11-101, read it. Needs the loop to be able to call it (Phase 3).
     turns:
       - q: what is Article 11?
         expect:

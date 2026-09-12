@@ -29,18 +29,28 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Needs the projection input class (Phase 2) and an agent that reaches for
-      it (Phase 3). Today final_average_salary at a future date is
-      NEVER_ASSUMABLE, so the turn asks for a salary the record already holds.
+      Measured against the pipeline on 2026-09-13, and the failure is worse than
+      "it asks for a salary it already has" -- it does not ask at all. All three
+      turns return the identical $32,126.78 computed on 21.5 years of service,
+      which is the retire-now figure. Turn 2 says outright that "a 3% raise each
+      year does not produce a new pension figure here", and turn 3 still
+      "assumes 21.5 years". So a future-dated question is silently answered as a
+      present-dated one, under a disclosure that reads as though it had
+      projected. Needs the projection input class (Phase 2) and an agent that
+      reaches for it (Phase 3).
     turns:
       - q: if I work two more years, what would my pension be?
         expect:
           # Everything needed is on file or derivable from it.
           asks: false
           asks_for_nothing_known: true
+          # `calculation` and `mentions` alone are satisfied by the wrong
+          # answer -- the retire-now figure carries its own "assuming you
+          # withdraw today" disclosure, and passed this case until the baseline
+          # run showed the number had not moved. The service figure is what
+          # proves a projection happened: 21.5 on file, two more years, 23.5.
+          uses_input: { service_years: 23.5 }
           calculation: true
-          # Having projected, say so. A figure resting on an unstated
-          # assumption is worse than no figure.
           mentions: ["assum", "held flat", "as it stands"]
 
       # A correction to the projection rule, not a new question.
