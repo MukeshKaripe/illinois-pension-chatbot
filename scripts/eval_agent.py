@@ -59,6 +59,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pension_chat import personas  # noqa: E402
 from pension_chat.agent.graph import run_agent_stream  # noqa: E402
+from pension_chat.agent.guardrails import _CONDITIONAL_MARKER  # noqa: E402
 from pension_chat.agent.llm import close_clients  # noqa: E402
 from pension_chat.calculation.applicability import normalize_fact_name  # noqa: E402
 
@@ -319,6 +320,12 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         lowered = answer.lower()
         if not any(str(phrase).lower() in lowered for phrase in wanted):
             problems.append(f"said none of {list(wanted)}")
+
+    # The runtime's own definition, not a second one. A benchmark that decides
+    # separately what counts as conditional will eventually disagree with the
+    # guardrail, and then one of them is wrong with no way to tell which.
+    if expect.get("conditional") and not _CONDITIONAL_MARKER.search(answer):
+        problems.append("answered a supposition in the plain indicative")
 
     if expect.get("article_only"):
         stray = [a for a in result["articles"] if a and a != expect["article_only"]]

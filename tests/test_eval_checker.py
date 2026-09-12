@@ -82,3 +82,17 @@ def test_mentions_ignores_case():
     turn = result("ASSUMING you stop working today...")
     turn["expect"] = {"mentions": ["assuming"]}
     assert harness.check(turn, []) == []
+
+
+def test_conditional_wants_the_answer_to_stay_in_the_subjunctive():
+    """Answering a supposition in the plain indicative tells a member they are
+    in a fund they only asked about."""
+    harness = _harness()
+
+    hedged = result("If you were covered by Article 4, your annuity would be 50% of salary.")
+    hedged["expect"] = {"conditional": True}
+    assert harness.check(hedged, []) == []
+
+    flat = result("Your annuity is 50% of salary attached to rank.")
+    flat["expect"] = {"conditional": True}
+    assert harness.check(flat, []), "a flat indicative must fail a conditional check"
