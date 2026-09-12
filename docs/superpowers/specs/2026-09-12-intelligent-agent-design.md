@@ -117,10 +117,63 @@ Member facts stay in the system context rather than behind a tool — no round
 trip, always relevant — carrying provenance labels, and marked as stand-ins when
 a hypothetical is live.
 
-The loop is bounded at 6 iterations with sub-budgets (≤3 searches, ≤1 derivation
-per benefit). Exhaustion is not an error: the model answers from what it found
-and says what is still open. Latency is explicitly **not** a design constraint
-for this work; iterations may run at real reasoning effort.
+### Execution budget
+
+Not a fixed iteration count. A hard iteration cap is itself a semantic
+constraint — "compare my options at 58, 60 and 62 with the reduction and the
+survivor election" legitimately needs more thinking than "what is Article 11?",
+and capping both at six punishes exactly the question the loop exists to answer.
+Latency is explicitly **not** a design constraint for this work, so the budget
+exists to stop runaways, not to ration reasoning.
+
+| Resource | Budget |
+|---|---|
+| tool calls, total | 20 |
+| `search_statute` | 6 |
+| `derive_recipe` | 3 |
+| `compute_benefit` | 12 |
+| wall clock | 90s |
+
+**Exhausting a sub-budget removes that tool and tells the model why; it does not
+end the turn.** A loop that has spent its searches can still read a section it
+already knows about, look up a recipe and compute — so the failure mode is a
+narrower investigation, not a severed one. Only the total or the clock ends it.
+
+### Evidence sufficiency
+
+The budget running out is not by itself a licence to answer. Two situations look
+identical from inside the loop and must not be treated alike: having enough
+evidence but an unfinished investigation, and needing a provision that was never
+established. A figure cannot be fabricated either way — `compute_benefit` has no
+number without resolved inputs, and `validator.py` refuses a recipe citing a
+section that is not in the corpus — but *prose* can still state a legal
+conclusion on evidence that was never read.
+
+So the gap is computed deterministically rather than judged. Every retrieved
+section carries `referenced_sections`, and §3 adds the full citation graph: on
+exhaustion, take the cross-references named in the evidence the loop gathered,
+subtract the sections it actually read, and hand `compose` the remainder as a
+fact. "You relied on §11-134, which computes on service as defined in §11-216,
+and you never read §11-216" is a specific, checkable statement about what is
+missing — far better than a model's impression that it has probably seen enough.
+When that list is non-empty, the answer must name what it could not establish.
+
+### Structured state, re-rendered each iteration
+
+"One mind, one history" means one reasoning thread — not that state lives only
+in raw message history. A loop forty tool-calls deep must not be rediscovering
+`age = 56` by scrolling.
+
+The loop's system context is **re-rendered from structured state on every
+iteration**: member facts with provenance, the `WorkSheet`, coverage and its
+basis, any live hypothetical frame, and figures already computed this
+conversation. That block is authoritative over anything earlier in the history,
+which also makes a mid-conversation correction take effect immediately instead of
+competing with a stale message.
+
+This is why `pinned_record`, `WorkSheet`, `hypothetical_frame` and the
+calculation card all survive unchanged — they *are* the structured state, and
+the tools writing the same keys is what makes the state summary cheap to build.
 
 ### Retired
 
@@ -319,14 +372,23 @@ visibly thin answer. To be watched specifically in the first runs.
 Today the formula registry is the only thing that learns, covering roughly a
 fifth of what the agent does.
 
-### Retrieval memory
+### Verified retrieval memory
 
-New `answer_evidence` table: `(concept, article, tier, sections[], verified_at,
+Deliberately not called learning: nothing here changes what the model believes
+about the law. It remembers only which sections *verifiably answered* a kind of
+question before. New `answer_evidence` table: `(concept, article, tier, sections[], verified_at,
 session_id)`. A row is written **only when an answer passed verification** — the
 guardrail's pass is the label, so nothing enters on the strength of the model's
 own opinion. `concept` is a short canonical phrase emitted by `compose` as a structured
 field alongside the answer ("early retirement reduction"), matched later by
 embedding similarity using the existing embedder.
+
+`compose` emits one further structured field in the same place: **what the
+member asked for, and which parts of it this answer addressed.** It is written
+*after* the evidence is in, so unlike a goal classified up front it cannot go
+stale, and it is what `gold_goal_completion` asserts against. It is a
+self-report, so it proves nothing on its own — its value is that a turn which
+answered two of three questions says so in a field a test can read.
 
 It surfaces as **enrichment on the `search_statute` result, never as a filter**:
 *"sections that previously answered questions like this: §11-134, §11-216."* That
@@ -354,6 +416,13 @@ and evidence completeness deterministically, in milliseconds, before anything
 runs. Admin approval never had that job and is not given it. A recipe derived on
 this turn is validated, executed, answered with, and immediately reusable at
 `agent_derived`. No member ever waits for a human.
+
+**"Trusted" here means trusted to run and be reused — never trusted as an
+authoritative reading of the law.** Those are different claims and the spec keeps
+them apart: a derived recipe executes at `estimate`, keeps the "this is an
+estimate" line, and is labelled `agent_derived` wherever it is shown. Nothing
+promotes it silently; see the trust-label paragraph below, and the decision to
+leave `authoritative` unreachable in the pilot.
 
 > **The registry is trusted by default. The admin's power is to correct and
 > retire, not to admit.**
@@ -418,6 +487,20 @@ recorded:
 - `evals/gold_capabilities.yaml` — thresholds surfaced, alternatives ranked with
   figures, ranges quoted when material, projection and stand-in origins correct
   on the card.
+- `evals/gold_goal_completion.yaml` — the suite that measures helpfulness rather
+  than mechanism, because an agent can call tools competently and still answer
+  the wrong question. Cases: "can I retire at 58 and how much?" returns
+  eligibility *and* figure *and* explanation, not one of the three; "actually
+  make that three years" modifies the live scenario instead of starting over;
+  "what about my wife?" continues into survivor benefits instead of asking what
+  they would like to know; "what about Article 4?" switches question context
+  without dragging Article 11 facts in uninvited.
+- `evals/gold_no_ask.yaml` — the complaint-#1 suite, run as one conversation
+  against a profile that already holds age, service and salary. "If I work two
+  more years" must produce a figure with **no clarifying question**; "assume a 3%
+  raise" must update the projection rule and recompute; "actually I'm 57" must
+  revise the fact and recompute. Any clarification the profile could have
+  answered is a failure, not a style preference.
 
 `scripts/eval_agent.py` gains `--mode {pipeline,loop}`.
 
@@ -489,3 +572,6 @@ of work, independent of everything here.
 | Query rewriting | inside the loop + heading vocabulary | a `transform_query` node |
 | Recipe approval | trusted by default; correct and retire | promotion queue as a gate |
 | Latency | not a constraint for this work | parallelised loop; capped iterations for speed |
+| Loop bounds | multi-resource budget; sub-budget removes a tool | fixed iteration count |
+| Goal tracking | completion self-report at `compose`, measured by evals | a `user_goal` / `subgoals` struct computed up front *(it is `needs_figure` in better clothes — the same decide-early-never-revise failure this spec exists to remove)* |
+| Exhaustion | deterministic unresolved-cross-reference list handed to `compose` | "answer from what you found"; a model-judged sufficiency score |
