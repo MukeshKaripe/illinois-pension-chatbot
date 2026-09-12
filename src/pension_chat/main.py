@@ -36,6 +36,7 @@ async def _warm_connections() -> None:
 
     from sqlalchemy import text as sa_text
 
+    from pension_chat.agent.corpus import load_corpus
     from pension_chat.agent.llm import get_async_search_client, get_llm
     from pension_chat.db.session import get_admin_session
 
@@ -54,7 +55,16 @@ async def _warm_connections() -> None:
             model=settings.azure_openai_embedding_deployment, input="warmup"
         )
 
-    for name, task in (("database", warm_db), ("search", warm_search), ("model", warm_llm)):
+    async def warm_corpus():
+        await load_corpus()
+
+    for name, task in (
+        ("database", warm_db),
+        ("search", warm_search),
+        ("model", warm_llm),
+        # Last: it scans the index, so the search connection above is already open.
+        ("corpus", warm_corpus),
+    ):
         try:
             await asyncio.wait_for(task(), timeout=20)
             logger.info("Warmed %s connection", name)
