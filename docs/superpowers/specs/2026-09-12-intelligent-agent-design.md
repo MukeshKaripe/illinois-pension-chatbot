@@ -109,13 +109,48 @@ Seven tools, each wrapping code that already exists.
 | `get_section(id)` | `fetch_sections` | unfiltered, any Article |
 | `outline(article)` | index `section_title` | §3 — the map |
 | `related_sections(id, direction)` | `section_references` table | §3 — `cites` / **`cited_by`** |
-| `check_coverage(description, act)` | `retrieve_coverage` + `assess` + `adjudicate` | returns verdict + `basis`; all existing code |
+| `check_coverage(description, act)` | `retrieve_coverage` + `assess` + `adjudicate` | returns verdict + `basis` + why it was reached; `act` is supplied by the **model**, not a regex (see §2.1) |
 | `lookup_recipes` / `derive_recipe` | `registry` + `derivation` + `validator` | a miss returns **why** it missed |
 | `compute_benefit(recipe, inputs, label)` | `resolve_inputs` → `validate_recipes` → `execute_calculations`, internals untouched | the only path to a number |
 
 Member facts stay in the system context rather than behind a tool — no round
 trip, always relevant — carrying provenance labels, and marked as stand-ins when
 a hypothetical is live.
+
+### 2.1 The epistemic vocabulary, and why the loop makes it affordable
+
+Statuses are properties of facts, not modes the agent enters. That model exists
+already, twice over, and is kept:
+
+```
+worksheet.py:27-35   SOURCE_RECORD  STATED  HYPOTHETICAL  ASSUMED  WITHHELD  DERIVED
+coverage.py:69-73    BASIS_CONFIRMED  STATUTORY  RECORD  HYPOTHETICAL  UNRESOLVED
+coverage.py:58-60    ASSERTED  STIPULATED  DOUBTED
+```
+
+§4 adds `projected` and `stand_in` to the first row. Two further gaps are real
+and are closed here, because neither sentence can be represented today:
+
+- **`attributed`** — "my HR says I am under Article 11" is a third-party claim.
+  It is not `ASSERTED` (the member is not vouching from their own knowledge), not
+  `DOUBTED`, not `STIPULATED`, and today falls through to `ASSERTED`
+  (`coverage.py:218`), treating hearsay as first-hand testimony. It should behave
+  as a weaker assertion: check it, and on conflict say whose account is whose.
+- **`superseded`** — "I used to be Article 11, but now Article 4" is a
+  retraction. `apply_revisions` overwrites with `SOURCE_STATED`
+  (`worksheet.py:290`), so a fact keeps no trace that it corrected something and
+  nothing distinguishes a fresh statement from a correction. Add a `CORRECTED`
+  marker carrying the superseded value and the turn it changed.
+
+**The loop is what makes these affordable.** Today each act needs a regex
+governor, and `CLAUDE.md` records that `test_coverage.py` exists precisely
+because one governor was unreachable by any frame — a dead alternative invisible
+on reading. Adding two acts that way costs two regexes, two worked examples and
+two more chances at a dead branch. In the loop the **model** supplies `act` to
+`check_coverage`, so the vocabulary extends by a line of tool documentation. The
+`classify_self_reference` governors and the dead-alternative guard retire with
+the pipeline in phase 6; `adjudicate()` stays pure Python and keeps deciding the
+verdict.
 
 ### Execution budget
 
@@ -342,20 +377,25 @@ repair is a correction rather than a re-guess.
 
 **No CONTEXT block is deleted until the failure it prevents exists as a failing
 eval case.** Six blocks, six cases, written first and passing against the current
-pipeline:
+pipeline — and on a block-by-block reading they do not all deserve the same
+fate. Deleting all six was a round number, not an argument.
 
-| Block | Failure it prevents | Eval asserts |
+| Block | Verdict | Why |
 |---|---|---|
-| `answers_other_article` | quoting the member's figures as another Article's answer | figures present, framed as that Article's law |
-| `frame` | answering a supposition in the plain indicative | conditional markers throughout |
-| `CONFIRMED` elsewhere | a figure on a record the member says is wrong | no figure; record correction named |
-| `described_as` + `BASIS_RECORD` | *"As a park employee covered by Article 11"* | description and Article never joined causally |
-| `BASIS_STATUTORY` + `described_as` | hedging when the Code genuinely confirms it | plain statement permitted |
-| `budget_spent` | asking a fourth time | answers on the record, names the assumption |
+| `answers_other_article` | **delete** | the flag itself is the complaint-#8 bug; the block has nothing left to attach to |
+| `budget_spent` | **delete** | `clarification_budget` stops being a gate, so the situation stops existing |
+| `BASIS_STATUTORY` + `described_as` | **delete** | pure permission, which `_verify_coverage` already grants |
+| `frame` | **delete, guardrail covers it** | `_CONDITIONAL_MARKER` already enforces conditionality on a stipulated premise |
+| `CONFIRMED` elsewhere | **rewrite** | it says "give no figures", which §4 stand-ins now contradict — stale against the new design, not redundant |
+| `described_as` + `BASIS_RECORD` | **convert to a tool result** | its safety half is covered, but it also requires an invitation to correct the record — helpfulness, which no guardrail enforces |
 
-The loop must pass all six **without being told the answer.** If it cannot, that
-block earned its place and returns as a *tool result* — a fact the model is
-given, never a stance it is handed. That distinction is this spec in one line.
+Each eval case is still written first and still gates its change. The four
+deletions must pass **without being told the answer**; if one cannot, that block
+earned its place and comes back the way the last row goes — as a fact
+`check_coverage` returns ("coverage rests on the record alone; the member
+described themselves differently and has not confirmed it"), never as a stance.
+**A fact the model is given, never a stance it is handed** is this spec in one
+line, and the last row is that rule applied to the spec own scaffolding.
 
 ### Named risk
 
@@ -573,5 +613,7 @@ of work, independent of everything here.
 | Recipe approval | trusted by default; correct and retire | promotion queue as a gate |
 | Latency | not a constraint for this work | parallelised loop; capped iterations for speed |
 | Loop bounds | multi-resource budget; sub-budget removes a tool | fixed iteration count |
+| Epistemic model | keep the existing per-fact statuses; add `attributed`, `superseded`, `CORRECTED`; the model supplies the act | a parallel `USER_ASSERTED`/`INFERRED` taxonomy *(it renames what `WorkSheet` and `coverage.basis` already carry)* |
+| CONTEXT blocks | four delete, one rewrite, one becomes a tool result | delete all six |
 | Goal tracking | completion self-report at `compose`, measured by evals | a `user_goal` / `subgoals` struct computed up front *(it is `needs_figure` in better clothes — the same decide-early-never-revise failure this spec exists to remove)* |
 | Exhaustion | deterministic unresolved-cross-reference list handed to `compose` | "answer from what you found"; a model-judged sufficiency score |
