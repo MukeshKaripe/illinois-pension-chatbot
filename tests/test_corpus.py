@@ -48,3 +48,36 @@ async def test_scan_pages_until_the_index_is_exhausted(monkeypatch):
 
     assert [d["section"] for d in docs] == ["11-134", "11-216"]
     assert len(calls) == 3, "must keep paging until a page comes back empty"
+
+
+def test_normalize_strips_a_subsection_but_never_the_section_id():
+    """A subsection is not a section; a trailing letter can be either.
+
+    "11-134(a)" is Section 11-134. But Section 1-113.4a is its own section --
+    dropping the "a" pins 1-113.4, a different rule, and that exact confusion
+    already cost the ingestion pipeline a whole section's text.
+    """
+    assert corpus.normalize_section("11-134(a)") == "11-134"
+    assert corpus.normalize_section(" 40 ILCS 5/11-134 ") == "11-134"
+    assert corpus.normalize_section("Section 11-134") == "11-134"
+    assert corpus.normalize_section("1-113.4a") == "1-113.4a"
+    assert corpus.normalize_section("11-134.1") == "11-134.1"
+    assert corpus.normalize_section("") == ""
+    assert corpus.normalize_section("not a section") == ""
+
+
+def test_sections_order_the_way_the_code_prints_them():
+    """Lexical order puts 11-134.1 before 11-134 and 11-9 after 11-130.
+
+    An outline is a reading aid. In the wrong order it is worse than none,
+    because it implies the Code says something it does not.
+    """
+    unsorted = ["11-134.1", "11-9", "11-130", "11-134", "1-113.4a", "1-113.4"]
+    assert sorted(unsorted, key=corpus.section_sort_key) == [
+        "1-113.4",
+        "1-113.4a",
+        "11-9",
+        "11-130",
+        "11-134",
+        "11-134.1",
+    ]

@@ -18,6 +18,7 @@ same reason: statute text is immutable until a re-ingestion restarts the API.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from pension_chat.agent.llm import get_async_search_client
@@ -29,6 +30,41 @@ logger = logging.getLogger("pension_chat.agent.corpus")
 _PAGE_SIZE = 1000
 
 _SCAN_FIELDS = ["section", "article", "section_title", "referenced_sections"]
+
+#: "11-134", "11-134(a)", "40 ILCS 5/11-134.1", "Section 1-113.4a". The trailing
+#: letter belongs to the section id; the parenthesised part does not.
+_SECTION_ID = re.compile(r"\b(\d{1,2})-(\d{1,3})(\.\d{1,2})?([a-z])?\b", re.IGNORECASE)
+
+
+def normalize_section(raw: str) -> str:
+    """The bare section id inside whatever the text wrapped it in.
+
+    Empty string when there is no section in it at all, so callers can filter
+    on falsiness rather than catching.
+    """
+    match = _SECTION_ID.search(str(raw or ""))
+    if match is None:
+        return ""
+    article, number, decimal, letter = match.groups()
+    return f"{article}-{number}{decimal or ''}{(letter or '').lower()}"
+
+
+def section_sort_key(section: str) -> tuple[int, int, int, str]:
+    """Order sections as the Code prints them, not as strings sort.
+
+    Lexically "11-134.1" precedes "11-134" and "11-9" follows "11-130", which
+    makes an outline actively misleading about what the Article contains.
+    """
+    match = _SECTION_ID.search(section or "")
+    if match is None:
+        return (999, 999, 999, "")
+    article, number, decimal, letter = match.groups()
+    return (
+        int(article),
+        int(number),
+        int((decimal or ".0").lstrip(".")),
+        (letter or "").lower(),
+    )
 
 
 async def _scan_page(skip: int) -> list[dict]:
