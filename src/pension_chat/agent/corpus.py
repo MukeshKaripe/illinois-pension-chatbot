@@ -69,7 +69,7 @@ def section_sort_key(section: str) -> tuple[int, int, int, str]:
     )
 
 
-async def _scan_page(skip: int) -> list[dict]:
+async def _scan_page(skip: int) -> list[dict[str, Any]]:
     """One page of the index, projected to the fields the graph needs."""
     client = get_async_search_client()
     results = await client.search(
@@ -81,7 +81,7 @@ async def _scan_page(skip: int) -> list[dict]:
     return [dict(doc) async for doc in results]
 
 
-async def _scan_index() -> list[dict]:
+async def _scan_index() -> list[dict[str, Any]]:
     """Every indexed chunk, paged until the index is exhausted.
 
     The single seam the tests replace, so nothing below it ever needs a client.
@@ -148,7 +148,7 @@ _CORPUS: Corpus | None = None
 _BUILD_LOCK = asyncio.Lock()
 
 
-def _build(docs: list[dict]) -> Corpus:
+def _build(docs: list[dict[str, Any]]) -> Corpus:
     """Collapse chunks into sections, then edges, then the inverse of the edges."""
     nodes: dict[str, SectionNode] = {}
     forward: dict[str, set[str]] = {}
