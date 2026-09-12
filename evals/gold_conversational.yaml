@@ -1,0 +1,72 @@
+# The behaviours the loop exists for: searching again after a bad search,
+# reaching for a tool only when it is needed, computing under a premise the
+# member supposed, and reusing knowledge already derived.
+#
+# None of these is marked `critical`. Critical in this suite means "a confident
+# wrong answer does real harm" -- the wrong Article's figure, an unsupported
+# formula the member supplied -- and `test_eval_suite.py` keeps that census
+# explicit so the word keeps its meaning. These cases are about unhelpfulness,
+# which is a different failure and a milder one. Revisit when Phase 3 flips them
+# to `active`: L08 in particular can fail two ways, and one of them (Article 11's
+# formula answering an Article 4 question) is the harmful kind.
+
+category: conversational
+
+cases:
+  - id: L07
+    name: A question in the member's words, answered from the Code's
+    employee: article-11-standard
+    status: expected_fail
+    gap: >
+      Needs iterative retrieval (Phase 3) and the heading vocabulary (Phase 1,
+      landed). "Losing too much" appears nowhere in the statute; the Code says
+      "annuity reduction". One query written before any statute is seen cannot
+      recover from missing on the first attempt.
+    turns:
+      - q: can I retire early without losing too much?
+        expect:
+          cites: ["11-134"]
+          mentions: ["reduc", "0.25", "age 60"]
+
+  - id: L08
+    name: A figure under a premise the member supposed
+    employee: article-11-standard
+    status: expected_fail
+    gap: >
+      Needs the stand-in input origin (Phase 2) and the deletion of the
+      answers_other_article calculation ban (Phase 3). Today naming another
+      fund's Article sets requires_calculation = False, so no figure is
+      reachable however much the member supplies.
+    turns:
+      - q: if I were a Chicago police officer with my salary and service, what would I get?
+        expect:
+          calculation: true
+          # It is a supposition throughout, and must read as one.
+          conditional: true
+          # Article 4's own law, never Article 11's formula wearing its name.
+          article_only: "4"
+
+  - id: L09
+    name: A question that needs no member and no calculation
+    employee: article-11-standard
+    status: active
+    turns:
+      - q: what is Article 11?
+        expect:
+          no_calculation: true
+          no_figures: true
+          cites: ["11-101|11-102|11-103"]
+
+  - id: L10
+    name: The same calculation asked twice reuses what was derived
+    employee: article-11-standard
+    status: active
+    turns:
+      - q: what would my pension be if I retired now?
+        expect: { calculation: true }
+      - q: remind me what my annuity would come to?
+        expect:
+          calculation: true
+          # Derived once, then read from the registry -- the point of the
+          # registry, and the thing complaint #7 doubted was working.
+          reuse: true

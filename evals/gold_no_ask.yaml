@@ -1,0 +1,69 @@
+# Asking for what is already known, which is complaint #1 made falsifiable.
+#
+# `article-11-standard` is 21.5 years of service on $72,000, with a date of
+# birth and a ten-year salary history on file. A turn that asks this member for
+# their salary, their service or their age is not being careful. It is being a
+# form, and the member has to answer a question the system could have answered
+# itself.
+#
+# These fail today for a reason worth stating precisely: a future-dated figure
+# needs a salary and a service figure *at that date*, and `NEVER_ASSUMABLE`
+# forbids inventing either. That ban is right -- assuming an unknown salary
+# invents a member -- but it catches projection too, and projecting a known
+# salary forward under a stated rule is what every pension estimator does.
+# Phase 2 adds the projection class; Phase 3 lets the agent reach for it.
+#
+# None of these is marked `critical`. Critical in this suite means "a confident
+# wrong answer does real harm" -- the wrong Article's figure, an unsupported
+# formula the member supplied -- and `test_eval_suite.py` keeps that census
+# explicit so the word keeps its meaning. These cases are about unhelpfulness,
+# which is a different failure and a milder one. Revisit when Phase 3 flips them
+# to `active`: L08 in particular can fail two ways, and one of them (Article 11's
+# formula answering an Article 4 question) is the harmful kind.
+
+category: no_ask
+
+cases:
+  - id: L01
+    name: Two more years, answered rather than interrogated
+    employee: article-11-standard
+    status: expected_fail
+    gap: >
+      Needs the projection input class (Phase 2) and an agent that reaches for
+      it (Phase 3). Today final_average_salary at a future date is
+      NEVER_ASSUMABLE, so the turn asks for a salary the record already holds.
+    turns:
+      - q: if I work two more years, what would my pension be?
+        expect:
+          # Everything needed is on file or derivable from it.
+          asks: false
+          asks_for_nothing_known: true
+          calculation: true
+          # Having projected, say so. A figure resting on an unstated
+          # assumption is worse than no figure.
+          mentions: ["assum", "held flat", "as it stands"]
+
+      # A correction to the projection rule, not a new question.
+      - q: assume I get a 3% raise each year
+        expect:
+          asks: false
+          recompute: true
+          calculation: true
+
+      # A correction to a fact. The figure must move; nothing else should.
+      - q: actually I'm 57
+        expect:
+          asks: false
+          recompute: true
+          calculation: true
+
+  - id: L02
+    name: A figure the record alone can support, asked for plainly
+    employee: article-11-standard
+    status: active
+    turns:
+      - q: what would my pension be if I retired now?
+        expect:
+          asks_for_nothing_known: true
+          calculation: true
+          cites: ["11-134"]

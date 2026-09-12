@@ -1,0 +1,78 @@
+# Whether the answer served the question, which calling tools cannot show.
+#
+# An agent can search competently, compute correctly, cite honestly, and still
+# answer two thirds of what was asked. `needs_figure` is a boolean, so a turn
+# containing an eligibility question and a calculation question collapses to
+# one of them -- and the member has to ask the other half again.
+#
+# None of these is marked `critical`. Critical in this suite means "a confident
+# wrong answer does real harm" -- the wrong Article's figure, an unsupported
+# formula the member supplied -- and `test_eval_suite.py` keeps that census
+# explicit so the word keeps its meaning. These cases are about unhelpfulness,
+# which is a different failure and a milder one. Revisit when Phase 3 flips them
+# to `active`: L08 in particular can fail two ways, and one of them (Article 11's
+# formula answering an Article 4 question) is the harmful kind.
+
+category: goal_completion
+
+cases:
+  - id: L03
+    name: Eligibility and amount are one question, not two
+    employee: article-11-standard
+    status: expected_fail
+    gap: >
+      Needs goal decomposition (Phase 3). `needs_figure` flattens a two-part
+      question into one, so the eligibility half arrives only if the prose
+      happens to cover it.
+    turns:
+      - q: I'm thinking of retiring at 58. Am I eligible, and how much would I get?
+        expect:
+          calculation: true
+          # The eligibility half, in the Code's own terms.
+          mentions: ["eligib", "qualif", "20 years", "age 55"]
+          cites: ["11-134|11-130"]
+
+  - id: L04
+    name: A correction modifies the scenario rather than starting over
+    employee: article-11-standard
+    status: expected_fail
+    gap: >
+      Needs conversational state the agent reasons over rather than a scenario
+      list a regex corroborates (Phase 3).
+    turns:
+      - q: what would I get if I worked two more years?
+        expect: { calculation: true }
+      - q: actually make that three years
+        expect:
+          asks: false
+          recompute: true
+          calculation: true
+
+  - id: L05
+    name: A follow-up about a spouse continues the conversation
+    employee: article-11-standard
+    status: expected_fail
+    gap: >
+      Needs the turn read as a continuation (Phase 3). Today "what about my
+      wife?" carries no benefit vocabulary, so the survivor provisions are not
+      what gets retrieved.
+    turns:
+      - q: what would my pension be if I retired at the end of this year?
+        expect: { calculation: true }
+      # Names no benefit, no section and no age. It is a survivor question
+      # only because of what came before it.
+      - q: what about my wife?
+        expect:
+          asks: false
+          mentions: ["survivor", "widow", "spouse"]
+          cites: ["11-145|11-145.1|11-153"]
+
+  - id: L06
+    name: A question about another Article is answered as law, not as this member
+    employee: article-11-standard
+    status: active
+    turns:
+      - q: what does Article 4 provide for police officers?
+        expect:
+          article_only: "4"
+          no_figures: true
