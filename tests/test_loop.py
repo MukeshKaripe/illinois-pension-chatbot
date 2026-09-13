@@ -521,3 +521,66 @@ async def test_compose_reports_a_clean_figure_at_its_own_rung(monkeypatch):
         }
     )
     assert out["answer_rung"] == 1
+
+
+# ── Binding the member's reply ────────────────────────────────────
+
+
+_ASKED = {
+    "employee_record": {"article_number": 11},
+    "turn_index": 1,
+    "clarifications_asked": 1,
+    "open_question": {
+        "about": "coverage",
+        "described_as": "a park employee",
+        "asked_turn": 0,
+        "options": [
+            {"article": "12", "section": "12-101", "test": "board of park commissioners"},
+            {"article": "11", "section": None, "test": None, "from_record": True},
+        ],
+    },
+}
+
+
+def test_the_members_own_answer_is_bound_before_the_model_runs():
+    """G32, and it is CRITICAL.
+
+    The member restated their coverage in the statute's own literal words --
+    "employee of a board of park commissioners" IS the Section 12-101 test --
+    and the loop had nothing to bind it to, so the verdict stayed on the record
+    and the same Article 11 figure came back. A question whose answer does not
+    stick is worse than no question: it costs a turn and teaches the member
+    they are not being heard.
+
+    Deterministic on purpose. `bind_reply` is pure Python reading an Article
+    number, a section number, or one option's distinguishing words; leaving it
+    to the model puts the member's own answer at the mercy of a re-reading.
+    """
+    bound = loop_mod._bind_open_question(
+        {**_ASKED, "question": "i am an employee of a board of park commissioners"}
+    )
+    assert bound["coverage"]["article"] == "12"
+    assert bound["coverage"]["basis"] == "member_confirmed"
+    assert bound["coverage"]["conflict"] is False
+    assert bound["open_question"] is None
+    assert bound["candidate_articles"] == ["12"]
+
+
+def test_a_reply_that_settles_nothing_leaves_the_question_open():
+    """G33: asking about an Article is not answering about one."""
+    assert loop_mod._bind_open_question(
+        {**_ASKED, "question": "what type of employees come under Article 12?"}
+    ) == {}
+
+
+def test_a_stale_question_is_not_bound_against():
+    """An open question that never expires is a trap: six turns on, somebody
+    mentioning Article 12 in passing would be filed into that fund on the
+    strength of a remark."""
+    assert loop_mod._bind_open_question(
+        {**_ASKED, "turn_index": 9, "question": "i am an employee of a board of park commissioners"}
+    ) == {}
+
+
+def test_nothing_asked_means_nothing_to_bind():
+    assert loop_mod._bind_open_question({"question": "what is Article 11?"}) == {}

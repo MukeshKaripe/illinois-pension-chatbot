@@ -221,3 +221,76 @@ async def test_the_acts_the_schema_offers_are_the_acts_coverage_governs():
     )
     offered = set(schema["function"]["parameters"]["properties"]["act"]["enum"])
     assert offered == {coverage_mod.ASSERTED, coverage_mod.STIPULATED, coverage_mod.DOUBTED}
+
+
+# ── A verdict with consequences ───────────────────────────────────
+#
+# `check_coverage` returned the right verdict on every failing case of the
+# Phase 4 measurement -- `conflict: True` with the right `why` -- and the loop
+# computed a figure and answered anyway. A determination the agent is merely
+# told about is not a determination.
+
+
+async def test_a_conflict_becomes_a_question_the_harness_can_see(monkeypatch):
+    """The eval's `asks` check reads `clarification`, and so does
+    `prepare_answer`. Without the key the turn cannot be said to have asked,
+    however question-shaped its prose."""
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a park employee", "act": "asserted"},
+        dict(_MEMBER),
+    )
+    assert update["clarification"]["about"] == "coverage"
+    assert update["clarification"]["described_as"] == "a park employee"
+    assert [o["article"] for o in update["clarification"]["options"]] == ["12", "11"]
+    assert update["clarifications_asked"] == 1
+
+
+async def test_the_question_is_stored_so_the_next_turn_can_bind_it(monkeypatch):
+    """G32, and it is CRITICAL. The member restated their coverage in the
+    statute's own literal words and the loop had nothing to bind it to, so the
+    verdict stayed on the record and the same figure came back."""
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a park employee", "act": "asserted"},
+        dict(_MEMBER),
+    )
+    assert update["open_question"] == update["clarification"]
+    assert update["open_question"]["asked_turn"] == 2, "the turn it was asked on"
+
+
+async def test_no_conflict_asks_nothing(monkeypatch):
+    _corpus(monkeypatch, [_LABORER], _LABORERS)
+    _, update = await tools.run_tool(
+        "check_coverage", {"description": "a city laborer", "act": "asserted"}, dict(_MEMBER)
+    )
+    assert "clarification" not in update
+    assert "open_question" not in update
+
+
+async def test_a_supposition_asks_nothing(monkeypatch):
+    """Adopted whole: no question, no budget spent."""
+    _corpus(monkeypatch, [_POLICE], _CHICAGO_POLICE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a Chicago police officer", "act": "stipulated"},
+        dict(_MEMBER),
+    )
+    assert "clarification" not in update
+
+
+async def test_the_budget_is_spent_and_the_turn_proceeds(monkeypatch):
+    """At the cap the agent proceeds on the record and says what it assumed.
+    Asking a fourth time is its own failure, and one the member cannot escape."""
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    text, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a park employee", "act": "asserted"},
+        {**_MEMBER, "clarifications_asked": 3},
+    )
+    assert "clarification" not in update
+    assert update["coverage"]["conflict"] is False
+    assert update["coverage"]["why"] == "budget_spent"
+    assert "already asked" in text.lower() or "no more" in text.lower()

@@ -21,6 +21,7 @@ import logging
 import time
 from typing import Any
 
+from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.blocks import render_assumptions
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM
@@ -264,6 +265,49 @@ def _confined_to_premise(sections: list[dict], state: dict[str, Any]) -> list[di
     return kept
 
 
+def _bind_open_question(state: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a coverage question the member has just answered.
+
+    Deterministic, and deliberately not the model's to do. `bind_reply` reads an
+    Article number, a section number, or one option's own distinguishing words;
+    handing that to a model puts the member's own answer at the mercy of a
+    re-reading, and the conversation this layer was built from is one where an
+    answer given in the statute's literal words was not heard twice running.
+
+    Runs before the investigation for the same reason `assess_coverage` runs it
+    at the top of a turn: a member who has just been asked something and
+    answered it must not be asked again.
+    """
+    question = state.get("question") or ""
+    open_question = state.get("open_question")
+    turn = int(state.get("turn_index") or 0)
+    if not coverage_mod.question_is_live(open_question, turn):
+        return {}
+    bound = coverage_mod.bind_reply(question, open_question)
+    if not bound:
+        return {}
+
+    employee = state.get("employee_record")
+    settled = {
+        **bound,
+        "record_article": str(employee["article_number"]) if employee else None,
+        "candidates": (open_question or {}).get("options") or [],
+        "turn": turn,
+        "described_as": (open_question or {}).get("described_as"),
+    }
+    logger.info(
+        "Coverage settled by the member: article=%s (%s)",
+        settled.get("article"),
+        bound.get("confirmed_by"),
+    )
+    return {
+        "coverage": settled,
+        "open_question": None,
+        "clarification": {},
+        "candidate_articles": [settled["article"]] if settled.get("article") else [],
+    }
+
+
 async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """Search, read, reconsider, and stop when there is enough.
 
@@ -273,6 +317,11 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """
     started = time.perf_counter()
     settings = get_settings()
+
+    # Before anything else, and before any model sees the turn: did they answer
+    # what we asked last time?
+    settled = _bind_open_question(state)
+    state = {**state, **settled} if settled else state
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": INVESTIGATE_SYSTEM},
@@ -402,6 +451,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         if key not in state or state.get(key) != value
     }
     return {
+        **settled,
         **produced,
         "retrieved_sections": sections,
         "loop_messages": messages,

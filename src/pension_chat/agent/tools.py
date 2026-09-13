@@ -639,6 +639,12 @@ def _coverage_text(verdict: dict[str, Any], description: str, evidence: str) -> 
             "Ask them the one thing that separates the two -- usually which employer "
             "pays them -- and answer what you can meanwhile."
         )
+    elif verdict.get("why") == "budget_spent":
+        lines.append(
+            "You have already asked this member as many questions as you may. "
+            f"Answer on their record, Article {record}, and say in one line which "
+            "reading you went with and that they can correct it. Do not ask again."
+        )
     else:
         lines.append(
             f"{description!r} matched no coverage test in the Code. Falling back to "
@@ -710,7 +716,37 @@ async def _check_coverage(
             "last_used_turn": turn,
         }
 
-    evidence = _render(grounding, get_settings().retrieval_context_token_budget * 4)
+    # ── A verdict with consequences ──────────────────────────────
+    #
+    # Returning the verdict as text was not enough: the loop read "their words
+    # point at Article 12, ask them which employer pays them", computed a figure
+    # from Article 11 anyway, and answered. `assess_coverage` does not persuade
+    # the pipeline of anything -- it writes the keys that make the turn ask, and
+    # `check_coverage` writes the same ones.
+    settings = get_settings()
+    if verdict.get("conflict"):
+        asked = int(state.get("clarifications_asked") or 0)
+        if asked >= settings.clarification_budget:
+            # Proceed on the record and say so. Asking a fourth time is its own
+            # failure, and one the member has no way out of.
+            verdict = {**verdict, "conflict": False, "why": "budget_spent"}
+            update["coverage"] = verdict
+        else:
+            asking = coverage_mod.open_question_for(verdict)
+            update["clarification"] = asking
+            update["open_question"] = asking
+            update["clarifications_asked"] = 1
+            # Every candidate and the record's own Article, so the question can
+            # quote the coverage test it turns on instead of asserting it.
+            update["candidate_articles"] = [
+                a
+                for a in dict.fromkeys(
+                    str(o.get("article")) for o in asking.get("options") or []
+                )
+                if a and a != "None"
+            ]
+
+    evidence = _render(grounding, settings.retrieval_context_token_budget * 4)
     return _coverage_text(verdict, description, evidence), update
 
 
