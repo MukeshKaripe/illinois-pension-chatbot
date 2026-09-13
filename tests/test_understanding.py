@@ -278,3 +278,23 @@ async def test_naming_an_age_on_the_first_turn_is_not_a_comparison(
         }
     )
     assert update["requires_calculation"] is False
+
+
+def test_the_schema_asks_for_the_offset_the_plumbing_reads():
+    """`years_from_now` is read in three places and asked for in none.
+
+    `scenarios.corroborated`, `scenarios.merge_scenarios` and
+    `nodes._resolve_retirement_age` all handle a scenario carrying an offset
+    instead of an absolute age -- the whole path works. The model was simply
+    never told the field existed, so it never sent one, and "if I work two more
+    years" produced no scenario at all: `_OFFSET_PATTERNS` governs on
+    wait|after|in, and "work" is not one of them.
+    """
+    from pension_chat.agent.understanding import UNDERSTAND_SYSTEM
+
+    assert "years_from_now" in UNDERSTAND_SYSTEM, (
+        "the model cannot report an offset it has not been asked for"
+    )
+    # And it must be told not to convert one into the other: this node runs
+    # concurrently with the record fetch, so it does not know the member's age.
+    assert "retirement_age" in UNDERSTAND_SYSTEM

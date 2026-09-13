@@ -59,7 +59,8 @@ Return JSON only:
  "needs_figure": true|false,
  "recompute": true|false,
  "revised_facts": {"<fact name>": <value>},
- "scenarios": [{"label": "...", "retirement_age": <int|null>, "basis": "..."}],
+ "scenarios": [{"label": "...", "retirement_age": <int|null>,
+   "years_from_now": <int|null>, "basis": "..."}],
  "unresolved": [{"what": "...", "why": "..."}],
  "answerable_part": "<if part of the message is outside the Pension Code, the part that is inside it>",
  "answers_open_question": true|false,
@@ -80,6 +81,13 @@ Rules:
   a figure already worked out in this conversation depended on.
 - revised_facts carries only values the member actually stated, under the fact
   names used in the context you were given.
+- A scenario names either an absolute retirement age ("at 58", "when I turn
+  60") or an offset from today ("two more years", "if I keep working another
+  decade"). Put an absolute age in retirement_age and an offset in
+  years_from_now, and never convert one into the other -- you have not been
+  told the member's current age, and the offset is resolved against it for you
+  later. "If I work two more years" is a scenario; so is "what if I stay on a
+  while longer", if you can put a number on it.
 - You decide which benefit is in play. You never decide which Article covers the
   member; that is settled elsewhere and you must not report it."""
 

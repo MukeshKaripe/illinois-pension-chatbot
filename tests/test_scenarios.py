@@ -263,3 +263,18 @@ def test_a_follow_up_naming_an_age_carries_no_calculation_vocabulary():
     assert extract_scenarios(question) == [
         {"label": "at age 59", "retirement_age": 59}
     ]
+
+
+def test_a_model_offset_survives_corroboration():
+    """The failure L01 measured: "work two more years" names an offset no
+    pattern in this module governs, so the scenario died before it existed.
+
+    `corroborated` guards against scenarios leaking forward from earlier turns.
+    It has to recognise an offset the model found, or the guard eats the fix.
+    """
+    from pension_chat.agent.scenarios import corroborated
+
+    scenario = {"label": "two more years", "retirement_age": None, "years_from_now": 2}
+    assert corroborated(scenario, "if I work two more years, what would my pension be?")
+    # And still refuses one this message does not name at all.
+    assert not corroborated(scenario, "what about my wife?")
