@@ -120,6 +120,25 @@ COMPUTED_SLOTS = frozenset(
     {"STATUS", "WORKED_STEPS", "COMPARISON", "ASSUMPTIONS", "THRESHOLDS"}
 )
 
+#: Slots computed whatever shape the turn takes, because what they say is a
+#: property of the answer rather than of its template.
+#:
+#: ASSUMPTIONS is here because disclosure cannot depend on a shape. `shape_for`
+#: checks `answerable_part` before `_has_figure`, so a turn that computed a
+#: figure *and* had a part outside the Code takes the `partial` shape, whose
+#: slots are ('lede', 'detail', 'outside'). The block was never computed, so
+#: there was none for `MarkerSubstituter.unused()` to append, so the answer
+#: could not say what its figure rested on -- and `_check_assumptions_disclosed`
+#: failed it every single time, replacing a correct answer with the fallback.
+#:
+#: A block computed for a shape that does not name it is appended at the end
+#: rather than dropped, which is exactly what `unused()` is for.
+ALWAYS_COMPUTED = frozenset({"ASSUMPTIONS"})
+
+
+def always_computed(slot: str) -> bool:
+    return slot in ALWAYS_COMPUTED
+
 
 @dataclass(frozen=True)
 class Template:

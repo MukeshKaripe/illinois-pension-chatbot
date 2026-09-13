@@ -170,3 +170,55 @@ def test_answers_from_article_permits_the_cross_cutting_articles():
     is not citing another fund's law."""
     check = _harness().check
     assert check(_cited("5-132", "1-160", provision="5-132"), []) == []
+
+
+# ── An honest gap has more than two shapes ────────────────────────
+
+
+def _fund(**over):
+    turn = result("An answer.", **over)
+    turn["expect"] = {"fund_figure": "15"}
+    return turn
+
+
+def test_a_derivation_that_refuses_with_a_reason_is_an_honest_gap():
+    """F15, on both agents, and the refusal is correct law.
+
+    Section 15-136 caps the annuity at the lesser of 80% of final rate of
+    earnings and the annual benefit limit under Section 415 of the Internal
+    Revenue Code -- and the IRC limit is not in the Pension Code. So the
+    derivation declines, says exactly that, and the answer tells the member
+    what it could not establish. That is the honest gap this check exists to
+    allow, and it was being scored as silence because the reason lives in
+    `derivation_failures` rather than in `missing_inputs`.
+    """
+    check = _harness().check
+    turn = _fund(
+        derivation_failures=[
+            {
+                "formula_type": "retirement_annuity",
+                "reason": "The Code does not state the Section 415 dollar limit the cap needs.",
+            }
+        ]
+    )
+    assert check(turn, []) == []
+
+
+def test_a_refusal_with_no_reason_is_still_silence():
+    """The relaxation is about a stated reason, not about the key existing. An
+    empty refusal tells the member nothing, which is the failure this check was
+    written for."""
+    check = _harness().check
+    assert check(_fund(derivation_failures=[{"formula_type": "retirement_annuity"}]), []) != []
+    assert check(_fund(derivation_failures=[]), []) != []
+
+
+def test_a_borrowed_formula_is_still_caught():
+    """The one thing this check must never stop catching."""
+    check = _harness().check
+    turn = _fund(
+        calculation={"retirement_annuity": {"section": "8-138", "base": {"ok": True}}},
+        derivation_failures=[{"reason": "anything at all"}],
+    )
+    problems = check(turn, [])
+    assert problems and "8-138" in problems[0]

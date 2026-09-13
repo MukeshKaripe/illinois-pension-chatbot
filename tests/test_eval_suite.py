@@ -190,25 +190,36 @@ def _ran(section: str, ok: bool = True) -> dict:
 
 
 @pytest.mark.parametrize(
-    ("calculation", "missing", "blocked", "fails"),
+    ("calculation", "missing", "blocked", "refusals", "fails"),
     [
         # Its own law: a figure under Article 5 for a Chicago police officer.
-        ({"retirement_annuity": _ran("5-167")}, [], None, False),
+        ({"retirement_annuity": _ran("5-167")}, [], None, [], False),
         # The failure the smoke eval exists for: another Article's formula.
-        ({"retirement_annuity": _ran("11-134")}, [], None, True),
+        ({"retirement_annuity": _ran("11-134")}, [], None, [], True),
         # Honest gaps: an input the fund needs, or a recipe the validator refused.
-        ({}, ["salary_attached_to_rank"], None, False),
-        ({}, [], "validator: missing evidence", False),
+        ({}, ["salary_attached_to_rank"], None, [], False),
+        ({}, [], "validator: missing evidence", [], False),
         # A failed attempt is not a figure, whatever section it names.
-        ({"retirement_annuity": _ran("11-134", ok=False)}, ["service_years"], None, False),
+        ({"retirement_annuity": _ran("11-134", ok=False)}, ["service_years"], None, [], False),
+        # The third honest gap: the Code itself does not contain what the
+        # formula needs, and the derivation says which. Section 15-136 caps the
+        # annuity at the IRC Section 415 limit, which is not in the Pension Code.
+        ({}, [], None, [{"reason": "the Code does not state the Section 415 limit"}], False),
+        # A refusal with no reason tells the member nothing.
+        ({}, [], None, [{"formula_type": "retirement_annuity"}], True),
         # Asked for a figure and gave neither a figure nor a reason.
-        ({}, [], None, True),
+        ({}, [], None, [], True),
     ],
 )
 def test_a_fund_smoke_case_passes_on_its_own_law_or_an_honest_gap(
-    calculation, missing, blocked, fails
+    calculation, missing, blocked, refusals, fails
 ):
-    result = {"calculation": calculation, "missing_inputs": missing, "execution_blocked": blocked}
+    result = {
+        "calculation": calculation,
+        "missing_inputs": missing,
+        "execution_blocked": blocked,
+        "derivation_failures": refusals,
+    }
     problems = _harness().fund_figure_problems(result, "5")
     assert bool(problems) is fails, problems
 

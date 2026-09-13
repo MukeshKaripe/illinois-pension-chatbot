@@ -38,6 +38,7 @@ from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.llm import complete
 from pension_chat.agent.presentation import (
+    ALWAYS_COMPUTED,
     COMPUTED_SLOTS,
     scenarios_this_turn,
     select_rung,
@@ -2323,7 +2324,11 @@ async def prepare_answer(state: PensionAgentState) -> dict:
     template = template_for(shape)
 
     computed: dict[str, str] = {}
-    for slot in template.slots:
+    # `ALWAYS_COMPUTED` slots are produced whatever shape the turn took. A block
+    # a template does not name is appended at the end by
+    # `MarkerSubstituter.unused()` rather than dropped -- which is how a figure
+    # in a `partial` or `legal` answer still says what it rests on.
+    for slot in (*template.slots, *(ALWAYS_COMPUTED - set(template.slots))):
         if slot not in COMPUTED_SLOTS:
             continue
         if slot == "STATUS":

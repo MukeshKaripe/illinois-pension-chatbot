@@ -298,6 +298,18 @@ def fund_figure_problems(result: dict, article: str) -> list[str]:
         return [f"figure computed under {foreign}, not Article {article}"] if foreign else []
     if result["missing_inputs"] or result["execution_blocked"]:
         return []
+    # A derivation that refuses **with a stated reason** is the third honest
+    # gap, and the most explicit of the three. Section 15-136 caps the annuity
+    # at the lesser of 80% of final rate of earnings and the annual benefit
+    # limit under Section 415 of the Internal Revenue Code -- and the IRC limit
+    # is not in the Pension Code, so no amount of reading the Code produces a
+    # number. The answer says so. Scoring that as silence was the check reading
+    # two of the three places a reason can live.
+    #
+    # The reason has to be there: an empty refusal tells the member nothing,
+    # which is the failure this check was written for.
+    if any(str(f.get("reason") or "").strip() for f in result["derivation_failures"]):
+        return []
     return ["no figure, and no missing input or blocked recipe to say why"]
 
 

@@ -14,7 +14,7 @@ from pension_chat.agent.blocks import (
     render_status,
     render_worked_steps,
 )
-from pension_chat.agent.presentation import RUNG_ASSUMED
+from pension_chat.agent.presentation import RUNG_ASSUMED, TEMPLATES, always_computed
 from pension_chat.agent.worksheet import SOURCE_ASSUMED, WorkSheet
 
 #: The shape `nodes._present` actually produces, statutory constants wrapped
@@ -334,3 +334,30 @@ def test_no_thresholds_renders_nothing():
 
     assert blocks.render_thresholds([]) == ""
     assert blocks.render_thresholds(None) == ""
+
+
+# ── Disclosure cannot depend on the shape ─────────────────────────
+
+
+def test_assumptions_are_computed_even_for_a_shape_without_the_slot():
+    """F05, and a guaranteed failure whenever it happened.
+
+    `shape_for` checks `answerable_part` before `_has_figure`, so a turn that
+    computed a figure *and* had a part outside the Code gets the `partial`
+    shape -- whose slots are ('lede', 'detail', 'outside'). ASSUMPTIONS is
+    never computed, so there is no block for `MarkerSubstituter.unused()` to
+    append, so the answer cannot disclose what the figure rests on, so
+    `_check_assumptions_disclosed` fails it and the member sees the fallback.
+
+    A figure resting on a value nobody supplied must say so. That is a property
+    of the figure, not of which template the turn happened to pick.
+    """
+    assert "ASSUMPTIONS" not in TEMPLATES["partial"].slots
+    assert "ASSUMPTIONS" not in TEMPLATES["legal"].slots
+    assert always_computed("ASSUMPTIONS") is True
+
+
+def test_a_shape_that_names_the_slot_still_places_it():
+    """Unchanged where it already worked: the marker puts the block where the
+    template wants it, rather than at the end."""
+    assert "ASSUMPTIONS" in TEMPLATES["figure"].slots
