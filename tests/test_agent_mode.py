@@ -184,3 +184,67 @@ async def test_compose_does_not_disclose_assumptions_beside_no_figure():
     )
     tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "taken as today" not in tail
+
+
+async def test_compose_makes_an_open_coverage_question_the_answer():
+    """G31, and it is CRITICAL.
+
+    The loop asked -- `clarification` was set -- and then wrote about how
+    Article 11 calculates a pension, citing five Article 11 sections and
+    neither of the two coverage tests the question turns on. A question that
+    does not quote the test it rests on is an assertion wearing a question
+    mark, and it is how the first clarifying question ever asked got itself
+    withdrawn.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "i am a park employee, how is my pension calculated?",
+            "loop_messages": [],
+            "retrieved_sections": [
+                {"section": "12-101", "title": "Terms defined"},
+                {"section": "11-134", "title": "Amount of annuity"},
+            ],
+            "clarification": {
+                "about": "coverage",
+                "described_as": "a park employee",
+                "settled_by": "which employer pays them",
+                "options": [
+                    {"article": "12", "section": "12-101", "test": "board of park commissioners"},
+                    {"article": "11", "section": None, "test": None, "from_record": True},
+                ],
+            },
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "12-101" in tail
+    assert "which employer pays them" in tail
+    assert "board of park commissioners" in tail
+    assert "no figure" in tail.lower() or "not settled" in tail.lower()
+
+
+async def test_compose_says_nothing_about_coverage_when_nothing_is_open():
+    out = await loop_mod.compose(
+        {"question": "q", "loop_messages": [], "retrieved_sections": []}
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "which employer" not in tail.lower()
+
+
+async def test_compose_says_which_law_was_set_aside_and_why():
+    """S4. The premise confined the evidence to Article 5 and the sections the
+    loop had already read were dropped from the citable set -- so the model,
+    which had them in front of it all through the investigation, cited them
+    anyway and had the answer withdrawn as UNVERIFIED_CITATION. A rule the
+    model can see beats a list it has to infer from."""
+    out = await loop_mod.compose(
+        {
+            "question": "q",
+            "loop_messages": [],
+            "hypothetical_frame": {"premise": "a police officer", "article": "5"},
+            "retrieved_sections": [{"section": "5-111", "article": "5"}],
+            "set_aside_sections": ["8-131", "8-132", "3-106"],
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "8-131" in tail and "3-106" in tail
+    assert "Article 5" in tail

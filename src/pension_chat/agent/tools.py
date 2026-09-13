@@ -678,6 +678,31 @@ async def _check_coverage(
     record_article = str(employee["article_number"]) if employee else None
     turn = state.get("turn_index") or 0
 
+    # ── Already answered? ────────────────────────────────────────
+    #
+    # A confirmation the member gave outranks a fresh assessment of the same
+    # words. `assess_coverage` cannot reach this problem -- it binds the reply
+    # and returns, never running the assessment again -- but here the model
+    # chooses when to call, and calling twice re-adjudicated from nothing and
+    # put the conflict back one turn after the member had settled it. Their own
+    # answer is not something to re-derive.
+    #
+    # Narrow on purpose: only an assertion, and only while the description is
+    # still about the settled question. Supposing a different job is a new
+    # question and gets a new determination.
+    settled = state.get("coverage") or {}
+    if (
+        act == coverage_mod.ASSERTED
+        and settled.get("basis") == coverage_mod.BASIS_CONFIRMED
+        and settled.get("article")
+    ):
+        return (
+            f"Already settled: the member confirmed Article {settled['article']} "
+            f"({settled.get('confirmed_by') or 'they told you'}). Do not ask again "
+            "and do not re-open it. You may state this as a fact about them.",
+            {"coverage": settled, "candidate_articles": [str(settled["article"])]},
+        )
+
     # The member's own Article goes in alongside whatever their description
     # ranked: the assessment is being asked to weigh a description against a
     # record, and cannot do that having read only one side.

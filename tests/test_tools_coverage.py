@@ -294,3 +294,57 @@ async def test_the_budget_is_spent_and_the_turn_proceeds(monkeypatch):
     assert update["coverage"]["conflict"] is False
     assert update["coverage"]["why"] == "budget_spent"
     assert "already asked" in text.lower() or "no more" in text.lower()
+
+
+async def test_a_confirmation_outranks_a_fresh_assessment(monkeypatch):
+    """G32 turn 2, and it is CRITICAL.
+
+    The member answered the question in the statute's own words, the binding
+    worked -- and then the model called check_coverage again with the same
+    description, which re-adjudicated from nothing and put the conflict back.
+    The pipeline cannot do this: `assess_coverage` binds and returns, never
+    reaching the assessment. Here the model chooses when to call, so the
+    settled verdict has to survive being asked about again.
+    """
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    text, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "an employee of a board of park commissioners", "act": "asserted"},
+        {
+            **_MEMBER,
+            "coverage": {
+                "article": "12",
+                "record_article": "11",
+                "basis": coverage_mod.BASIS_CONFIRMED,
+                "conflict": False,
+                "confirmed_by": "described the employer",
+            },
+        },
+    )
+    assert update["coverage"]["basis"] == coverage_mod.BASIS_CONFIRMED
+    assert update["coverage"]["article"] == "12"
+    assert "clarification" not in update, "they already answered it"
+    assert "12" in text
+    assert "confirmed" in text.lower() or "settled" in text.lower()
+
+
+async def test_a_settled_verdict_does_not_block_a_new_description(monkeypatch):
+    """Confirmation settles *that* question, not every later one. A member who
+    confirmed Article 12 and then supposes a different job gets a fresh
+    determination."""
+    _corpus(monkeypatch, [_POLICE], _CHICAGO_POLICE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a Chicago police officer", "act": "stipulated"},
+        {
+            **_MEMBER,
+            "coverage": {
+                "article": "12",
+                "record_article": "11",
+                "basis": coverage_mod.BASIS_CONFIRMED,
+                "conflict": False,
+            },
+        },
+    )
+    assert update["coverage"]["basis"] == coverage_mod.BASIS_HYPOTHETICAL
+    assert update["hypothetical_frame"]["article"] == "5"

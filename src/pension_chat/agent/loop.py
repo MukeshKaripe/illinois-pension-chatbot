@@ -228,7 +228,9 @@ def _unread_references(sections: list[dict]) -> list[str]:
     return named
 
 
-def _confined_to_premise(sections: list[dict], state: dict[str, Any]) -> list[dict]:
+def _confined_to_premise(
+    sections: list[dict], state: dict[str, Any]
+) -> tuple[list[dict], list[str]]:
     """Drop other funds' law once a premise has named the fund in question.
 
     Asked what a Chicago police officer would get, the loop read Article 3 --
@@ -252,17 +254,18 @@ def _confined_to_premise(sections: list[dict], state: dict[str, Any]) -> list[di
     frame = state.get("hypothetical_frame") or {}
     article = str(frame.get("article") or "")
     if not article:
-        return sections
+        return sections, []
     allowed = {article, *CROSS_CUTTING_ARTICLES}
-    kept = [s for s in sections if str(s.get("article") or article) in allowed]
-    dropped = len(sections) - len(kept)
-    if dropped:
+    kept, aside = [], []
+    for section in sections:
+        (kept if str(section.get("article") or article) in allowed else aside).append(section)
+    if aside:
         logger.info(
-            "Premise names Article %s; dropped %d section(s) of other funds' law",
+            "Premise names Article %s; set aside %d section(s) of other funds' law",
             article,
-            dropped,
+            len(aside),
         )
-    return kept
+    return kept, [str(s.get("section")) for s in aside if s.get("section")]
 
 
 def _bind_open_question(state: dict[str, Any]) -> dict[str, Any]:
@@ -443,7 +446,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
-    sections = _confined_to_premise(sections, working)
+    sections, set_aside = _confined_to_premise(sections, working)
 
     produced = {
         key: value
@@ -454,6 +457,10 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         **settled,
         **produced,
         "retrieved_sections": sections,
+        # Named rather than silently gone. The model has them in its own
+        # history either way, so a dropped section it cannot see dropped is a
+        # citation it will make and have withdrawn.
+        "set_aside_sections": set_aside,
         "loop_messages": messages,
         "loop_exhausted": exhausted,
         "unread_references": _unread_references(sections),
@@ -546,6 +553,55 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                     + ", ".join(readable)
                     + ". A section you saw named in an outline or inside another "
                     "section's text is not one you have read."
+                ),
+            }
+        )
+
+    if asking := (state.get("clarification") or {}):
+        # A question that does not quote the test it turns on is an assertion
+        # wearing a question mark. The loop asked and then wrote about how
+        # Article 11 calculates a pension, citing five Article 11 sections and
+        # neither coverage test -- and a clarifying question that names a
+        # section it never read is how the first one ever asked got itself
+        # withdrawn.
+        tests = [
+            f"Article {o.get('article')}"
+            + (f" (Section {o['section']}: {o.get('test')})" if o.get("section") else
+               " (where their record places them; no coverage test was retrieved for it)")
+            for o in (asking.get("options") or [])
+            if o.get("article")
+        ]
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Which Article covers this member is NOT settled, and that is "
+                    "what this answer is about. They described themselves as "
+                    f"{asking.get('described_as')!r}, which could put them in:"
+                    + chr(10) + chr(10) + chr(10).join(f"- {line}" for line in tests)
+                    + chr(10) + chr(10)
+                    + "Put the question to them, and quote the test it turns on "
+                    "from the section itself. What settles it: "
+                    f"{asking.get('settled_by') or 'which employer pays them'}. "
+                    "Give no figure -- the Article is precisely what is in doubt, "
+                    "and a pension worked out from the wrong one is worse than a "
+                    "turn's delay."
+                ),
+            }
+        )
+
+    if aside := (state.get("set_aside_sections") or []):
+        frame = state.get("hypothetical_frame") or {}
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "You read these while working out which fund was in question, "
+                    f"and they are another fund's law: {', '.join(aside)}. The "
+                    f"answer rests on Article {frame.get('article')} alone. Do not "
+                    "cite them -- they are not evidence for this answer, and an "
+                    "answer that cites them will be withdrawn before the member "
+                    "sees it."
                 ),
             }
         )

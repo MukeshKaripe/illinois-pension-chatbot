@@ -47,6 +47,11 @@ class PensionAgentState(TypedDict, total=False):
     loop_messages: list
     loop_exhausted: bool
     unread_references: list
+    #: Other funds' law the loop read while settling which fund was in
+    #: question. Named to the answer rather than silently dropped: the model
+    #: has them in its own history either way, so a section it cannot see
+    #: dropped is a citation it will make and have withdrawn.
+    set_aside_sections: list
     tool_calls_spent: dict
 
     # ── Durable: carried across turns by the checkpointer ─────────
@@ -329,6 +334,7 @@ def initial_state(
         "loop_messages": [],
         "loop_exhausted": False,
         "unread_references": [],
+        "set_aside_sections": [],
         "tool_calls_spent": {},
         "override_signal": {},
         "requires_calculation": False,
