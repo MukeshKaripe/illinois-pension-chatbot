@@ -441,6 +441,7 @@ def _describe(
     origins: dict[str, str] | None = None,
     stale: list[str] | None = None,
     revised: dict[str, Any] | None = None,
+    benefit: str = "this benefit",
 ) -> str:
     """What to tell the model, whichever of the three things happened."""
     lines: list[str] = []
@@ -499,7 +500,17 @@ def _describe(
             "what changed and what it moved the number to -- do not answer as "
             "though this were a new question."
         )
-    return chr(10).join(lines) or "No figure was produced and no reason was given."
+    if not lines:
+        # F02 and F18: the chain ran, produced nothing, and named no missing
+        # input and no block, so the turn ended with neither a figure nor a
+        # reason. "No provision could be resolved" is a reason, and it is one
+        # the member is owed rather than one to swallow.
+        return (
+            f"No figure for {benefit}. No provision could be resolved for this "
+            "member, so there was nothing to compute -- say that you could not "
+            "establish which rule governs, and do not name one from an outline."
+        )
+    return chr(10).join(lines)
 
 
 def _revised(update: dict[str, Any]) -> dict[str, Any]:
@@ -640,6 +651,7 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             update.get("input_sources") or {},
             stale,
             _revised(update),
+            benefit,
         ),
         update,
     )
@@ -933,7 +945,10 @@ async def _find_provision(arguments: dict[str, Any], state: dict) -> tuple[str, 
         )
     lines.append(
         "Nothing was computed. Read the section before describing it -- this "
-        "names the provision, it does not put its text in front of you."
+        "names the provision, it does not put its text in front of you. And if "
+        "the member asked what they would GET rather than which rule applies, "
+        "call compute_benefit now: a provision is not a figure, and answering "
+        "with one where the other was wanted leaves them with neither."
     )
     return chr(10).join(lines), update
 

@@ -420,3 +420,32 @@ async def test_find_provision_rejects_an_unknown_benefit():
     text, update = await tools.run_tool("find_provision", {"benefit": "lottery_win"}, {})
     assert "lottery_win" in text
     assert update == {}
+
+
+async def test_find_provision_hands_off_when_a_figure_is_what_was_wanted(monkeypatch):
+    """A regression this tool introduced on the day it landed.
+
+    F13 and F19 asked "roughly what would my pension be if I retired at the end
+    of this year?". The loop called find_provision, got the governing section,
+    reported it, and stopped -- no figure, and no reason given for there not
+    being one. A tool that answers a narrower question than the one asked has
+    to say so, or it becomes a way of not answering.
+    """
+    _chain(monkeypatch)
+    text, _ = await tools.run_tool(
+        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert "compute_benefit" in text
+    assert "figure" in text.lower()
+
+
+async def test_no_recipe_at_all_is_reported_as_such(monkeypatch):
+    """F02 and F18: compute_benefit ran, produced nothing, and named no missing
+    input and no block -- so the turn ended with neither a figure nor a reason.
+    "No provision could be resolved" is a reason, and the member is owed it."""
+    _chain(monkeypatch, recipes={}, result={})
+    text, _ = await tools.run_tool(
+        "compute_benefit", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert "no provision" in text.lower()
+    assert "retirement_annuity" in text
