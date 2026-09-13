@@ -388,3 +388,69 @@ async def test_the_loop_can_reach_coverage(monkeypatch):
     names = {t["function"]["name"] for t in loop_mod.LOOP_TOOLS}
     assert "check_coverage" in names
     assert names <= set(loop_mod.BUDGETS), "every tool offered must have a budget"
+
+
+async def test_a_premise_confines_what_the_answer_may_rest_on(monkeypatch):
+    """Asked what a Chicago police officer would get, the loop read Article 3 --
+    police *outside* Chicago -- while ruling it out, and then cited it.
+
+    Reading it was right; citing it is the exact harm the case exists for, one
+    fund's law answering another fund's question with a real citation on it. The
+    pipeline cannot make this mistake because its retrieval filter is the
+    determination. The loop has no filter, so the determination is applied to
+    what it gathered: under a premise naming an Article, the evidence is that
+    Article and the Articles that govern every member. The rest was
+    investigation, not evidence.
+    """
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["police annuity"]})),
+                          _turn(content="Found it.")])
+    _tools(
+        monkeypatch,
+        update={
+            "retrieved_sections": [
+                {"section": "5-132", "article": "5"},
+                {"section": "3-111", "article": "3"},
+                {"section": "1-160", "article": "1"},
+                {"section": "11-134", "article": "11"},
+            ]
+        },
+    )
+
+    out = await loop_mod.investigate(
+        {
+            "question": "if I were a Chicago police officer, what would I get?",
+            "hypothetical_frame": {"premise": "a Chicago police officer", "article": "5"},
+        }
+    )
+    kept = [s["section"] for s in out["retrieved_sections"]]
+    assert "5-132" in kept, "the Article the premise named"
+    assert "1-160" in kept, "Tier 2 governs every member, whichever fund they are in"
+    assert "3-111" not in kept and "11-134" not in kept, "other funds' law"
+
+
+async def test_without_a_premise_nothing_is_dropped(monkeypatch):
+    """A question comparing two funds genuinely rests on both, and no premise
+    has committed the answer to either."""
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="ok")])
+    _tools(
+        monkeypatch,
+        update={
+            "retrieved_sections": [
+                {"section": "11-134", "article": "11"},
+                {"section": "12-133", "article": "12"},
+            ]
+        },
+    )
+    out = await loop_mod.investigate({"question": "how do Articles 11 and 12 differ?"})
+    assert len(out["retrieved_sections"]) == 2
+
+
+async def test_a_premise_that_named_no_article_confines_nothing(monkeypatch):
+    """There is nothing to confine to. Dropping everything would leave the
+    answer resting on nothing at all."""
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="ok")])
+    _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134", "article": "11"}]})
+    out = await loop_mod.investigate(
+        {"question": "q", "hypothetical_frame": {"premise": "a dog walker", "article": None}}
+    )
+    assert [s["section"] for s in out["retrieved_sections"]] == ["11-134"]

@@ -126,3 +126,47 @@ def test_projects_wants_a_variant_that_moved_the_service_forward():
     })
     flat["expect"] = {"projects": True}
     assert harness.check(flat, []), "no variant means nothing was projected"
+
+
+# ── answers_from_article ──────────────────────────────────────────
+
+
+def _cited(*sections, provision=None, article="5"):
+    turn = result(
+        "An answer.",
+        guardrail_report={"verified_citations": list(sections)},
+        recipe_provenance=[{"section": provision}] if provision else [],
+    )
+    turn["expect"] = {"answers_from_article": article}
+    return turn
+
+
+def test_answers_from_article_ignores_what_was_merely_looked_at():
+    """An agent that decides what to read as it reads looks at the neighbouring
+    police fund precisely in order to rule it out. Looking is not the harm."""
+    check = _harness().check
+    turn = _cited("5-132", provision="5-132")
+    turn["articles"] = ["1", "3", "5", "8"]
+    assert check(turn, []) == []
+
+
+def test_answers_from_article_catches_another_funds_citation():
+    check = _harness().check
+    problems = check(_cited("5-132", "11-134"), [])
+    assert problems and "11" in problems[0]
+
+
+def test_answers_from_article_catches_a_borrowed_formula():
+    """The failure the case exists for: one fund's formula answering another
+    fund's question, with a real citation on it."""
+    check = _harness().check
+    problems = check(_cited("5-132", provision="11-134"), [])
+    assert problems and "11-134".split("-")[0] in problems[0]
+
+
+def test_answers_from_article_permits_the_cross_cutting_articles():
+    """Section 1-160 is Tier 2 and Article 20 is the Reciprocal Act. Nobody is a
+    member of either, and both govern the members of every fund -- so citing one
+    is not citing another fund's law."""
+    check = _harness().check
+    assert check(_cited("5-132", "1-160", provision="5-132"), []) == []

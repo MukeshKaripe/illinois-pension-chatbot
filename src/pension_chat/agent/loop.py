@@ -23,6 +23,7 @@ from typing import Any
 
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM
+from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
     COVERAGE_TOOLS,
@@ -185,6 +186,43 @@ def _unread_references(sections: list[dict]) -> list[str]:
     return named
 
 
+def _confined_to_premise(sections: list[dict], state: dict[str, Any]) -> list[dict]:
+    """Drop other funds' law once a premise has named the fund in question.
+
+    Asked what a Chicago police officer would get, the loop read Article 3 --
+    police *outside* Chicago -- in the course of ruling it out, and then cited
+    it. Reading it was right. Citing it is the harm the coverage layer exists
+    for: one fund's law answering another fund's question, with a real citation
+    on it.
+
+    The pipeline cannot make this mistake, because its retrieval filter *is* the
+    determination -- a section from another fund can only arrive by the
+    determination being wrong. A loop that decides what to read as it reads has
+    no filter, so the determination is applied to what it gathered instead:
+    under a premise naming an Article, the evidence is that Article and the
+    Articles that govern every member whatever fund they are in. The rest was
+    investigation, not evidence, and this is enforced rather than asked for --
+    `guardrails` verifies citations against exactly this list.
+
+    Only under a premise. A question comparing two funds rests on both, and
+    nothing has committed the answer to either.
+    """
+    frame = state.get("hypothetical_frame") or {}
+    article = str(frame.get("article") or "")
+    if not article:
+        return sections
+    allowed = {article, *CROSS_CUTTING_ARTICLES}
+    kept = [s for s in sections if str(s.get("article") or article) in allowed]
+    dropped = len(sections) - len(kept)
+    if dropped:
+        logger.info(
+            "Premise names Article %s; dropped %d section(s) of other funds' law",
+            article,
+            dropped,
+        )
+    return kept
+
+
 async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """Search, read, reconsider, and stop when there is enough.
 
@@ -314,6 +352,8 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                         ),
                     }
                 )
+
+    sections = _confined_to_premise(sections, working)
 
     produced = {
         key: value

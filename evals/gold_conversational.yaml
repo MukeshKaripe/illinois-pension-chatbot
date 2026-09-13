@@ -35,14 +35,21 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Measured against the pipeline on 2026-09-13, and the failure is upstream
-      of where this case was aimed. The frame was created -- premise "Chicago
-      police officer with my salary and service" -- but with article: None,
-      because nothing resolved the description to a fund. So retrieval stayed on
-      Article 11 and returned 11-134, 11-130, 11-131: the member's own law,
-      answering a question about somebody else's. That is the harmful shape, not
-      merely an unhelpful one. Needs coverage resolving a described job inside a
-      supposition (Phase 3), then the stand-in input origin (Phase 2).
+      Still a gap on the pipeline, which is the default. Measured on
+      2026-09-13: the frame was created -- premise "Chicago police officer with
+      my salary and service" -- but with article: None, because nothing
+      resolved the description to a fund, so retrieval stayed on Article 11 and
+      returned the member's own law to a question about somebody else's.
+      Re-measured on the same day after Phase 3b: the pipeline now reaches
+      Article 3 -- police *outside* Chicago -- works the figure from it, and
+      then starves every input, so it cites the wrong fund and computes
+      nothing.
+
+      The loop passes it. check_coverage resolves the supposition to Article 5
+      on Section 5-111, compute_benefit works $37,601.57 from Section 5-132(e),
+      and the member's own salary and service stand in because they asked for
+      them. Flipping this to `active` belongs with the cutover (Phase 6), not
+      before: the status describes the default agent.
     turns:
       - q: if I were a Chicago police officer with my salary and service, what would I get?
         expect:
@@ -52,7 +59,16 @@ cases:
           # Article 5 is the Chicago police fund -- Article 3 is police outside
           # Chicago, 4 is fire outside Chicago, 6 is Chicago fire. This case
           # asserted 4 until the baseline run made the mistake visible.
-          article_only: "5"
+          #
+          # `answers_from_article` rather than `article_only`, changed when the
+          # loop first passed the substance of this case: it cited only Article
+          # 5, worked the figure from Section 5-132, and had also *looked at*
+          # Articles 1, 3 and 8 -- the neighbouring police fund it ruled out,
+          # the laborers' fund, and a definition its own evidence cited. Looking
+          # is not the harm this case exists for. The harm is one fund's formula
+          # answering another fund's question with a real citation on it, which
+          # is what the sharper key checks and `article_only` never did.
+          answers_from_article: "5"
 
   - id: L09
     name: A question that needs no member and no calculation

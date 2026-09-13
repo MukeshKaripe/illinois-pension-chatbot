@@ -62,6 +62,7 @@ from pension_chat import personas  # noqa: E402
 from pension_chat.agent.graph import run_agent_stream  # noqa: E402
 from pension_chat.agent.guardrails import _CONDITIONAL_MARKER  # noqa: E402
 from pension_chat.agent.llm import close_clients  # noqa: E402
+from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES  # noqa: E402
 from pension_chat.calculation.applicability import normalize_fact_name  # noqa: E402
 from pension_chat.config import get_settings  # noqa: E402
 
@@ -354,6 +355,35 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         stray = [a for a in result["articles"] if a and a != expect["article_only"]]
         if stray:
             problems.append(f"retrieved other articles: {stray}")
+
+    if want := expect.get("answers_from_article"):
+        # What the answer *rests on*, rather than what was looked at.
+        #
+        # `article_only` polices retrieval, which on the pipeline is the same
+        # question -- the Article filter is the determination, so a section from
+        # another fund can only have arrived by the determination being wrong.
+        # An agent that decides what to read as it reads has no such filter: it
+        # looks at the neighbouring police fund precisely in order to rule it
+        # out, and Article 1 arrives because a section it relied on cites it.
+        # Looking is not the harm. The harm is one fund's formula answering
+        # another fund's question with a real citation on it, and that shows up
+        # in the citations the verifier accepted and in the provision the figure
+        # was worked from.
+        cited = result["guardrail_report"].get("verified_citations") or []
+        wrong = sorted({
+            c.split("-")[0] for c in cited
+            if c.split("-")[0] not in {want, *CROSS_CUTTING_ARTICLES}
+        })
+        if wrong:
+            problems.append(f"cited other funds' Articles: {wrong}")
+        worked_from = [
+            p.get("section") for p in result["recipe_provenance"] if p.get("section")
+        ]
+        astray = sorted({s.split("-")[0] for s in worked_from} - {want})
+        if astray:
+            problems.append(
+                f"worked the figure from Article {astray} under a question about {want}"
+            )
 
     if expect.get("no_calculation") and result["requires_calculation"]:
         problems.append("planned a calculation for a lookup question")
