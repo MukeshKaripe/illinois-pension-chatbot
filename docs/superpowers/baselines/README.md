@@ -3,9 +3,7 @@
 What the pipeline scored before the agent loop existed, so "the loop is better"
 is a measurement rather than an impression.
 
-Cutover (spec §7) compares the loop against the full-suite pipeline report.
-**That report does not exist yet** — the first attempt died when the machine
-went to sleep mid-run; see below. The three category reports here are valid.
+Cutover (spec §7) compares the loop against `2026-09-13-pipeline.json`.
 
 The criteria:
 
@@ -92,3 +90,56 @@ handful of genuine case failures.
 `powercfg /change standby-timeout-ac 0` for the duration, or simply not closing
 the lid. Re-running by `--category` also works and has the side benefit of a
 report per category, which is the shape cutover compares anyway.
+
+
+## The pipeline baseline: 2026-09-13
+
+Complete, clean, and the column the loop gets measured against.
+
+```
+99 cases · 156 turns · 2,011,268 tokens · 79/92 scored cases passed
+TTFT median 12.17s   min 1.88s   max 53.11s
+7 known gaps: G24 G27 G40 L01 L05 L08 L09
+3 turns with a hard guardrail rejection
+```
+
+**All seven `checked` funds pass.** Every one of the eight `fund_smoke`
+failures is an `experimental` fund (2, 3, 4, 10, 14, 15, 16, 18), which is what
+that label means — statute answers sound, a figure possibly missing or not yet
+checked. Three experimental funds pass anyway (13, 17, 19). So criterion 3 reads
+as **no `checked` fund regresses**, not as 18/18.
+
+### Two things a cutover run must know
+
+**The CRITICAL gate has a flaky member.** E90 failed this run on
+`ASSUMPTION_NOT_DISCLOSED` at turn 3 — the survivor question — and passes on
+re-run with nothing changed. The check requires a topic cue *and* an assumption
+signal in prose the model writes freshly each time, so whether it fires is a
+matter of wording. **A failed CRITICAL case must be re-run before it is read as
+a regression.** Criterion 1 is otherwise a coin toss on a four-turn case.
+
+**Generation errors are scattered, not systemic.** L11 and G15 each returned "I
+found the relevant sections but could not finish writing the answer", and both
+pass on re-run. Two isolated failures in 156 turns is the transient rate; the
+signature to worry about is the *contiguous* one below, where every case from
+some point onward fails with no token usage at all.
+
+### The failed first attempt, kept for its lesson
+
+`2026-09-13-pipeline-INCOMPLETE.json` is the run that died. The Windows event
+log settles why: the lid closed 18 minutes in.
+
+```
+01:31:11  Kernel-Power 506  The system is entering Modern Standby
+01:31:17  Kernel-Power 172  Connectivity state in standby: Disconnected   ← case 38
+01:53:42  Kernel-Power 172  Connectivity state in standby: Connected
+```
+
+`APIConnectionError` is in `llm.py`'s `_RETRYABLE`, so every turn retried into a
+network that was not there. It was diagnosed as an Azure quota exhaustion first,
+and that was wrong — worth remembering, because the two look identical from
+inside the report and only the event log tells them apart.
+
+A full run is ~40 minutes of continuous network. Idle standby is already
+disabled on this machine (`standby-timeout-ac` and `-dc` both 0), so nothing
+sleeps on its own — but a lid close triggers Modern Standby regardless.
