@@ -211,3 +211,29 @@ def test_a_fund_smoke_case_passes_on_its_own_law_or_an_honest_gap(
     result = {"calculation": calculation, "missing_inputs": missing, "execution_blocked": blocked}
     problems = _harness().fund_figure_problems(result, "5")
     assert bool(problems) is fails, problems
+
+
+@pytest.mark.parametrize("case", ALL_CASES, ids=lambda c: str(c["id"]))
+def test_every_case_names_a_member_the_seeder_actually_creates(case):
+    """Existing in `personas.py` is not the same as existing in the database.
+
+    `personas.PERSONAS` holds signup presets as well as seeded members --
+    `article-11-near-retirement` is a profile a new user can choose, not a row
+    `seed_synthetic_data.py` writes. A case naming one runs *anonymous*: no
+    record, every input missing, and a failure that reads as a bug in whatever
+    the case was testing.
+
+    That is the same silent failure `test_every_case_names_a_member_that_exists`
+    was written for, one level down. It cost a Phase 2b case, which asserted
+    that a member past a boundary is not nagged about it and instead measured
+    the agent having no member at all.
+    """
+    employee = case.get("employee", "default")
+    if employee in {"default", "anon"}:
+        return
+    seeded = {p.key for p in (*personas.SEEDED, *personas.FUND_STANDARDS)}
+    assert employee in seeded, (
+        f"{case['id']} names employee {employee!r}, which `personas.py` defines "
+        "but `seed_synthetic_data.py` never writes. The case would run as an "
+        "anonymous member with no record at all."
+    )

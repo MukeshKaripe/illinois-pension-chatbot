@@ -1,0 +1,69 @@
+# The things a good advisor says that nobody asked for.
+#
+# A member asking "how much would I get" is rarely asking only that. They are
+# deciding when to leave, and the Code is a field of cliffs they cannot see:
+# Section 11-134 reduces the annuity 0.25% for each month it begins before age
+# 60, so the standard member carries an 11% reduction that vanishes on a date
+# nobody ever told them about.
+#
+# Two ways to fail, and the second is the one worth guarding. Saying nothing is
+# unhelpful. Saying it to a member who has already passed every boundary, or who
+# is thirteen years from one, is noise dressed as service -- and noise is what
+# turns an assistant into something people stop reading.
+#
+# None of these is marked `critical`: a missed cliff is a missed kindness, not a
+# confident wrong answer. `test_eval_suite.py` keeps that census explicit so the
+# word keeps its meaning.
+
+category: capabilities
+
+cases:
+  - id: L11
+    name: A member four years from the reduction ending is told so
+    employee: article-11-standard
+    status: active
+    turns:
+      - q: what would my pension be if I retired now?
+        expect:
+          calculation: true
+          # 44 months to 60, and the figure that comes with it. Both are
+          # computed by the same interpreter as the answer's own number, so the
+          # guardrail admits them.
+          mentions: ["44 months", "age 60"]
+          cites: ["11-134"]
+
+  - id: L12
+    name: A boundary already behind the member is never mentioned
+    employee: article-11-standard
+    status: active
+    turns:
+      # 21.5 years of service is past Section 11-134's 20-year minimum. That
+      # boundary is real, it is in the recipe's parameters, and saying anything
+      # about it helps nobody -- noise dressed as service is what makes an
+      # assistant something people stop reading. The age-60 cliff is four years
+      # off and is welcome; the service one must stay quiet.
+      - q: what would my pension be if I retired now?
+        expect:
+          calculation: true
+          forbids:
+            - "you will reach 20 years"
+            - "20 years of service in"
+            - "months from 20 years"
+
+  - id: L13
+    name: A reused recipe still says why this provision and not its neighbour
+    employee: article-11-standard
+    status: active
+    turns:
+      - q: how is my pension calculated?
+        expect:
+          calculation: true
+          cites: ["11-134"]
+      # The registry answers the second time. The reasoning is stored in the
+      # `applicability` column and read back by `RegistryRecipe`, so a member
+      # served from the registry is owed the same explanation as the member who
+      # caused it to be derived.
+      - q: remind me how that figure is worked out?
+        expect:
+          reuse: true
+          mentions: ["11-130", "11-131", "11-134"]
