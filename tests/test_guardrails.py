@@ -9,6 +9,8 @@ engine, the statute text, the member's record, or the member's own message.
 from __future__ import annotations
 
 from pension_chat.agent.guardrails import (
+    GuardrailReport,
+    _check_assumptions_disclosed,
     classify_scope,
     detect_instruction_override,
     fallback_answer,
@@ -363,3 +365,56 @@ def test_mentioning_the_topic_without_an_assumption_signal_still_fails() -> None
     )
     assert not report.passed
     assert {f["code"] for f in report.hard_failures} == {"ASSUMPTION_NOT_DISCLOSED"}
+
+
+# ── An assumption is owed by the turn that made it ────────────────
+
+
+def test_a_turn_that_computed_nothing_owes_no_disclosure():
+    """L05 turn 2, on the loop: "what about my wife?" computed no figure and
+    was rejected twice for not disclosing the retirement date assumed on turn
+    one.
+
+    The filter that was supposed to prevent this exists and its comment names
+    this very case -- but `computed` carries the previous turn's baseline so
+    that an earlier figure stays a *traceable number*, and that made it look
+    like a figure this answer stated. Traceability and disclosure are different
+    questions: the carried baseline is there so the member may be told the old
+    number again, not so the old number's assumptions become owed a second
+    time. They were disclosed on the turn that made them.
+    """
+    report = GuardrailReport()
+    _check_assumptions_disclosed(
+        report,
+        "Your wife's survivor benefit depends on the circumstances.",
+        {"_carried_baseline": {"turn": 1, "annual_amount": "32126.78"}},
+        {"withdrawal_date": "the date you stop working, taken as today"},
+    )
+    assert report.passed, [f["message"] for f in report.hard_failures]
+
+
+def test_a_turn_that_did_compute_still_owes_it():
+    """The rule this exists for is untouched."""
+    report = GuardrailReport()
+    _check_assumptions_disclosed(
+        report,
+        "Your pension is $32,126.78 a year.",
+        {"retirement_annuity": {"base": {"ok": True}}},
+        {"withdrawal_date": "the date you stop working, taken as today"},
+    )
+    assert not report.passed
+
+
+def test_a_carried_figure_beside_a_fresh_one_still_owes_it():
+    """A turn that computes owes disclosure whatever else it carries."""
+    report = GuardrailReport()
+    _check_assumptions_disclosed(
+        report,
+        "Your pension is $32,126.78 a year.",
+        {
+            "retirement_annuity": {"base": {"ok": True}},
+            "_carried_baseline": {"turn": 1, "annual_amount": "30000.00"},
+        },
+        {"withdrawal_date": "the date you stop working, taken as today"},
+    )
+    assert not report.passed

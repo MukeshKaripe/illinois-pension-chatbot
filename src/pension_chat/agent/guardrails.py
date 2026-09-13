@@ -650,7 +650,24 @@ def _check_assumptions_disclosed(
     member anything was assumed, so it must not satisfy this check on its own.
     An answer with no figure in it has nothing to disclose.
     """
-    if not assumed_facts or not calculation_result:
+    # Only figures **this turn** computed. `computed` also carries earlier
+    # turns' results, under `_carried_*` keys, so that a number this
+    # conversation worked out before stays traceable when the answer refers back
+    # to it. Traceability and disclosure are different questions: the carried
+    # baseline is there so the member may be told the old number again, not so
+    # its assumptions fall due a second time. They were disclosed on the turn
+    # that made them.
+    #
+    # Without this, L05's second turn -- "what about my wife?", which computed
+    # nothing and quoted nothing -- was rejected twice for failing to disclose
+    # the retirement date assumed on turn one, and the member saw the fallback
+    # instead of an answer about survivor benefits.
+    this_turn = {
+        name: entry
+        for name, entry in (calculation_result or {}).items()
+        if not str(name).startswith("_carried_")
+    }
+    if not assumed_facts or not this_turn:
         return
 
     lowered = answer.lower()
