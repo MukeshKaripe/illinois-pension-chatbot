@@ -138,6 +138,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     spent: dict[str, int] = {}
     withdrawn: set[str] = set()
     exhausted = False
+    pushed_back = False
 
     while True:
         if sum(spent.values()) >= BUDGETS["total"]:
@@ -173,6 +174,32 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             reasoning_effort=settings.reasoning_effort_understand,
         )
         if turn.done:
+            # A model that has read nothing has nothing to be right from. Asked
+            # "what is Article 11?" with a member on file, this loop once
+            # answered from memory that Article 11 is the Municipal Employees'
+            # fund -- it is the Laborers' fund -- and the guardrail passed it,
+            # because an answer with no citations has nothing to verify and no
+            # figures to trace.
+            #
+            # One push back, then it is let go: arguing spends the budget on a
+            # fight, and `compose` can say what it consulted instead.
+            if not sections and not pushed_back:
+                pushed_back = True
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "You have not read any statute text yet. An outline "
+                            "gives you headings, not what the sections say, and you "
+                            "may not cite or describe a provision you have not read. "
+                            "Do not answer from memory -- what you recall about an "
+                            "Article may be another Article's. Read something first: "
+                            "get_section for a heading you have seen, search_statute "
+                            "for a question about a rule."
+                        ),
+                    }
+                )
+                continue
             messages.append(turn.raw_message)
             break
 
@@ -192,6 +219,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         "loop_exhausted": exhausted,
         "unread_references": _unread_references(sections),
         "tool_calls_spent": spent,
+        "consulted_nothing": not sections,
         "timings": {"investigate": time.perf_counter() - started},
     }
 
@@ -230,6 +258,21 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                     "The text you gathered relies on sections you could not read: "
                     f"{', '.join(unread)}. Do not state a conclusion that turns on "
                     "them. Say plainly what you could not establish."
+                ),
+            }
+        )
+
+    if state.get("consulted_nothing"):
+        # The loop already pushed back once and was overruled. Deterministic
+        # backstop: an answer resting on nothing may not speak for the statute.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "You did not read any of the Pension Code for this answer. Do "
+                    "not state what the Code provides or name any Article's fund "
+                    "from memory. Say what you can without it, and say plainly that "
+                    "you could not consult the statute."
                 ),
             }
         )

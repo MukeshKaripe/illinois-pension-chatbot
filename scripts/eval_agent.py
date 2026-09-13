@@ -63,6 +63,7 @@ from pension_chat.agent.graph import run_agent_stream  # noqa: E402
 from pension_chat.agent.guardrails import _CONDITIONAL_MARKER  # noqa: E402
 from pension_chat.agent.llm import close_clients  # noqa: E402
 from pension_chat.calculation.applicability import normalize_fact_name  # noqa: E402
+from pension_chat.config import get_settings  # noqa: E402
 
 EVALS = Path(__file__).resolve().parents[1] / "evals"
 
@@ -578,11 +579,11 @@ async def main() -> int:
     args = parser.parse_args()
 
     if args.mode == "loop":
-        print(
-            "--mode loop is not available yet: the agent loop lands in Phase 3. "
-            "Run without --mode to measure the pipeline."
-        )
-        return 2
+        # Set before the settings cache is warmed by the first call, so
+        # `graph.active_graph()` picks the loop for every turn in this run.
+        os.environ["AGENT_MODE"] = "loop"
+        get_settings.cache_clear()
+        print("running against the agent loop")
 
     # Redirected to a file, Python buffers stdout and a twenty-minute run shows
     # nothing at all until it exits. Progress on a long run is most of what the

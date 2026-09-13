@@ -88,3 +88,15 @@ async def test_compose_offers_the_citations_the_verifier_and_the_ui_read():
     assert [c["section"] for c in out["citations"]] == ["11-101", "11-102"]
     assert out["citations"][1]["citation"] == "40 ILCS 5/11-102", "built when absent"
     assert out["citations"][0]["id"] == "11-101", "the drawer keys on id"
+
+
+async def test_compose_refuses_to_let_an_unread_answer_speak_for_the_code():
+    """If the loop insisted on answering having read nothing, the answer must
+    not claim what the Code says. This is the deterministic half of the guard;
+    the loop's push back is the persuasive half."""
+    out = await loop_mod.compose(
+        {"question": "q", "loop_messages": [], "consulted_nothing": True, "retrieved_sections": []}
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "did not read" in tail.lower() or "have not read" in tail.lower()
+    assert "memory" in tail.lower()

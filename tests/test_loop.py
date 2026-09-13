@@ -169,3 +169,68 @@ async def test_a_malformed_tool_call_does_not_end_the_turn(monkeypatch):
 
     assert ran == [("search_statute", {})]
     assert out["loop_exhausted"] is False
+
+
+async def test_a_loop_that_answers_without_reading_anything_is_sent_back(monkeypatch):
+    """The failure this guard exists for, caught on a live turn.
+
+    Asked "what is Article 11?" with a member on file, the loop called no tools
+    and answered from memory: "Article 11 governs the Municipal Employees'
+    Annuity and Benefit Fund". Article 11 is the Laborers' fund. The guardrail
+    passed it -- there were no citations to verify and no figures to trace --
+    so nothing anywhere caught a confident, wrong answer about the law.
+
+    A model that has read nothing has nothing to be right from. It gets one
+    push back; if it insists, `compose` is told it consulted nothing.
+    """
+    seen: list[dict] = []
+    _script(monkeypatch, [_turn(content="Article 11 is the Municipal fund."),
+                          _turn(("search_statute", {"queries": ["Article 11"]})),
+                          _turn(content="Article 11 is the Laborers' fund.")], calls_seen=seen)
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-101", "text": "t"}]})
+
+    out = await loop_mod.investigate({"question": "what is Article 11?", "messages": []})
+
+    assert ran, "it must be sent back to read something"
+    assert [s["section"] for s in out["retrieved_sections"]] == ["11-101"]
+
+
+async def test_the_push_back_happens_once_and_then_it_is_let_go(monkeypatch):
+    """A model that insists is not argued with -- that would spend the budget
+    on a fight. It is let through, and `compose` says what it did not read."""
+    _script(monkeypatch, [_turn(content="I am sure."), _turn(content="Still sure.")])
+    ran = _tools(monkeypatch)  # no update, so nothing is ever read
+
+    out = await loop_mod.investigate({"question": "q", "messages": []})
+
+    assert ran == []
+    assert out["consulted_nothing"] is True
+
+
+async def test_an_outline_alone_does_not_count_as_having_read_the_code(monkeypatch):
+    """Headings are a map, not the territory.
+
+    The first version of this guard asked whether any *tool* had run. The loop
+    then called `outline`, stopped, and described Article 11 from memory with
+    nothing citable behind it -- `outline` returns headings and writes no
+    sections, exactly so that a heading cannot be mistaken for statute text.
+    """
+    _script(
+        monkeypatch,
+        [_turn(("outline", {"article": "11"})), _turn(content="Article 11 is..."),
+         _turn(("get_section", {"section": "11-101"})), _turn(content="Article 11 is...")],
+    )
+    calls: list[str] = []
+
+    async def fake_run(name, arguments, state):
+        calls.append(name)
+        if name == "get_section":
+            return "text", {"retrieved_sections": [{"section": "11-101", "text": "t"}]}
+        return "headings", {}
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    out = await loop_mod.investigate({"question": "what is Article 11?", "messages": []})
+
+    assert "get_section" in calls, "an outline is not enough to answer from"
+    assert out["consulted_nothing"] is False
