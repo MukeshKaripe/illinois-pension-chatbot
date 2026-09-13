@@ -54,11 +54,19 @@ SIMILARITY_FLOOR = 0.82
 MAX_CANDIDATES = 200
 MAX_HINTS = 4
 
-#: The member's own particulars: ages, years, money, dates. Stripped from the
-#: concept because they are the part that is about a person rather than about a
-#: question.
+#: A statute reference, which is the most matchable thing a question can
+#: contain and must survive the stripper below. Found by reading what the table
+#: had actually stored: "What does Section 11-134 say about the annuity
+#: formula?" had been remembered as "What does Section - say about the annuity
+#: formula", with the one identifying token gone.
+_SECTION_REF = re.compile(r"\b\d{1,2}-\d{1,3}(?:\.\d{1,2}[a-z]?)?\b")
+
+#: The member's own particulars: ages, years, money, dates. Stripped because
+#: they are the part that is about a person rather than about a question. Two
+#: members asking the same thing differ in their age and their salary; they do
+#: not differ in which section they named.
 _PARTICULARS = re.compile(
-    r"\$[\d,]+(?:\.\d{2})?|\b\d[\d,]*(?:\.\d+)?\b|\b\d{4}-\d{2}-\d{2}\b"
+    r"\$[\d,]+(?:\.\d{2})?|\b\d{4}-\d{2}-\d{2}\b|\b\d[\d,]*(?:\.\d+)?\b"
 )
 
 #: Coverage bases a determination may be remembered under. A `record` basis is
@@ -69,8 +77,19 @@ _GENERALISABLE = ("member_confirmed", "statutory_match")
 
 
 def concept_for(question: str) -> str:
-    """The question, with the asker taken out of it."""
-    stripped = _PARTICULARS.sub(" ", question or "")
+    """The question, with the asker taken out of it and the law left in."""
+    kept: list[str] = []
+
+    def _hold(match: re.Match[str]) -> str:
+        kept.append(match.group(0))
+        # Letters, not an index. A numbered placeholder is itself a number, and
+        # the stripper below duly ate it -- leaving "Section \x00 \x00 say".
+        return "\x00" + "z" * len(kept) + "\x00"
+
+    held = _SECTION_REF.sub(_hold, question or "")
+    stripped = _PARTICULARS.sub(" ", held)
+    for index, reference in enumerate(kept, start=1):
+        stripped = stripped.replace("\x00" + "z" * index + "\x00", reference)
     return re.sub(r"\s+", " ", stripped).strip(" ,.;:?!-")
 
 
@@ -141,6 +160,13 @@ async def remember(state: dict[str, Any], report: GuardrailReport) -> None:
 
         coverage = state.get("coverage") or {}
         article = str(coverage.get("article") or "") or None
+        if not article:
+            # A memory keyed to no Article is a hint for everybody and evidence
+            # for nobody. The case that reliably produces one is an answer that
+            # could not place the question at all: a gap-admitting answer about
+            # Article 22A was stored carrying sections from Articles 1, 15 and
+            # 16 — three wrong hints wearing a verified answer's label.
+            return
         tier = (state.get("member_facts") or {}).get("tier")
         session_id = str(state.get("session_id") or "")
 

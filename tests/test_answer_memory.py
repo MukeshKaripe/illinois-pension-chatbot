@@ -185,3 +185,40 @@ async def test_remember_never_raises(monkeypatch):
     monkeypatch.setattr(memory, "_write", boom)
     monkeypatch.setattr(memory, "embed", fake_embed)
     await memory.remember(_state(), _passed())  # must not raise
+
+
+async def test_a_section_reference_survives_the_stripper(monkeypatch):
+    """Found by reading what it had actually stored.
+
+    "What does Section 11-134 say about the annuity formula?" was remembered as
+    "What does Section - say about the annuity formula" -- the particulars
+    stripper ate the section number, which is the single most matchable thing
+    in that question. Ages and salaries are about a person; a section reference
+    is about the law.
+    """
+    assert (
+        memory.concept_for("What does Section 11-134 say about the annuity formula?")
+        == "What does Section 11-134 say about the annuity formula"
+    )
+    # "Tier 2" loses its digit and that is the right trade: tier is a column
+    # here and is filtered on in SQL, so it does not need to survive in prose.
+    assert "1-160" in memory.concept_for("is 1-160 the Tier 2 rule?")
+    assert "11-134.2" in memory.concept_for("does 11-134.2 apply to me?")
+
+
+async def test_the_asker_is_still_stripped(monkeypatch):
+    concept = memory.concept_for("I'm 56 with 21.5 years and $69,956.40 -- what at 60?")
+    assert "56" not in concept and "69,956.40" not in concept
+
+
+async def test_an_answer_about_no_particular_article_is_not_remembered(monkeypatch):
+    """Also found in the table: a gap-admitting answer about Article 22A was
+    stored against `article: None` carrying sections from Articles 1, 15 and 16.
+
+    A memory keyed to no Article is a hint for everybody and evidence for
+    nobody -- and the one case that reliably produces it is an answer that
+    could not place the question in the first place.
+    """
+    rows = _writes(monkeypatch)
+    await memory.remember(_state(coverage={}), _passed())
+    assert rows == []
