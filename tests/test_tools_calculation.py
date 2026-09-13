@@ -284,3 +284,139 @@ async def test_the_first_figure_of_a_conversation_supersedes_nothing(monkeypatch
         "compute_benefit", {"benefit": "retirement_annuity"}, {"question": "q"}
     )
     assert update["stale_figures"] == []
+
+
+# ── Moving the scenario is correcting it ──────────────────────────
+
+
+_STANDING_OFFSET = {
+    "question": "actually make that three years",
+    "turn_index": 2,
+    "member_facts": {"service_years": "21.5"},
+    "scenario_set": {
+        "2 more years": {
+            "annual_amount": "36567.41",
+            "section": "11-134",
+            "turn": 1,
+            "rests_on": ["service_years"],
+        }
+    },
+}
+
+
+async def test_moving_the_offset_supersedes_the_figure_it_replaces(monkeypatch):
+    """L04. The loop recomputed at three years and answered correctly -- and
+    never mentioned the two-year figure it had given a message earlier, so the
+    turn read as a fresh question rather than a correction. The member moved
+    the scenario; the figure built on the old one is no longer theirs."""
+    _chain(monkeypatch)
+    text, update = await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "years_from_now": 3},
+        dict(_STANDING_OFFSET),
+    )
+    assert update["stale_figures"] == ["2 more years"]
+    assert "correct" in text.lower() or "replac" in text.lower()
+    assert "2 more years" in text
+
+
+async def test_the_same_scenario_asked_again_supersedes_nothing(monkeypatch):
+    """Repeating a question is not correcting an answer."""
+    _chain(monkeypatch)
+    _, update = await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "years_from_now": 2},
+        dict(_STANDING_OFFSET),
+    )
+    assert update["stale_figures"] == []
+
+
+async def test_a_different_kind_of_scenario_supersedes_nothing(monkeypatch):
+    """"And what about at 60?" adds a comparison to "in two years"; it does not
+    withdraw it. Only a scenario of the same kind replaces one."""
+    _chain(monkeypatch)
+    _, update = await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "retirement_age": 60},
+        dict(_STANDING_OFFSET),
+    )
+    assert update["stale_figures"] == []
+
+
+async def test_scenarios_within_one_turn_do_not_supersede_each_other(monkeypatch):
+    """R04 asks for retire-now, 58 and 60 side by side, which is three calls on
+    one turn. A comparison is not three successive corrections."""
+    _chain(monkeypatch)
+    _, update = await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "retirement_age": 60},
+        {
+            **_STANDING_OFFSET,
+            "scenario_set": {
+                "at age 58": {"annual_amount": "36567.41", "turn": 2, "rests_on": []}
+            },
+        },
+    )
+    assert update["stale_figures"] == []
+
+
+# ── Which provision governs, without computing ────────────────────
+
+
+async def test_find_provision_names_the_controlling_section(monkeypatch):
+    """G17 turn 1: "Which retirement provision applies to me? Do not calculate
+    anything yet."
+
+    The loop had no way to ask that. It read Article 11's outline, picked four
+    sections by heading, and named 11-130 -- then computed from 11-134 two turns
+    later, so "the provision you selected earlier" was not the one it used. The
+    pipeline never has this problem because `resolve_recipes` answers exactly
+    this question; the loop simply could not reach it without also computing,
+    which the member had just asked it not to do.
+    """
+    _chain(monkeypatch)
+    text, update = await tools.run_tool(
+        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert "11-134" in text
+    assert "recipes" in update, "resolved, so a later turn uses the same one"
+    assert "calculation_result" not in update, "and nothing was computed"
+
+
+async def test_find_provision_says_why_this_one(monkeypatch):
+    """G17 turn 2 is "Why did you choose that one over the alternatives?" --
+    and the reasoning is already persisted, in `applicability`."""
+    _chain(
+        monkeypatch,
+        recipes={
+            "retirement_annuity": {
+                "section": "11-134",
+                "selection_basis": "earliest_applicable",
+                "alternatives_considered": [
+                    {"section": "11-130", "why_not": "reaches age 55 to 60 only"}
+                ],
+            }
+        },
+    )
+    text, _ = await tools.run_tool(
+        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert "11-130" in text
+    assert "reaches age 55 to 60 only" in text
+
+
+async def test_find_provision_reports_when_nothing_reaches_them(monkeypatch):
+    """"No provision reaches you" is an answer a member needs, and it is not
+    the same as an error."""
+    _chain(monkeypatch, recipes={})
+    text, _ = await tools.run_tool(
+        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert "retirement_annuity" in text
+    assert "could not" in text.lower() or "no provision" in text.lower()
+
+
+async def test_find_provision_rejects_an_unknown_benefit():
+    text, update = await tools.run_tool("find_provision", {"benefit": "lottery_win"}, {})
+    assert "lottery_win" in text
+    assert update == {}

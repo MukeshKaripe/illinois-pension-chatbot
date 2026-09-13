@@ -207,6 +207,36 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+PROVISION_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "find_provision",
+            "description": (
+                "Which provision of the Code governs a benefit for this member, "
+                "and why that one rather than the ones beside it -- without "
+                "computing anything. Use it when the member asks which rule "
+                "applies, why you chose it, or what their options are, and "
+                "especially when they have said not to calculate yet. An "
+                "Article's outline gives you headings; this gives you the "
+                "provision the engine would actually use, so what you name here "
+                "is what a later figure will rest on."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "benefit": {
+                        "type": "string",
+                        "enum": list(BENEFIT_TYPES),
+                        "description": "Which benefit to find the provision for.",
+                    }
+                },
+                "required": ["benefit"],
+            },
+        },
+    },
+]
+
 COVERAGE_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -258,7 +288,7 @@ COVERAGE_TOOLS: list[dict[str, Any]] = [
 
 TOOL_NAMES = tuple(
     tool["function"]["name"]
-    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
+    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS + PROVISION_TOOLS
 )
 
 
@@ -488,7 +518,9 @@ def _revised(update: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _supersede(state: dict[str, Any], update: dict[str, Any]) -> list[str]:
+def _supersede(
+    state: dict[str, Any], update: dict[str, Any], scenario: list[dict[str, Any]]
+) -> list[str]:
     """Mark the figures a value the member just corrected was built on.
 
     R03, and it is CRITICAL. "Actually it's more like 23 years, I forgot the
@@ -505,13 +537,64 @@ def _supersede(state: dict[str, Any], update: dict[str, Any]) -> list[str]:
     unchanged moves nothing, and a value that came from the record was not
     corrected by anybody.
     """
+    stale: set[str] = set()
+    turn = int(state.get("turn_index") or 0)
+
     revised = _revised(update)
-    if not revised:
-        return []
-    sheet = WorkSheet.from_state({**state, **update})
-    if not sheet.figures:
-        return []
-    return sorted(sheet.apply_revisions(revised, int(state.get("turn_index") or 0)))
+    if revised:
+        sheet = WorkSheet.from_state({**state, **update})
+        if sheet.figures:
+            stale |= sheet.apply_revisions(revised, turn)
+
+    stale |= _scenario_moved(state, scenario, turn)
+    return sorted(stale)
+
+
+def _scenario_kind(label: str) -> str:
+    """Which sort of scenario a label names, or "" for neither."""
+    if label.startswith("at age "):
+        return "age"
+    if label.endswith(" more years"):
+        return "offset"
+    return ""
+
+
+def _scenario_moved(
+    state: dict[str, Any], scenario: list[dict[str, Any]], turn: int
+) -> set[str]:
+    """Figures whose scenario the member has just moved.
+
+    L04. The loop recomputed at three years and answered correctly, and never
+    mentioned the two-year figure it had given one message earlier -- so a
+    correction read as a fresh question. "Actually make that three years" moves
+    the scenario; the figure built on the old one is no longer theirs.
+
+    Three conditions, and each rules out something that looks the same:
+
+    - **Same kind.** "And what about at 60?" *adds* a comparison to "in two
+      years"; only a scenario of the same kind replaces one.
+    - **Different value.** Asking the same question again is not correcting
+      the answer.
+    - **An earlier turn.** R04 asks for retire-now, 58 and 60 side by side,
+      which is three calls on one turn. A comparison is not three successive
+      corrections.
+    """
+    if not scenario:
+        return set()
+    label = str(scenario[0].get("label") or "")
+    kind = _scenario_kind(label)
+    if not kind:
+        return set()
+
+    moved: set[str] = set()
+    for standing, figure in (state.get("scenario_set") or {}).items():
+        if not isinstance(figure, dict):
+            continue
+        if int(figure.get("turn") or 0) >= turn:
+            continue
+        if _scenario_kind(str(standing)) == kind and str(standing) != label:
+            moved.add(str(standing))
+    return moved
 
 
 async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
@@ -544,7 +627,7 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         slice_.update(produced)
         update.update(produced)
 
-    stale = _supersede(state, update)
+    stale = _supersede(state, update, slice_["scenarios"])
     update["stale_figures"] = stale
 
     return (
@@ -795,10 +878,71 @@ async def _check_coverage(
     return _coverage_text(verdict, description, evidence), update
 
 
+async def _find_provision(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
+    """Resolve the controlling provision and stop there.
+
+    G17. "Which retirement provision applies to me? Do not calculate anything
+    yet." The loop had no way to ask that: it read Article 11's outline, chose
+    four sections by their headings, and named 11-130 -- then computed from
+    11-134 two turns later, so "the provision you selected earlier" was not the
+    one it used. The pipeline never has this problem because `resolve_recipes`
+    answers exactly this question; the loop could only reach it by also
+    computing, which the member had just asked it not to do.
+
+    So this is `compute_benefit` stopped after its first node. What it names is
+    what a later figure will rest on, because it is resolved by the same code
+    that will produce it.
+    """
+    benefit = str(arguments.get("benefit") or "")
+    if benefit not in BENEFIT_TYPES:
+        return (
+            f"There is no benefit called {benefit!r}. Available: "
+            + ", ".join(BENEFIT_TYPES)
+            + ".",
+            {},
+        )
+
+    slice_: dict[str, Any] = {
+        **state,
+        "requires_calculation": True,
+        "formula_types_needed": [benefit],
+        "scenarios": [],
+    }
+    update = await resolve_recipes(slice_)  # type: ignore[arg-type]
+    recipe = (update.get("recipes") or {}).get(benefit)
+    if not recipe:
+        return (
+            f"No provision for {benefit} could be resolved for this member. Say "
+            "what you could not establish rather than naming one from an outline.",
+            update,
+        )
+
+    lines = [
+        f"{benefit} is governed by Section {recipe.get('section')}"
+        + (f"({recipe['controlling_subsection']})" if recipe.get("controlling_subsection") else "")
+        + "."
+    ]
+    if basis := recipe.get("selection_basis"):
+        lines.append(f"  chosen because: {basis}")
+    if applicability := recipe.get("applicability"):
+        lines.append(f"  it reaches: {applicability}")
+    for alternative in (recipe.get("alternatives_considered") or [])[:4]:
+        lines.append(
+            f"  not Section {alternative.get('section')}: "
+            f"{alternative.get('why_not') or 'set aside'}"
+        )
+    lines.append(
+        "Nothing was computed. Read the section before describing it -- this "
+        "names the provision, it does not put its text in front of you."
+    )
+    return chr(10).join(lines), update
+
+
 _HANDLERS = {
     "search_statute": _search,
     "check_coverage": _check_coverage,
     "compute_benefit": _compute,
+    "find_provision": _find_provision,
     "get_section": _get_section,
     "outline": _outline,
     "related_sections": _related,
