@@ -21,15 +21,16 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Measured against the pipeline on 2026-09-13. Both halves of the question
-      are answered, so goal decomposition was not the gap -- but the figure is
-      internally contradictory. The inputs it computed on were
-      age_at_annuity_start 58, months_before_age_60 44, service_years 21.5,
-      withdrawal_date today: 44 months is the reduction for a member of 56, and
-      21.5 years is the service they have now. So it takes the 58 for the label
-      and computes the retire-now figure underneath it. Needs projection
-      (Phase 2) reaching every input a future date moves, not just the one the
-      member named.
+      Measured on 2026-09-13, then re-diagnosed from the report, and the fix is
+      cheaper than it looked. The scenario variant was computed correctly --
+      "at age 58", as_of 2028-05-15, service_years 23.2, months_before_age_60
+      24, $36,567.41, with salary_basis "carried forward at today's level" --
+      so projection works. The answer quoted the *base* instead: $32,126.78 on
+      21.5 years. Two bugs, neither of them projection. (1) A variant that
+      answers the question asked must be what the answer leads with. (2) The
+      base is internally inconsistent: extraction took age_at_annuity_start 58
+      from the message while months_before_age_60 stayed 44 and service_years
+      stayed 21.5, so one fact moved and its dependents did not.
     turns:
       - q: I'm thinking of retiring at 58. Am I eligible, and how much would I get?
         expect:

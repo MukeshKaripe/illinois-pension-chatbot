@@ -29,15 +29,14 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Measured against the pipeline on 2026-09-13, and the failure is worse than
-      "it asks for a salary it already has" -- it does not ask at all. All three
-      turns return the identical $32,126.78 computed on 21.5 years of service,
-      which is the retire-now figure. Turn 2 says outright that "a 3% raise each
-      year does not produce a new pension figure here", and turn 3 still
-      "assumes 21.5 years". So a future-dated question is silently answered as a
-      present-dated one, under a disclosure that reads as though it had
-      projected. Needs the projection input class (Phase 2) and an agent that
-      reaches for it (Phase 3).
+      Measured on 2026-09-13, then re-diagnosed from the report. The failure is
+      not that projection is missing -- it is that no scenario was produced:
+      scenario_set is empty and the calculation carries no variants, so "work
+      two more years" was answered with the base retire-now figure ($32,126.78
+      on 21.5 years) three turns running. `extract_scenarios` reads "wait 2 more
+      years"; it does not read this phrasing, and nothing else recognised it.
+      Turn 2 ("assume I get a 3% raise") is a second gap: a growth rule is not a
+      fact the worksheet holds, so nothing goes stale and nothing recomputes.
     turns:
       - q: if I work two more years, what would my pension be?
         expect:
