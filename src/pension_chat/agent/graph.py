@@ -39,6 +39,7 @@ from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
 from pension_chat.agent.blocks import MarkerSubstituter
+from pension_chat.agent.capture import record_failure
 from pension_chat.agent.card import calculation_card
 from pension_chat.agent.checkpointer import (
     SqlAlchemyCheckpointSaver,
@@ -517,6 +518,10 @@ async def run_agent_stream(
             session_id,
             report.hard_failures,
         )
+        # The evidence, written down while it exists. It used to survive only as
+        # long as a log line, and the two defects Phase 3c found both needed it
+        # recovered by hand afterwards. `record_failure` never raises.
+        record_failure(state, report, session_id)
         yield {"type": "replace", "text": replacement, "reason": report.to_dict()}
 
     recorded = await _record_turn(config, state)

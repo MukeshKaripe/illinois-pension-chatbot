@@ -136,6 +136,13 @@ class Settings(BaseSettings):
     # whichever happened to be wired in.
     agent_mode: str = "pipeline"
 
+    # A rejected answer is a labelled example of the thing verification exists
+    # to prevent, and it used to survive only as long as a log line. Written to
+    # disk instead, for a human to review and promote into the regression
+    # suite. The file names the session, never the member.
+    capture_failures: bool = True
+    capture_dir: str = "evals/_captured"
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.
