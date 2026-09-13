@@ -337,8 +337,25 @@ flowing through `input_sources`, which the card and the guardrail already read:
 
 - **`projected`** — a *known* value carried forward under a named rule. Service =
   known service + elapsed years. Salary = held flat by default, overridable in
-  one sentence ("assume 3% raises"). New `calculation/projection.py`,
-  deterministic.
+  one sentence ("assume 3% raises").
+
+  **This already exists** — amended after the Phase 0 baseline run.
+  `facts.build_member_facts(assumed_retirement_age=…)` recomputes every fact as
+  of the date the member reaches an age, and `execute_calculations` (`:1503`)
+  runs each scenario against it. The L03 report carries a correct variant: at
+  age 58, `as_of_date` 2028-05-15, `service_years` 23.2,
+  `months_before_age_60` 24, $36,567.41, with `salary_basis` "carried forward
+  at today's level; future pay rises are not projected". No
+  `calculation/projection.py` is needed.
+
+  What is missing is **reaching it and using it**, which is what Phase 2 now
+  builds: a future-dated question must produce a scenario at all (L01 produced
+  none for "work two more years"), the answer must lead with the variant that
+  answers the question rather than the base (L03 computed $36,567.41 and quoted
+  $32,126.78), and an extracted fact must not override the base while its
+  dependents stay at today's values (L03's base paired
+  `age_at_annuity_start` 58 with `months_before_age_60` 44). Only the growth
+  rule is genuinely new — "assume 3% raises" has nowhere to live today.
 - **`stand_in`** — the member's own value used under another Article's recipe,
   named as such in the answer and on the card.
 
@@ -580,7 +597,8 @@ Written to **fail** against the current pipeline, baseline recorded:
 | Phase | Work | Ships value alone? |
 |---|---|---|
 | 1 | §3 corpus: `agent/corpus.py` — citation graph and outline over the existing index, `_follow_references` rewired to it | **shipped** — improves pipeline retrieval too |
-| 2 | §4 calculation: `lookup_recipes`, `thresholds.py`, `projection.py`, ranges into `calculation_results`, and `evals/gold_capabilities.yaml` | yes — exercised through the existing pipeline |
+| 2a | §4 inputs: reach the projection that already exists — scenario recognition, answering from the variant, base consistency, the growth rule | yes — makes L01 and L03 pass on the pipeline |
+| 2b | §4 outputs: `lookup_recipes`, `thresholds.py`, ranges into `calculation_results`, and `evals/gold_capabilities.yaml` | yes — exercised through the existing pipeline |
 | 3 | §2 loop: `llm.call_with_tools`, `agent/tools.py`, `agent/loop.py`, `compose`, behind `agent_mode` | pipeline untouched |
 | 4 | §5 deletions: `evals/gold_stance.yaml`, then the blocks one at a time, each gated on its case | — |
 | 5 | §6 learning: `answer_evidence`, captured failures, registry usage + admin actions | yes |
