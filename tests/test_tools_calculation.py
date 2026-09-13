@@ -200,3 +200,87 @@ async def test_a_borrowed_input_is_named_to_the_model(monkeypatch):
     assert "service_years" in text
     assert "standing in" in text.lower()
     assert "age_at_annuity_start" not in text.split("standing in")[1]
+
+
+# ── A correction to a figure already worked out ───────────────────
+
+
+_LAST_TURN = {
+    "member_facts": {"service_years": "21.5"},
+    "baseline": {
+        "turn": 1,
+        "formula_type": "retirement_annuity",
+        "section": "11-134",
+        "annual_amount": "32126.78",
+        "inputs_used": {"service_years": "21.5", "age_at_annuity_start": "56"},
+        "rests_on": ["service_years", "age_at_annuity_start"],
+    },
+    "question": "actually sorry it's more like 23 years, i forgot the first two",
+}
+
+
+def _stated(monkeypatch, resolved, sources):
+    async def fake_inputs(state):
+        return {"resolved_inputs": resolved, "missing_inputs": [], "input_sources": sources}
+
+    _chain(monkeypatch)
+    monkeypatch.setattr(tools, "resolve_inputs", fake_inputs)
+
+
+async def test_a_corrected_value_supersedes_the_figure_it_was_built_from(monkeypatch):
+    """R03, and it is CRITICAL.
+
+    The correction reaches the engine on its own -- `resolve_inputs` reads it
+    out of the conversation -- and the figure it replaces was never marked. The
+    pipeline marks it in `understand_turn`, which the loop does not run, so
+    every recomputation read as a fresh question and the answer never said what
+    had changed.
+    """
+    _stated(
+        monkeypatch,
+        {"service_years": "23", "age_at_annuity_start": "56"},
+        {"service_years": "stated", "age_at_annuity_start": "record"},
+    )
+    text, update = await tools.run_tool(
+        "compute_benefit", {"benefit": "retirement_annuity"}, dict(_LAST_TURN)
+    )
+    assert update["stale_figures"] == ["now"]
+    assert "correct" in text.lower() or "replac" in text.lower()
+    assert "service_years" in text
+
+
+async def test_a_value_restated_unchanged_supersedes_nothing(monkeypatch):
+    """Repeating yourself is not correcting yourself. A figure marked stale by
+    a value that did not move tells the member something changed when nothing
+    did."""
+    _stated(
+        monkeypatch,
+        {"service_years": "21.5", "age_at_annuity_start": "56"},
+        {"service_years": "stated", "age_at_annuity_start": "record"},
+    )
+    _, update = await tools.run_tool(
+        "compute_benefit", {"benefit": "retirement_annuity"}, dict(_LAST_TURN)
+    )
+    assert update["stale_figures"] == []
+
+
+async def test_a_record_value_never_supersedes_anything(monkeypatch):
+    """Only the member corrects the member. A figure rebuilt from the same
+    record it was built from has not been corrected by anyone."""
+    _stated(
+        monkeypatch,
+        {"service_years": "23", "age_at_annuity_start": "56"},
+        {"service_years": "record", "age_at_annuity_start": "record"},
+    )
+    _, update = await tools.run_tool(
+        "compute_benefit", {"benefit": "retirement_annuity"}, dict(_LAST_TURN)
+    )
+    assert update["stale_figures"] == []
+
+
+async def test_the_first_figure_of_a_conversation_supersedes_nothing(monkeypatch):
+    _stated(monkeypatch, {"service_years": "23"}, {"service_years": "stated"})
+    _, update = await tools.run_tool(
+        "compute_benefit", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert update["stale_figures"] == []

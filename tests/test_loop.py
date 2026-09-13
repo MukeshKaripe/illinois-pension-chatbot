@@ -454,3 +454,70 @@ async def test_a_premise_that_named_no_article_confines_nothing(monkeypatch):
         {"question": "q", "hypothetical_frame": {"premise": "a dog walker", "article": None}}
     )
     assert [s["section"] for s in out["retrieved_sections"]] == ["11-134"]
+
+
+async def test_a_figure_already_given_is_in_front_of_the_model(monkeypatch):
+    """R03, and it is CRITICAL.
+
+    Turn 2 of "how much pension will i get" / "actually sorry it's more like 23
+    years" spent one check_coverage call and never computed: the model read a
+    correction to a *quantity* as a statement about who the member is, because
+    nothing in front of it said a figure was standing or what that figure
+    rested on. The pipeline does not need the model for this -- `_needs_
+    calculation` routes on `stale_figures` deterministically -- so the loop's
+    model has to be told what the pipeline's edge already knew.
+    """
+    context = loop_mod._context(
+        {
+            "question": "actually sorry it's more like 23 years, i forgot the first two",
+            "member_facts": {"service_years": "21.5"},
+            "baseline": {
+                "turn": 1,
+                "annual_amount": "32126.78",
+                "section": "11-134",
+                "rests_on": ["service_years", "age_at_annuity_start"],
+            },
+        }
+    )
+    assert "32126.78" in context or "32,126.78" in context
+    assert "11-134" in context
+    assert "service_years" in context
+    assert "contradict" in context.lower() or "correct" in context.lower()
+
+
+async def test_no_earlier_figure_means_no_such_line(monkeypatch):
+    context = loop_mod._context({"question": "q", "member_facts": {"service_years": "21.5"}})
+    assert "stands from" not in context.lower()
+
+
+async def test_compose_reports_the_rung_the_evidence_supports(monkeypatch):
+    """`select_rung` runs inside `prepare_answer`, which the loop does not use,
+    so every loop answer reported rung 0 -- including R07's, whose content is
+    right and does disclose its assumption."""
+    out = await loop_mod.compose(
+        {
+            "question": "q",
+            "loop_messages": [],
+            "calculation_result": {"retirement_annuity": {"base": {"ok": True}}},
+            "assumptions": {
+                "withdrawal_date": {
+                    "value": "2026-09-13",
+                    "source": "assumed",
+                    "basis": "the date you stop working, taken as today",
+                }
+            },
+        }
+    )
+    assert out["answer_rung"] == 2, "a figure resting on an assumed value"
+
+
+async def test_compose_reports_a_clean_figure_at_its_own_rung(monkeypatch):
+    """Rung 1 is a figure every input of which somebody supplied."""
+    out = await loop_mod.compose(
+        {
+            "question": "q",
+            "loop_messages": [],
+            "calculation_result": {"retirement_annuity": {"base": {"ok": True}}},
+        }
+    )
+    assert out["answer_rung"] == 1

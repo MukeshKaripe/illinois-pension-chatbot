@@ -21,8 +21,10 @@ import logging
 import time
 from typing import Any
 
+from pension_chat.agent.blocks import render_assumptions
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM
+from pension_chat.agent.presentation import select_rung
 from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
@@ -30,6 +32,7 @@ from pension_chat.agent.tools import (
     RETRIEVAL_TOOLS,
     run_tool,
 )
+from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.loop")
@@ -71,12 +74,16 @@ Work like a lawyer reading a statute, not like a search box.
   opening sections, not by whichever section a search happened to rank first.
 - A provision usually leans on others. Follow the sections it names. Ask what
   names *it* -- an exception that changes the answer normally lives elsewhere.
-- Which Article governs is a determination, not an assumption. The moment the
-  member says what they do for a living -- or supposes a different job -- call
-  check_coverage with their own words. Their record is a prior, not an oracle:
-  it can disagree with them, and a description you place in an Article yourself
-  is a guess with a citation on it. Wait for its verdict before you search an
-  Article, and say what it tells you to say about their coverage.
+- Which Article governs is a determination, not an assumption. When the member
+  describes the **job or employer** that would decide which fund they are in --
+  or supposes a different one -- call check_coverage with their own words. Their
+  record is a prior, not an oracle: it can disagree with them, and a description
+  you place in an Article yourself is a guess with a citation on it. Wait for
+  its verdict before you search an Article.
+  This is only about which fund. A member correcting a number about themselves
+  -- their service, their salary, their age -- has told you nothing about their
+  employer, and answering that with check_coverage spends the turn and leaves
+  the figure they corrected standing.
 - A figure is never yours to work out. Call compute_benefit: it finds the
   controlling provision, resolves the inputs from the record and from what the
   member said, and computes. If it reports a missing input, ask the member for
@@ -118,6 +125,23 @@ def _context(state: dict[str, Any]) -> str:
             f"Their record places them in Article {coverage['article']} "
             f"(basis: {coverage.get('basis', 'record')})."
         )
+    # What has already been said to this member, with what it rests on. The
+    # pipeline never had to tell a model this -- `_needs_calculation` routes on
+    # `stale_figures` before any model sees the turn -- but the loop's model is
+    # the one deciding, and it cannot notice a contradiction it cannot see. R03
+    # spent its whole second turn on check_coverage, reading "it's more like 23
+    # years" as a statement about who the member is, because nothing in front of
+    # it said a figure was standing.
+    for label, figure in sorted(_standing_figures(state).items()):
+        rests = ", ".join(figure.get("rests_on") or [])
+        lines.append(
+            f"A figure already given to this member ({label}): "
+            f"{figure.get('annual_amount')} a year under Section "
+            f"{figure.get('section')}, resting on {rests or 'unrecorded inputs'}. "
+            "If this message contradicts one of those values, the member is "
+            "correcting you: compute it again and say what changed."
+        )
+
     frame = state.get("hypothetical_frame")
     if frame:
         # A follow-up exploring a premise carries none of its words: "and at 60?"
@@ -136,6 +160,23 @@ def _context(state: dict[str, Any]) -> str:
             "it, and everything resting on it stays conditional."
         )
     return "\n".join(lines)
+
+
+def _standing_figures(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Figures earlier turns gave this member, from the durable keys that hold them.
+
+    `graph.turn_record` writes `baseline` and `scenario_set`; `WorkSheet` reads
+    the same two. Read here rather than rebuilt, so a figure the member was
+    actually shown is the one they can be said to be correcting.
+    """
+    standing: dict[str, dict[str, Any]] = {}
+    baseline = state.get("baseline")
+    if isinstance(baseline, dict) and baseline.get("annual_amount"):
+        standing["now"] = baseline
+    for label, entry in (state.get("scenario_set") or {}).items():
+        if isinstance(entry, dict) and entry.get("annual_amount"):
+            standing[str(label)] = entry
+    return standing
 
 
 def _available(spent: dict[str, int]) -> list[dict[str, Any]]:
@@ -379,6 +420,22 @@ work from it and from nothing else. Write the answer itself -- no preamble about
 having searched, and no account of how you went about it."""
 
 
+def _assumed(state: dict[str, Any]) -> str:
+    """What the answer must disclose, or "" when there is nothing to disclose.
+
+    Only beside a figure. The rule `guardrails` enforces is "a figure resting on
+    a value nobody supplied must say so"; with no figure nothing rests on
+    anything, and the disclosure reads as a hedge about an answer that never
+    needed one.
+    """
+    if not any(
+        (entry or {}).get("base", {}).get("ok")
+        for entry in (state.get("calculation_result") or {}).values()
+    ):
+        return ""
+    return render_assumptions(WorkSheet.from_state(state))
+
+
 async def compose(state: dict[str, Any]) -> dict[str, Any]:
     """Turn the investigation into the answer, in the same conversation.
 
@@ -443,6 +500,26 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    if disclosure := _assumed(state):
+        # `apply_assumptions` fills a missing value deep inside `resolve_inputs`,
+        # several tool calls below this conversation, so the model has no way of
+        # knowing an assumption was made -- and `guardrails` throws the answer
+        # away when it does not say so. `prepare_answer` renders this block into
+        # the answer; here the model writes it, which is the point of the phase,
+        # so it is handed the content and told it is not optional.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "The figure you are about to quote rests on values nobody "
+                    "supplied. You must say so, in your own words, beside the "
+                    "figure:" + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
+                    + "An estimate whose assumptions are not stated will be "
+                    "withdrawn before the member sees it."
+                ),
+            }
+        )
+
     messages.append({"role": "system", "content": COMPOSE_INSTRUCTION})
 
     # The same shape `prepare_answer` publishes. The guardrail checks the
@@ -458,4 +535,14 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
         }
         for s in (state.get("retrieved_sections") or [])
     ]
-    return {"answer_messages": messages, "answer_blocks": {}, "citations": citations}
+    return {
+        "answer_messages": messages,
+        "answer_blocks": {},
+        "citations": citations,
+        # `select_rung` lives inside `prepare_answer`, which the loop does not
+        # run, so every loop answer reported rung 0 -- including answers whose
+        # content was right and whose assumption was properly disclosed. The
+        # ladder is a claim about what the evidence supports, and it is as true
+        # of an answer the loop wrote as of one the pipeline assembled.
+        "answer_rung": select_rung(WorkSheet.from_state(state), dict(state)),
+    }

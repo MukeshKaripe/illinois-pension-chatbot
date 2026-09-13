@@ -120,3 +120,67 @@ async def test_compose_names_exactly_what_may_be_cited():
     tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "11-101" in tail
     assert "only" in tail.lower()
+
+
+async def test_compose_says_what_the_figure_rested_on_that_nobody_supplied():
+    """R03, G19, L05 and G15 all had their answers thrown away for
+    ASSUMPTION_NOT_DISCLOSED, and the member saw the fallback.
+
+    `prepare_answer` renders an ASSUMPTIONS block into the answer. `compose`
+    rendered nothing, so the model could not disclose an assumption it had no
+    way of knowing had been made -- `apply_assumptions` fills the value deep
+    inside `resolve_inputs`, several tool calls below the conversation.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "what would my pension be?",
+            "loop_messages": [],
+            "calculation_result": {"retirement_annuity": {"base": {"ok": True}}},
+            "assumptions": {
+                "withdrawal_date": {
+                    "value": "2026-09-13",
+                    "source": "assumed",
+                    "basis": "the date you stop working, taken as today",
+                }
+            },
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "the date you stop working, taken as today" in tail
+    assert "assum" in tail.lower()
+
+
+async def test_compose_discloses_nothing_when_nothing_was_assumed():
+    out = await loop_mod.compose(
+        {
+            "question": "q",
+            "loop_messages": [],
+            "calculation_result": {"retirement_annuity": {"base": {"ok": True}}},
+            "assumptions": {
+                "service_years": {"value": "21.5", "source": "stated", "basis": ""}
+            },
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "What I assumed" not in tail
+
+
+async def test_compose_does_not_disclose_assumptions_beside_no_figure():
+    """The rule is "a figure resting on a value nobody supplied must say so".
+    With no figure there is nothing resting on anything, and a disclosure
+    reads as a hedge about an answer that never needed one."""
+    out = await loop_mod.compose(
+        {
+            "question": "what is a refund?",
+            "loop_messages": [],
+            "assumptions": {
+                "withdrawal_date": {
+                    "value": "2026-09-13",
+                    "source": "assumed",
+                    "basis": "the date you stop working, taken as today",
+                }
+            },
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "taken as today" not in tail

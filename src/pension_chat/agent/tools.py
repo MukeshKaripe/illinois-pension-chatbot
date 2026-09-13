@@ -33,7 +33,7 @@ from pension_chat.agent.nodes import (
 )
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
 from pension_chat.agent.understanding import BENEFIT_TYPES
-from pension_chat.agent.worksheet import SOURCE_STAND_IN
+from pension_chat.agent.worksheet import SOURCE_STAND_IN, SOURCE_STATED, WorkSheet
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.tools")
@@ -389,6 +389,8 @@ def _describe(
     errors: list,
     resolved: dict[str, Any] | None = None,
     origins: dict[str, str] | None = None,
+    stale: list[str] | None = None,
+    revised: dict[str, Any] | None = None,
 ) -> str:
     """What to tell the model, whichever of the three things happened."""
     lines: list[str] = []
@@ -436,7 +438,60 @@ def _describe(
     if blocked:
         detail = "; ".join(str(e.get("detail") or e) for e in (errors or []))
         lines.append(f"Blocked: {blocked}. {detail}".strip())
+    if stale:
+        # Without this the recomputation reads as a fresh question, and the
+        # member who corrected themselves is never told what their correction
+        # moved.
+        lines.append(
+            "This CORRECTS an earlier figure. The member revised "
+            + ", ".join(f"{k} to {v}" for k, v in sorted((revised or {}).items()))
+            + f", which supersedes the figure you gave as {', '.join(stale)}. Say "
+            "what changed and what it moved the number to -- do not answer as "
+            "though this were a new question."
+        )
     return chr(10).join(lines) or "No figure was produced and no reason was given."
+
+
+def _revised(update: dict[str, Any]) -> dict[str, Any]:
+    """The values this computation took from the member rather than their file.
+
+    Derived from what was actually used, not asked of the model. A correction
+    the model forgets to declare is a correction that silently does not happen,
+    and `input_sources` already records exactly this as each input resolves.
+    """
+    origins = update.get("input_sources") or {}
+    resolved = update.get("resolved_inputs") or {}
+    return {
+        name: value
+        for name, value in resolved.items()
+        if origins.get(name) == SOURCE_STATED
+    }
+
+
+def _supersede(state: dict[str, Any], update: dict[str, Any]) -> list[str]:
+    """Mark the figures a value the member just corrected was built on.
+
+    R03, and it is CRITICAL. "Actually it's more like 23 years, I forgot the
+    first two" reaches the engine on its own -- `resolve_inputs` reads it out of
+    the conversation and recomputes -- and nothing said that the figure from two
+    messages ago had been replaced, so the answer read as though a fresh
+    question had been asked.
+
+    The pipeline does this in `understand_turn`, which the loop does not run.
+    `WorkSheet.apply_revisions` is the whole mechanism and needed nothing new:
+    it records the corrected value, expands aliases (the member says
+    "service_years"; the recipe consumed "creditable_service_years"), and
+    returns the labels of every figure that rested on it. A value restated
+    unchanged moves nothing, and a value that came from the record was not
+    corrected by anybody.
+    """
+    revised = _revised(update)
+    if not revised:
+        return []
+    sheet = WorkSheet.from_state({**state, **update})
+    if not sheet.figures:
+        return []
+    return sorted(sheet.apply_revisions(revised, int(state.get("turn_index") or 0)))
 
 
 async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
@@ -469,6 +524,9 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         slice_.update(produced)
         update.update(produced)
 
+    stale = _supersede(state, update)
+    update["stale_figures"] = stale
+
     return (
         _describe(
             update.get("calculation_result") or {},
@@ -477,6 +535,8 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             update.get("validation_errors") or [],
             update.get("resolved_inputs") or {},
             update.get("input_sources") or {},
+            stale,
+            _revised(update),
         ),
         update,
     )

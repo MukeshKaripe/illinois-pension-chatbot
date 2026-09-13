@@ -136,6 +136,13 @@ async def run_turn(question: str, thread: str, employee_id: str | None) -> dict:
         "guardrail_passed": state.get("guardrail_passed", True),
         "guardrail_report": state.get("guardrail_report") or {},
         "requires_calculation": state.get("requires_calculation"),
+        # What the loop actually reached for. Without it a failing loop turn is
+        # diagnosed by inference -- R03 came back with an empty
+        # `calculation` and no way to tell whether compute_benefit was called
+        # and returned nothing, or was never called at all. Empty on the
+        # pipeline, which has no tools to spend.
+        "tool_calls_spent": state.get("tool_calls_spent") or {},
+        "resolved_inputs": state.get("resolved_inputs") or {},
         "sections": [s["section"] for s in state.get("retrieved_sections") or []],
         "articles": sorted({s.get("article") for s in state.get("retrieved_sections") or []}),
         "recipe_provenance": state.get("recipe_provenance") or [],
