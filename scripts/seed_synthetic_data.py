@@ -17,6 +17,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Windows consoles default to cp1252, which cannot encode the emoji below --
+# so this script died on its own first print() before touching the database,
+# and the personas it seeds were simply absent on every Windows machine.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # Imported after load_dotenv() on purpose: pension_chat.config reads the
 # environment, so the .env file has to be in place before these bind.
 from sqlalchemy import select  # noqa: E402

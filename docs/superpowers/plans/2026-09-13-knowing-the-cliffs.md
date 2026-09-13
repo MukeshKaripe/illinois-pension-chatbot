@@ -65,121 +65,19 @@ the answer and the card; `evals/gold_capabilities.yaml`.
 
 ---
 
-### Task 1: A reused recipe keeps its reasoning
+### Task 1: A reused recipe keeps its reasoning — ALREADY DONE
 
-**Files:**
-- Modify: `src/pension_chat/agent/registry.py` (`persist_recipe`, `RegistryRecipe`)
-- Test: `tests/test_registry_alternatives.py` (create)
+**Dropped on execution, 2026-09-13.** The reasoning is persisted and read back;
+I diagnosed it from the wrong column. `rule_specification.alternatives_considered`
+is `null`, which looks exactly like the reasoning having been dropped — but
+`persist_recipe` writes it to the **`applicability`** column, and
+`RegistryRecipe.__init__` reads it from there and normalises it for rows written
+before it was typed. The live Article 11 row carries both alternatives, and
+`to_dict()` emits them.
 
-**Interfaces:**
-- Produces: `rule_specification["alternatives_considered"]` persisted on write; `RegistryRecipe.to_dict()["alternatives_considered"]` on read. `resolve_recipes` already reads that key off the recipe dict for its provenance (`nodes.py:772`), so nothing downstream changes.
-
-- [ ] **Step 1: Write the failing test**
-
-Create `tests/test_registry_alternatives.py`:
-
-```python
-"""Why this provision and not the one next to it, kept past the first member.
-
-`derive_recipe` weighs the neighbouring provisions and records which it set
-aside -- 11-129, 11-130, 11-131 and 11-134 all reach a member withdrawing after
-55, so "why 11-134" is the question a reader of Article 11 has to ask.
-
-The reasoning was computed, put in one turn's provenance, and dropped. Reuse
-then made that permanent: the second member to ask the same question gets the
-stored recipe, which carries none of it.
-"""
-
-from __future__ import annotations
-
-from pension_chat.agent.registry import RegistryRecipe
-
-
-class _Row:
-    """The columns `RegistryRecipe` reads. A stand-in, so this stays offline."""
-
-    def __init__(self, spec: dict) -> None:
-        self.formula_id = "11_retirement_annuity_11-134_abcd1234"
-        self.formula_type = "retirement_annuity"
-        self.formula_name = "Minimum annuity"
-        self.article_number = 11
-        self.tier = 1
-        self.section = "11-134"
-        self.description = "d"
-        self.rule_specification = spec
-        self.source_sections = ["11-134"]
-        self.dependencies = []
-        self.required_inputs = []
-        self.optional_inputs = []
-        self.applicability = {}
-        self.knowledge_status = "agent_derived"
-        self.execution_policy = "estimate"
-        self.risk_tier = "medium"
-        self.version = 1
-
-
-def test_a_stored_recipe_carries_the_provisions_it_set_aside():
-    alternatives = [
-        {"section": "11-130", "status": "not_applicable", "reason": "no conversion factors"},
-        {"section": "11-131", "status": "not_applicable", "reason": "withdrawal before 55"},
-    ]
-    recipe = RegistryRecipe(_Row({"alternatives_considered": alternatives})).to_dict()
-
-    assert recipe["alternatives_considered"] == alternatives
-
-
-def test_a_recipe_stored_without_them_reads_as_empty_not_missing():
-    """Rows written before this existed must not KeyError on reuse."""
-    recipe = RegistryRecipe(_Row({})).to_dict()
-    assert recipe["alternatives_considered"] == []
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `uv run pytest tests/test_registry_alternatives.py -v`
-Expected: FAIL — `KeyError: 'alternatives_considered'`, because `to_dict` never emits it.
-
-- [ ] **Step 3: Implement**
-
-In `RegistryRecipe.__init__`, read it off the spec:
-
-```python
-        # Why this provision and not the neighbouring one. Computed at
-        # derivation and, until now, dropped on the floor -- so the first member
-        # to ask got the reasoning and every member served by the reused row got
-        # none. `.get` rather than `[]`: rows written before this stored nothing.
-        self.alternatives_considered = (row.rule_specification or {}).get(
-            "alternatives_considered"
-        ) or []
-```
-
-and add it to `to_dict()`.
-
-In `persist_recipe`, write it into the spec before the row is built — the spec
-is the recipe's own record of itself, so the reasoning belongs beside the rule
-it justifies:
-
-```python
-    spec = dict(spec)
-    spec["alternatives_considered"] = [
-        dict(entry) for entry in (recipe.alternatives_considered or [])
-    ]
-```
-
-placed after `implementation_hash` is computed from the original spec, so adding
-the field cannot change the content address and orphan every stored row.
-
-- [ ] **Step 4: Run tests**
-
-Run: `uv run pytest tests/test_registry_alternatives.py tests/test_calculation.py -v`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/pension_chat/agent/registry.py tests/test_registry_alternatives.py
-git commit -m "Registry: a reused recipe keeps why it was chosen"
-```
+What survives is `tests/test_registry_alternatives.py`, as a guard: the storage
+location is subtle enough that the next person to look will make the same
+mistake, and the test says where to look.
 
 ---
 
@@ -567,10 +465,21 @@ uv run python scripts/eval_agent.py --category capabilities --json docs/superpow
 
 - [ ] **Step 3: Read the report, not the verdict**
 
-Check the threshold figures against the statute by hand for one case: 44 months
-× 0.25% is an 11% reduction on $36,097.50, so retiring at 60 instead of now is
-worth about $3,970 a year. If the reported difference is not close to that, the
-pricing is wrong however green the case is.
+Check the threshold figures against the statute by hand. Measured on the live
+system, the standard member's age-60 cliff prices at $42,257.11 against a base
+of $32,126.78 -- a difference of $10,130.33:
+
+```
+service at 60   21.5 + 44/12   = 25.17 years
+unreduced       69,956.40 x 25.17 x 2.40%  = $42,255      (reported 42,257.11)
+reduction       months_before_60 = 0, so none
+difference      42,257.11 - 32,126.78      = $10,130.33   (reported 10,130.33)
+```
+
+Note what this corrects: the plan first predicted ~$3,970, being 11% of
+$36,097.50 -- the reduction vanishing with service held constant. Waiting to 60
+also adds 3.7 years of service, and the member gets both. The larger figure is
+the right one, and it is the one they can act on.
 
 - [ ] **Step 4: Commit**
 

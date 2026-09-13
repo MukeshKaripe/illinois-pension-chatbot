@@ -116,7 +116,9 @@ def shape_for(sheet: WorkSheet, state: dict[str, Any]) -> str:
 
 
 #: Slots Python renders. Everything else is prose the model writes.
-COMPUTED_SLOTS = frozenset({"STATUS", "WORKED_STEPS", "COMPARISON", "ASSUMPTIONS"})
+COMPUTED_SLOTS = frozenset(
+    {"STATUS", "WORKED_STEPS", "COMPARISON", "ASSUMPTIONS", "THRESHOLDS"}
+)
 
 
 @dataclass(frozen=True)
@@ -131,7 +133,7 @@ class Template:
 TEMPLATES: dict[str, Template] = {
     "figure": Template(
         shape="figure",
-        slots=("STATUS", "lede", "WORKED_STEPS", "why", "ASSUMPTIONS", "alternatives"),
+        slots=("STATUS", "lede", "WORKED_STEPS", "why", "ASSUMPTIONS", "THRESHOLDS", "alternatives"),
         guidance=(
             "lede: the amount, annual first with monthly in brackets, and the "
             "circumstances it assumes. One or two sentences.\n"
@@ -147,7 +149,7 @@ TEMPLATES: dict[str, Template] = {
         # The same parts as a comparison, because one variant beside today's
         # figure still earns the table and the difference. Only the lede
         # differs, and that was the whole defect.
-        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS"),
+        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS", "THRESHOLDS"),
         guidance=(
             "lede: the amount at the date they asked about, annual first with "
             "monthly in brackets, and the date it assumes. One or two "
@@ -164,7 +166,7 @@ TEMPLATES: dict[str, Template] = {
     ),
     "comparison": Template(
         shape="comparison",
-        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS"),
+        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS", "THRESHOLDS"),
         guidance=(
             "lede: name the range -- the soonest option and the best one -- so a "
             "member who reads no further still has the answer. Never open with "

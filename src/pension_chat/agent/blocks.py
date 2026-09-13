@@ -26,6 +26,7 @@ MARKERS = {
     "WORKED_STEPS": "the worked-steps table",
     "COMPARISON": "the comparison table",
     "ASSUMPTIONS": "the assumptions block",
+    "THRESHOLDS": "the boundary the member is approaching",
     "BASIS": "the legal-basis footer",
     "STATUS": "the status line",
 }
@@ -210,6 +211,38 @@ def render_assumptions(sheet: WorkSheet) -> str:
         covered |= aliases_of(name)
         lines.append(f"- {fact.basis or fact.name}")
     return "**What I assumed**\n\n" + "\n".join(lines)
+
+
+def render_thresholds(thresholds: Sequence[Mapping[str, Any]] | None) -> str:
+    """A boundary the member is walking towards, and what reaching it is worth.
+
+    The Code is a field of cliffs and nothing had ever noticed one. A member of
+    56 carries an 11% reduction that vanishes at 60, on a date nobody told them
+    about, and the sentence saying so is what a good advisor offers unprompted.
+
+    Stated, never offered. The voice rules forbid closing with an invitation,
+    and a cliff phrased as "would you like me to look at that?" makes the member
+    answer a question before they can have the point.
+    """
+    if not thresholds:
+        return ""
+    lines: list[str] = []
+    for entry in thresholds:
+        months = entry.get("distance_months")
+        boundary = entry.get("boundary")
+        gain = entry.get("difference_from_now_annual")
+        section = str(entry.get("section") or "")
+        if months is None or boundary is None or gain is None:
+            continue
+        cite = f" [40 ILCS 5/{section}]" if section else ""
+        lines.append(
+            f"- You reach age {boundary} in {months} months. Waiting until then "
+            f"is worth about {_money(gain)} a year more than stopping now"
+            f"{cite}."
+        )
+    if not lines:
+        return ""
+    return "**Worth knowing**\n\n" + "\n".join(lines)
 
 
 def render_status(rung: int) -> str:
