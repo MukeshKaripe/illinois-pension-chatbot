@@ -158,3 +158,45 @@ async def test_the_state_update_carries_what_the_guardrail_reads(monkeypatch):
     assert "calculation_result" in update, "the key _collect_allowed_numbers walks"
     assert "input_sources" in update, "the card shows where each input came from"
     assert update["recipes"], "recipe_provenance and the card need it"
+
+
+async def test_a_stand_in_reaches_the_chain_only_when_the_member_invited_it(monkeypatch):
+    """Under a supposition the record is starved and every input comes back
+    missing, which is right until the member says "with my salary and service"."""
+    seen = _chain(monkeypatch)
+    await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "stand_in_facts": True},
+        {"question": "if I were a Chicago police officer with my salary and service?"},
+    )
+    _, inputs_state = seen[1]
+    assert inputs_state["stand_in_facts"] is True
+
+    seen = _chain(monkeypatch)
+    await tools.run_tool("compute_benefit", {"benefit": "retirement_annuity"}, {"question": "q"})
+    _, inputs_state = seen[1]
+    assert inputs_state["stand_in_facts"] is False, "off unless asked for, every call"
+
+
+async def test_a_borrowed_input_is_named_to_the_model(monkeypatch):
+    """The figure is real; whose values it rests on is the part an answer
+    quietly drops, and dropping it turns "their numbers under another fund's
+    formula" into "their pension"."""
+
+    async def fake_inputs(state):
+        return {
+            "resolved_inputs": {"service_years": "21.5", "age_at_annuity_start": "56"},
+            "missing_inputs": [],
+            "input_sources": {"service_years": "stand_in", "age_at_annuity_start": "stated"},
+        }
+
+    _chain(monkeypatch)
+    monkeypatch.setattr(tools, "resolve_inputs", fake_inputs)
+    text, _ = await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "stand_in_facts": True},
+        {"question": "q"},
+    )
+    assert "service_years" in text
+    assert "standing in" in text.lower()
+    assert "age_at_annuity_start" not in text.split("standing in")[1]

@@ -64,6 +64,7 @@ from pension_chat.agent.worksheet import (
     SOURCE_ASSUMED,
     SOURCE_DERIVED,
     SOURCE_RECORD,
+    SOURCE_STAND_IN,
     SOURCE_STATED,
     WorkSheet,
 )
@@ -203,6 +204,29 @@ def _coverage_elsewhere(state: PensionAgentState) -> bool:
         coverage_mod.BASIS_HYPOTHETICAL,
         coverage_mod.BASIS_CONFIRMED,
     }
+
+
+def _stand_ins_allowed(state: PensionAgentState) -> bool:
+    """May the member's own values stand in for the supposed job's?
+
+    Only under a premise they set up, and only when they asked for it: "if I
+    were a Chicago police officer **with my salary and service**". The
+    invitation is read by the model and arrives here as a flag; whether it
+    permits anything is decided here, because what it permits is borrowing a
+    record filed under another Article — the exact move the coverage layer
+    exists to stop when nobody asked for it.
+
+    Both halves are load-bearing. Without the premise there is nothing to stand
+    in for, so the flag must not quietly relabel an ordinary member's own facts
+    as borrowed. Without the invitation the facts stay withheld and every input
+    is reported missing, which is today's behaviour and stays the default.
+    """
+    return bool(state.get("stand_in_facts")) and _coverage_elsewhere(state)
+
+
+def _record_facts_usable(state: PensionAgentState) -> bool:
+    """Whether this turn may compute on the member's record at all."""
+    return not _coverage_elsewhere(state) or _stand_ins_allowed(state)
 
 
 async def assess_coverage(state: PensionAgentState) -> dict:
@@ -648,7 +672,7 @@ def _available_facts(state: PensionAgentState) -> dict:
     as a figure the answer may quote, and as a source verification will accept.
     Single-sourced here so those four cannot drift apart.
     """
-    if _coverage_elsewhere(state):
+    if not _record_facts_usable(state):
         return {}
     return dict(state.get("member_facts") or {})
 
@@ -964,6 +988,7 @@ def _input_origins(
     assumed: dict[str, Any],
     sheet: WorkSheet,
     question: str,
+    stand_in: bool = False,
 ) -> dict[str, str]:
     """Where each resolved input came from, decided here because here it is known.
 
@@ -989,7 +1014,8 @@ def _input_origins(
             origins[name] = SOURCE_STATED if _stated_in(taken[name], question) else SOURCE_DERIVED
         else:
             fact = sheet.fact(name)
-            origins[name] = fact.source if fact is not None else SOURCE_RECORD
+            default = SOURCE_STAND_IN if stand_in else SOURCE_RECORD
+            origins[name] = fact.source if fact is not None else default
     return origins
 
 
@@ -1096,7 +1122,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # already uses for scenario variants.
     named_age = taken.get("age_at_annuity_start")
     employee_for_age = state.get("employee_record")
-    if named_age is not None and employee_for_age and not _coverage_elsewhere(state):
+    if named_age is not None and employee_for_age and _record_facts_usable(state):
         try:
             at_age = build_member_facts(
                 employee_for_age,
@@ -1142,7 +1168,11 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         if name not in resolved and spec.get("required", True)
     ]
 
-    sheet = WorkSheet.from_state(state, record_usable=not _coverage_elsewhere(state))
+    sheet = WorkSheet.from_state(
+        state,
+        record_usable=_record_facts_usable(state),
+        as_stand_in=_stand_ins_allowed(state),
+    )
     filtered = sheet.filter_asks(missing)
     settings_ceiling = settings.assumption_ceiling
     assumed, still_missing = apply_assumptions(sheet, filtered, facts, settings_ceiling)
@@ -1156,6 +1186,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
             assumed=assumed,
             sheet=sheet,
             question=state["question"],
+            stand_in=_stand_ins_allowed(state),
         ),
         # An input the sheet holds is not missing, and an input it holds but
         # cannot use under this premise is not missing either -- it is withheld,
@@ -1619,9 +1650,11 @@ async def execute_calculations(state: PensionAgentState) -> dict:
         # Priced the same way a scenario is, through the same interpreter under
         # the same validator, so a cliff figure is exactly as trustworthy as the
         # figure beside it. Bounded to the two nearest, and only where the
-        # member's own facts are usable -- a supposition borrows none of them.
+        # member's own facts are usable -- a supposition borrows none of them
+        # unless the member asked it to, and then the cliff rests on exactly
+        # what the figure beside it rests on.
         base_result = entry.get("base") or {}
-        if employee and base_result.get("ok") and not _coverage_elsewhere(state):
+        if employee and base_result.get("ok") and _record_facts_usable(state):
             priced: list[dict[str, Any]] = []
             already = {
                 _resolve_retirement_age(s, member_facts) for s in scenarios
@@ -2228,7 +2261,11 @@ async def prepare_answer(state: PensionAgentState) -> dict:
         for s in sections
     ]
 
-    sheet = WorkSheet.from_state(state, record_usable=not _coverage_elsewhere(state))
+    sheet = WorkSheet.from_state(
+        state,
+        record_usable=_record_facts_usable(state),
+        as_stand_in=_stand_ins_allowed(state),
+    )
     rung = select_rung(sheet, dict(state))
     shape = shape_for(sheet, dict(state))
     template = template_for(shape)

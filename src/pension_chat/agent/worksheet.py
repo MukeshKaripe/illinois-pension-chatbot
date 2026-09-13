@@ -29,6 +29,11 @@ SOURCE_STATED = "stated"
 SOURCE_HYPOTHETICAL = "hypothetical"
 SOURCE_ASSUMED = "assumed"
 SOURCE_WITHHELD = "withheld"
+#: The member's own value, used under an Article their record is not filed
+#: under, because they asked for it: "if I were a Chicago police officer *with
+#: my salary and service*". The same number as `record` and a different claim
+#: about it -- which is why it is its own source rather than a flag beside one.
+SOURCE_STAND_IN = "stand_in"
 #: A label, not a sheet source: an input worked out from other facts this turn
 #: (the months before 60 from a stated age). Never stored on the sheet;
 #: `nodes._input_origins` uses it so the calculation card can say so.
@@ -36,16 +41,20 @@ SOURCE_DERIVED = "derived"
 
 #: Sources a computed figure is allowed to rest on. `withheld` is deliberately
 #: absent: the value is known, and using it anyway is the bug this exists to stop.
+#: `stand_in` is present for the opposite reason -- the member invited it, and a
+#: labelled borrowed value produces a real figure they can compare against their
+#: own, where a refusal produces nothing.
 USABLE_SOURCES = frozenset(
-    {SOURCE_RECORD, SOURCE_STATED, SOURCE_HYPOTHETICAL, SOURCE_ASSUMED}
+    {SOURCE_RECORD, SOURCE_STATED, SOURCE_HYPOTHETICAL, SOURCE_ASSUMED, SOURCE_STAND_IN}
 )
 
 #: Sources that must never be written into durable state. `record` because the
-#: file is re-read every turn and a stored copy could go stale; `withheld`
-#: because it is a per-turn *view* of a record fact rather than a fact, and
-#: persisting it would overlay the record with an unusable copy of itself for
-#: the rest of the conversation.
-_NOT_DURABLE = frozenset({SOURCE_RECORD, SOURCE_WITHHELD})
+#: file is re-read every turn and a stored copy could go stale; `withheld` and
+#: `stand_in` because each is a per-turn *view* of a record fact rather than a
+#: fact, and persisting one would overlay the record with a copy of itself --
+#: unusable in the first case, borrowed in the second -- for the rest of the
+#: conversation, outliving the premise that licensed it.
+_NOT_DURABLE = frozenset({SOURCE_RECORD, SOURCE_WITHHELD, SOURCE_STAND_IN})
 
 
 @dataclass
@@ -95,7 +104,11 @@ class WorkSheet:
 
     @classmethod
     def from_state(
-        cls, state: Mapping[str, Any], *, record_usable: bool = True
+        cls,
+        state: Mapping[str, Any],
+        *,
+        record_usable: bool = True,
+        as_stand_in: bool = False,
     ) -> WorkSheet:
         """Build the sheet from the durable keys the checkpointer carries.
 
@@ -108,17 +121,29 @@ class WorkSheet:
         a legitimate basis for a figure under this premise, so its facts are
         recorded as `SOURCE_WITHHELD` rather than `SOURCE_RECORD` -- known,
         but not usable, and so still worth asking about rather than silently
-        dropping the ask. The caller decides this; the sheet has no opinion of
-        its own about which Article governs.
+        dropping the ask.
+
+        `as_stand_in` is the narrow exception to that, and the member is the one
+        who draws it: they asked for their own salary and service under the job
+        they supposed. The values are the same ones `record` would hold; the
+        label is what keeps the answer and the card honest about whose they are.
+
+        The caller decides both; the sheet has no opinion of its own about which
+        Article governs.
         """
         sheet = cls(turn=int(state.get("turn_index") or 0))
 
-        record_source = SOURCE_RECORD if record_usable else SOURCE_WITHHELD
-        record_basis = (
-            ""
-            if record_usable
-            else "on file, but not usable while this conversation is reading another Article"
-        )
+        if as_stand_in:
+            record_source = SOURCE_STAND_IN
+            record_basis = "your own value, standing in under the supposed job"
+        elif record_usable:
+            record_source = SOURCE_RECORD
+            record_basis = ""
+        else:
+            record_source = SOURCE_WITHHELD
+            record_basis = (
+                "on file, but not usable while this conversation is reading another Article"
+            )
         for name, value in (state.get("member_facts") or {}).items():
             if value is None:
                 continue

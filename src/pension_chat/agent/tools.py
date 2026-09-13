@@ -33,6 +33,7 @@ from pension_chat.agent.nodes import (
 )
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
 from pension_chat.agent.understanding import BENEFIT_TYPES
+from pension_chat.agent.worksheet import SOURCE_STAND_IN
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.tools")
@@ -182,6 +183,21 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
                             "An offset the member named ('two more years'). Never "
                             "convert it to an age yourself -- it is resolved against "
                             "their real age for you."
+                        ),
+                    },
+                    "stand_in_facts": {
+                        "type": "boolean",
+                        "description": (
+                            "Set this ONLY when the member is supposing a different "
+                            "job and asked for their own figures to be used under it "
+                            "-- 'if I were a Chicago police officer with my salary "
+                            "and service'. Their record is filed under another "
+                            "Article, so by default none of it is used and every "
+                            "input comes back missing. This borrows their salary and "
+                            "service as clearly-labelled stand-ins. It does nothing "
+                            "outside a supposition, and you must say in the answer "
+                            "that the figures are their own values under another "
+                            "fund's formula."
                         ),
                     },
                 },
@@ -372,6 +388,7 @@ def _describe(
     blocked: Any,
     errors: list,
     resolved: dict[str, Any] | None = None,
+    origins: dict[str, str] | None = None,
 ) -> str:
     """What to tell the model, whichever of the three things happened."""
     lines: list[str] = []
@@ -389,6 +406,22 @@ def _describe(
             if used:
                 lines.append(
                     "  computed on: " + ", ".join(f"{k}={v}" for k, v in used.items())
+                )
+            borrowed = [
+                name
+                for name, origin in (origins or {}).items()
+                if origin == SOURCE_STAND_IN and name in used
+            ]
+            if borrowed:
+                # The figure is real and comparable; whose values it rests on is
+                # the part an answer can quietly drop, and dropping it turns
+                # "their numbers under another fund's formula" into "their
+                # pension".
+                lines.append(
+                    "  standing in from their own record, at their request: "
+                    + ", ".join(sorted(borrowed))
+                    + ". Say so in the answer -- these are their values under "
+                    "another fund's formula, not their entitlement."
                 )
             for variant in entry.get("scenarios") or []:
                 lines.append(
@@ -425,6 +458,10 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         "requires_calculation": True,
         "formula_types_needed": [benefit],
         "scenarios": _scenario(arguments),
+        # Per call, not durable. `_stand_ins_allowed` already refuses it outside
+        # a supposition, and the model re-reads the member's invitation on every
+        # computation rather than inheriting one from three turns ago.
+        "stand_in_facts": bool(arguments.get("stand_in_facts")),
     }
     update: dict[str, Any] = {}
     for node in (resolve_recipes, resolve_inputs, validate_recipes, execute_calculations):
@@ -439,6 +476,7 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             update.get("execution_blocked"),
             update.get("validation_errors") or [],
             update.get("resolved_inputs") or {},
+            update.get("input_sources") or {},
         ),
         update,
     )

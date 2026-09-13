@@ -69,6 +69,7 @@ const SOURCE_LABELS: Record<string, string> = {
   assumed: "Assumed",
   derived: "Derived",
   withheld: "On file, not used",
+  stand_in: "Your value, standing in",
 };
 
 /** Empty for an unknown origin: the card shows no label rather than a guess. */
