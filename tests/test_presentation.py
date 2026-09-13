@@ -298,3 +298,39 @@ def test_one_scenario_is_not_a_comparison():
     assert "difference_from_now_annual" in projected.guidance, (
         "the difference is copied, never reached by subtracting two amounts"
     )
+
+
+def test_a_threshold_block_names_the_distance_the_money_and_the_section():
+    """The sentence a good advisor says unprompted, and nothing more.
+
+    Stated, never offered: `CLAUDE.md`'s voice rules forbid closing with an
+    invitation, and a cliff turned into "would you like me to look at that?"
+    is a question the member has to answer before getting the point.
+    """
+    from pension_chat.agent import blocks
+
+    rendered = blocks.render_thresholds(
+        [
+            {
+                "fact": "age",
+                "boundary": 60,
+                "distance_months": 44,
+                "section": "11-134",
+                "subsection": "(a)",
+                "annual_amount": "42257.11",
+                "difference_from_now_annual": "10130.33",
+            }
+        ]
+    )
+    assert "44 months" in rendered
+    assert "60" in rendered
+    assert "10,130.33" in rendered
+    assert "11-134" in rendered
+    assert "?" not in rendered, "state it; do not offer to explore it"
+
+
+def test_no_thresholds_renders_nothing():
+    from pension_chat.agent import blocks
+
+    assert blocks.render_thresholds([]) == ""
+    assert blocks.render_thresholds(None) == ""

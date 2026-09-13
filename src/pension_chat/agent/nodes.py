@@ -2252,6 +2252,11 @@ async def prepare_answer(state: PensionAgentState) -> dict:
         elif slot == "ASSUMPTIONS":
             if rendered := blocks.render_assumptions(sheet):
                 computed[slot] = rendered
+        elif slot == "THRESHOLDS":
+            for entry in (state.get("calculation_result") or {}).values():
+                if rendered := blocks.render_thresholds((entry or {}).get("thresholds")):
+                    computed[slot] = rendered
+                    break
 
     order = "\n".join(
         f"{index}. {slot}" + (" (I will insert this; emit the marker "
