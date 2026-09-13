@@ -83,5 +83,18 @@ cases:
     turns:
       - q: what does Article 4 provide for police officers?
         expect:
-          article_only: "4"
+          # `answers_from_article` rather than `article_only`, for the reason
+          # given on L08 and for one more that is specific to this case.
+          # `article_only` forbids retrieving Article 1, and Article 1 is
+          # cross-cutting: Section 1-160 is Tier 2 and governs every member of
+          # every fund, which is why `retrieval.CROSS_CUTTING_ARTICLES` exists
+          # and why naming one adds to the filter rather than moving it.
+          # Forbidding it is wrong on both agents; the pipeline simply never
+          # happens to retrieve it.
+          #
+          # Checked against a real run before changing, and against an earlier
+          # one where the loop described Article 4 having read only Article 5:
+          # that was a genuine failure of a different kind, and this key would
+          # have caught it too -- it cites eight Article 4 sections now.
+          answers_from_article: "4"
           no_figures: true

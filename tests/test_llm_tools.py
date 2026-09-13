@@ -8,6 +8,8 @@ arguments -- is not something a unit test can or should assert.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from pension_chat.agent import llm
 
 
@@ -143,3 +145,37 @@ async def test_tools_are_only_offered_when_there_are_some(monkeypatch):
         tools=[{"type": "function", "function": {"name": "x", "parameters": {}}}],
     )
     assert seen["tool_choice"] == "auto"
+
+
+def test_a_tool_call_turn_carries_an_empty_string_rather_than_no_content():
+    """`compose` replays the investigation to a call that offers no tools, and
+    that call validates the history differently: an assistant turn with
+    tool_calls and no content comes back as
+
+        400 ... Invalid value for 'content': expected a string, got null
+                param: messages.[5].content
+
+    which surfaced to the member as "I found the relevant sections but could
+    not finish writing the answer" -- the whole turn lost, on the first message
+    of two measured cases, and read as an infrastructure blip until the request
+    was dumped.
+    """
+    message = SimpleNamespace(
+        content=None,
+        tool_calls=[
+            SimpleNamespace(
+                id="c1",
+                function=SimpleNamespace(name="outline", arguments='{"article": "11"}'),
+            )
+        ],
+    )
+    raw = llm._assistant_message(message)
+    assert raw["content"] == "", "a string, not an absent key and not null"
+    assert raw["tool_calls"][0]["id"] == "c1"
+
+
+def test_a_plain_answer_turn_keeps_its_own_words():
+    message = SimpleNamespace(content="Here is what I found.", tool_calls=None)
+    raw = llm._assistant_message(message)
+    assert raw["content"] == "Here is what I found."
+    assert "tool_calls" not in raw

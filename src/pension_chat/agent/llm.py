@@ -164,6 +164,39 @@ def _resolve_usage(explicit: TokenUsage | None) -> TokenUsage | None:
     return explicit if explicit is not None else _current_usage.get()
 
 
+def _assistant_message(message: Any) -> dict[str, Any]:
+    """The assistant turn that made the calls, as a dict ready to append.
+
+    `content` is always a string, and the empty string is load-bearing. A turn
+    that only called tools has no content of its own, and leaving the key out
+    was accepted by the call that offered the tools and **rejected** by the one
+    that does not -- `compose` replays the same history with no `tools`
+    parameter and got back
+
+        400 Invalid value for 'content': expected a string, got null
+
+    which reached the member as "I found the relevant sections but could not
+    finish writing the answer". The whole turn, lost on the first message of a
+    conversation, and it read as an infrastructure blip until the request was
+    dumped.
+    """
+    raw: dict[str, Any] = {"role": "assistant", "content": message.content or ""}
+    calls = list(getattr(message, "tool_calls", None) or [])
+    if calls:
+        raw["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {
+                    "name": call.function.name,
+                    "arguments": call.function.arguments,
+                },
+            }
+            for call in calls
+        ]
+    return raw
+
+
 @dataclass(frozen=True)
 class ToolCall:
     """One tool the model asked for, with its arguments already parsed."""
@@ -252,21 +285,7 @@ async def call_with_tools(
                 )
                 for call in raw_calls
             )
-            raw_message: dict[str, Any] = {"role": "assistant"}
-            if message.content:
-                raw_message["content"] = message.content
-            if raw_calls:
-                raw_message["tool_calls"] = [
-                    {
-                        "id": call.id,
-                        "type": "function",
-                        "function": {
-                            "name": call.function.name,
-                            "arguments": call.function.arguments,
-                        },
-                    }
-                    for call in raw_calls
-                ]
+            raw_message = _assistant_message(message)
             logger.debug(
                 "%s asked for %d tool(s) in %.2fs", node, len(calls), time.perf_counter() - started
             )
