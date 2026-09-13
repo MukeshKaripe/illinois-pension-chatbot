@@ -194,3 +194,66 @@ def test_no_growth_rate_is_the_flat_projection_unchanged():
     )
     assert a == b
     assert "not projected" in str(a["salary_basis"])
+
+
+# ── The member at the annuity start, not the member today ─────────
+
+
+def _active(**over):
+    base = {
+        "article_number": 3,
+        "tier": 1,
+        "birth_date": date(1968, 5, 15),
+        "hire_date": date(1996, 3, 1),
+        "employment_status": "active",
+        "current_annual_salary": Decimal("90000"),
+    }
+    base.update(over)
+    return base
+
+
+def test_employment_status_describes_the_annuity_start():
+    """F03, F04 and F14, and the same defect CLAUDE.md already records for
+    Article 19.
+
+    Every fact in this dict describes the member at `as_of` -- service accrues
+    to it, age is taken at it, `withdrawal_date` and `annuity_start_date` *are*
+    it. `employment_status` alone passed the record's value straight through,
+    so a derivation reading Section 3-111(a) ("no longer in service") against
+    an active record concluded, correctly, that the provision does not reach
+    them -- on a question that begins "if I retired".
+
+    Article 11's recipe never tests status, which is why this stayed invisible
+    for so long.
+    """
+    facts = build_member_facts(_active(), [], today=date(2026, 9, 14))
+    assert facts["employment_status"] == "separated"
+    assert facts["employment_status_on_record"] == "active"
+
+
+def test_a_member_already_retired_is_left_alone():
+    facts = build_member_facts(
+        _active(employment_status="retired"), [], today=date(2026, 9, 14)
+    )
+    assert facts["employment_status"] == "retired"
+    assert facts["employment_status_on_record"] == "retired"
+
+
+def test_the_record_is_still_reachable_for_a_provision_about_being_in_service():
+    """Section 11-128 covers "employees who attain age 65 in service". A
+    provision about the member's present employment has to be able to test it,
+    which is why the record's value keeps a name of its own rather than being
+    overwritten."""
+    facts = build_member_facts(_active(), [], today=date(2026, 9, 14))
+    assert facts["employment_status_on_record"] == "active"
+
+
+def test_service_still_accrues_to_a_posited_retirement():
+    """The separation is at `as_of`, not before it -- so service keeps
+    accruing up to the date the member says they would retire."""
+    now = build_member_facts(_active(), [], today=date(2026, 9, 14))
+    later = build_member_facts(
+        _active(), [], today=date(2026, 9, 14), assumed_retirement_age=60
+    )
+    assert Decimal(str(later["service_years"])) > Decimal(str(now["service_years"]))
+    assert later["employment_status"] == "separated"

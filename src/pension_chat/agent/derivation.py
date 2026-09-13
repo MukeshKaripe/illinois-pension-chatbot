@@ -154,7 +154,10 @@ Rules you must follow:
       "description": "<the condition in the statute's own words>",
       "source": {"section": "11-134", "subsection": "(a)"}}
 
-   Facts you may test: age, service_years, employment_status, article_number,
+   Facts you may test: age, service_years, employment_status (the member at the
+   annuity start date -- a retirement annuity posits withdrawal, so an active
+   member reads as "separated" there), employment_status_on_record (what their
+   file says today, for a provision about being *in* service), article_number,
    tier, withdrawal_date, birth_date, current_annual_salary,
    final_average_salary, months_before_age_60. Dates are ISO strings.
 

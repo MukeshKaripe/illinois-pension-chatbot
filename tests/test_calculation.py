@@ -19,6 +19,7 @@ from decimal import Decimal
 import pytest
 
 from pension_chat.calculation.dsl_interpreter import DSLExecutionError, DSLInterpreter
+from pension_chat.calculation.dsl_types import ApplicabilityPredicate, ParameterSpec
 from pension_chat.calculation.risk_assessor import RiskAssessor
 from pension_chat.calculation.validator import RecipeValidator
 
@@ -278,3 +279,41 @@ def test_risk_rises_with_topic_and_cross_article_dependencies():
 
     assert simple.risk_tier == "low"
     assert complex_.risk_tier == "high"
+
+
+# ── A citation without a subsection is still a citation ───────────
+
+
+def test_a_predicate_may_cite_a_section_with_no_subsection():
+    """F15, and the whole failure in one field.
+
+    The model emitted `{"section": "15-136", "subsection": None}` for a
+    predicate whose provision has no lettered subsection -- which is more
+    honest than omitting the key or inventing "(a)" -- and `dict[str, str]`
+    rejected it, so the entire derived recipe was thrown away for a null in a
+    field that was never required. The member got no figure and no reason.
+
+    Both readers already tolerate it: `validator` checks `source["section"]`
+    and `thresholds` uses `source.get("subsection")`.
+    """
+    predicate = ApplicabilityPredicate(
+        fact="age",
+        operator="gte",
+        value=55,
+        source={"section": "15-136", "subsection": None},
+    )
+    assert predicate.source["section"] == "15-136"
+    assert predicate.source["subsection"] is None
+
+
+def test_a_parameter_may_too():
+    parameter = ParameterSpec(value="0.022", source={"section": "15-136", "subsection": None})
+    assert parameter.source["subsection"] is None
+
+
+def test_a_missing_section_is_still_refused():
+    """The relaxation is about the subsection. A parameter that cites no
+    section at all remains untraceable to the Code, and the validator still
+    says so -- that check was never the one failing here."""
+    parameter = ParameterSpec(value="0.022", source={"section": None, "subsection": None})
+    assert not (parameter.source or {}).get("section")

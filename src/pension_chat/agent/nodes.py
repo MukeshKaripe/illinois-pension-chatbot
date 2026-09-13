@@ -2080,7 +2080,9 @@ async def prepare_answer(state: PensionAgentState) -> dict:
         shown = {
             k: facts[k]
             for k in (
-                "as_of_date", "age", "service_years", "employment_status",
+                # Both, and named apart: the record says active, and the
+                # figure is for a member who has stopped working.
+                "as_of_date", "age", "service_years", "employment_status_on_record",
                 "article_number", "tier", "current_annual_salary",
                 "final_average_salary", "months_before_age_60",
             )

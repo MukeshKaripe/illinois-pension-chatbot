@@ -111,6 +111,18 @@ def _rate_label(rate: Decimal | float | str) -> str:
     return f"{percent:f}%"
 
 
+def _status_at(on_record: str | None) -> str | None:
+    """The member's employment status at the annuity start date.
+
+    A retirement annuity calculation posits withdrawal -- that is what
+    `withdrawal_date` means, and it is published on every turn. So a member the
+    record calls active is, at the date the figure is for, separated. Anything
+    else the record says is already a statement about a member who has stopped,
+    and is left alone.
+    """
+    return "separated" if on_record == "active" else on_record
+
+
 def build_member_facts(
     employee: dict[str, Any] | None,
     salary_history: list[tuple[date, Decimal]] | None = None,
@@ -175,7 +187,24 @@ def build_member_facts(
         "hire_date": hire_date.isoformat() if hire_date else None,
         "article_number": employee.get("article_number"),
         "tier": employee.get("tier"),
-        "employment_status": employee.get("employment_status"),
+        # Every other fact here describes the member at `as_of` -- service
+        # accrues to it, age is taken at it, `withdrawal_date` and
+        # `annuity_start_date` *are* it. This one passed the record's value
+        # straight through, so a derivation reading §3-111(a) ("no longer in
+        # service") against an active record concluded, correctly, that the
+        # provision does not reach them -- on a question that begins "if I
+        # retired". Article 11's recipe never tests status, which is why it
+        # stayed invisible; Articles 3, 4 and 14 all derive predicates that do,
+        # and CLAUDE.md already records the same defect for Article 19's "attains
+        # an age of 65".
+        #
+        # It rests on the same framing default `withdrawal_date` does, and is
+        # disclosed the same way: the member is taken to stop working at
+        # `as_of`. The record's own value keeps a name, because a provision
+        # about being *in* service (§11-128, "employees who attain age 65 in
+        # service") has to be able to test it.
+        "employment_status": _status_at(employee.get("employment_status")),
+        "employment_status_on_record": employee.get("employment_status"),
         "current_annual_salary": _num(employee.get("current_annual_salary")),
         # Age, under the names a derivation is likely to pick
         "age": current_age,
@@ -295,7 +324,13 @@ ALIAS_GROUPS: tuple[frozenset[str], ...] = (
 #: drifts from the dictionary it describes.
 #:
 #: `as_of_date` is deliberately absent. Today's date is not an assumption.
-FRAMING_DEFAULTS: frozenset[str] = frozenset({"withdrawal_date", "annuity_start_date"})
+#: Values the facts layer supplies so the arithmetic has something to run on,
+#: rather than values anybody stated. Each is disclosed as an assumption.
+#: `employment_status` joins them because a retirement annuity posits
+#: withdrawal: the member is taken to have stopped working at `as_of`.
+FRAMING_DEFAULTS: frozenset[str] = frozenset(
+    {"withdrawal_date", "annuity_start_date", "employment_status"}
+)
 
 
 def aliases_of(name: str) -> frozenset[str]:

@@ -70,7 +70,12 @@ class InputSpec(BaseModel):
 class ParameterSpec(BaseModel):
     """A fixed parameter with a statutory source citation."""
     value: Any
-    source: dict[str, str] = Field(default_factory=dict)  # {section, subsection}
+    # {section, subsection}. The subsection is genuinely optional -- plenty of
+    # provisions have no lettered subdivision -- and `dict[str, str]` refused a
+    # null for it, which threw away an entire derived recipe over a field that
+    # was never required. The model emitting `"subsection": None` is being more
+    # honest than one that omits the key or invents "(a)".
+    source: dict[str, str | None] = Field(default_factory=dict)
     effective_date: str | None = None
 
 
@@ -86,7 +91,10 @@ class ApplicabilityPredicate(BaseModel):
     operator: str
     value: Any | None = None
     description: str | None = None
-    source: dict[str, str] = Field(default_factory=dict)  # {section, subsection}
+    # {section, subsection}; see `ParameterSpec.source` for why the value is
+    # optional. The section is still checked by `validator._check_citations`,
+    # so a parameter that traces to nothing is still refused.
+    source: dict[str, str | None] = Field(default_factory=dict)
 
 
 class OperationNode(BaseModel):

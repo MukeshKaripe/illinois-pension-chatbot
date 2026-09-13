@@ -124,7 +124,13 @@ def _context(state: dict[str, Any]) -> str:
         known = ", ".join(
             f"{name}={value}"
             for name, value in sorted(facts.items())
-            if name in {"age", "service_years", "tier", "article_number", "employment_status"}
+            # `employment_status` in the facts describes the member at the
+            # annuity start -- separated, because the figure posits withdrawal.
+            # This line says what is *on file*, so it reads the record's value.
+            if name in {
+                "age", "service_years", "tier", "article_number",
+                "employment_status_on_record",
+            }
         )
         lines.append(f"What is on file for this member: {known or 'nothing usable'}")
     else:
