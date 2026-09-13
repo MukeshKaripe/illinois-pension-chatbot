@@ -1,0 +1,4477 @@
+{
+  "mode": "loop",
+  "cases": [
+    {
+      "id": "F02",
+      "name": "General Assembly member",
+      "employee": "article-2-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your record places you in Article 2 \u2014 tell me if that is not right.\n\nAt age 58, with 22.0 years of service, you meet Article 2\u2019s Tier 1 retirement eligibility rule: age 55 with at least 8 years of service credit. The annuity cannot begin before your service ends. [40 ILCS 5/2-119]\n\nI can\u2019t state a dollar estimate because your highest salary for annuity purposes is missing. For a Tier 1 participant who has contributed on or after January 1, 1982, the pension is based on a stepped percentage of that salary: 3% for the first 4 years, 3 1/2% for the next 2 years, 4% for the next 2 years, 4 1/2% for the next 4 years, and 5% for each year over 12, subject to an 85% maximum. [40 ILCS 5/2-119.01]\n\nThe Code defines the salary basis differently depending on when you first became a participant. For someone who first became a participant before August 10, 2009, it generally uses the applicable salary prescribed for the position. For someone who first became a participant on or after August 10, 2009 and before January 1, 2011, it uses the highest 48-month salary average within the last 120 months. [40 ILCS 5/2-108.1]\n\nI could not establish from the information available which salary rule applies to you. Section 2-119.1, which concerns automatic increases after retirement, also has not been established here, so I have not included any such increase.",
+          "error": null,
+          "ttft": 43.639949499978684,
+          "total": 49.85792169999331,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "2-108.1",
+              "2-119",
+              "2-119.01",
+              "2-119.1"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "outline": 1,
+            "get_section": 4,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "2-119",
+            "2-119.01",
+            "2-108.1",
+            "2-110",
+            "2-126",
+            "2-105",
+            "2-117.1"
+          ],
+          "articles": [
+            "2"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [
+            {
+              "formula_type": "retirement_annuity",
+              "reason": "A retirement annuity requires termination of service, but the member record states active employment. In addition, the applicable amount formula depends on whether contributions were made after January 1, 1982, and that fact is not stated."
+            }
+          ],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1968-04-12",
+            "hire_date": "2003-01-08",
+            "article_number": 2,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 89250.0,
+            "age": 58,
+            "current_age": 58,
+            "age_at_annuity_start": 58,
+            "age_at_withdrawal": 58,
+            "attained_age": 58,
+            "service_years": 22.0,
+            "years_of_service": 22.0,
+            "total_service_years": 22.0,
+            "creditable_service_years": 22.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2023-04-12",
+            "age_60_date": "2028-04-12",
+            "months_before_age_60": 18,
+            "months_before_60": 18,
+            "full_months_under_age_60": 18,
+            "salary_attached_to_rank": 89250.0,
+            "highest_average_annual_salary_4yr": 85425.89,
+            "final_average_salary": 85425.89,
+            "highest_average_annual_salary": 85425.89,
+            "fas": 85425.89,
+            "highest_average_annual_salary_5yr": 84200.206,
+            "highest_average_annual_salary_8yr": 80662.84375
+          },
+          "coverage": {
+            "article": "2",
+            "basis": "record",
+            "record_article": "2",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 38086,
+            "completion_tokens": 1638,
+            "reasoning_tokens": 512,
+            "cached_tokens": 20225,
+            "total_tokens": 39724,
+            "calls": 8,
+            "by_node": {
+              "investigate": {
+                "prompt": 22675,
+                "completion": 271,
+                "reasoning": 0,
+                "cached": 17684,
+                "calls": 6
+              },
+              "derive_recipe": {
+                "prompt": 6475,
+                "completion": 1010,
+                "reasoning": 512,
+                "cached": 2541,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8936,
+                "completion": 357,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.510000093840063e-05,
+            "fetch_employee_record": 1.9012656999984756,
+            "investigate": 30.177017700014403,
+            "time_to_first_token": 43.63396609999472,
+            "total": 47.74240769998869
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "2",
+            "fund_figure": "2"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F03",
+      "name": "Police officer outside Chicago",
+      "employee": "article-3-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Section 3-111(a) provides a pension based on **50% of the applicable salary**, increased by **2.5% for each year over 20 years**, up to a maximum of 75%. With your 24.0 years of service, the applicable formula reaches **60% of your salary**. [40 ILCS 5/3-111]\n\nThe dollar amount cannot be worked out without the applicable salary figure. Section 3-111(a) uses the greater of the salary attached to your rank on your last day of service or during the one-year period before that day. It also requires that you be no longer in service as a police officer when the pension begins. [40 ILCS 5/3-111]\n\nSection 3-117 says the Article does not require a capable police officer to retire at age 50, so retiring at the end of this year is an option rather than a mandatory retirement under that section. [40 ILCS 5/3-117]\n\nI\u2019m going by your record, which places you in Article 3 \u2014 tell me if that\u2019s not right. I could not establish here whether you participated in the self-managed plan, which would affect whether the defined-benefit rule in Section 3-111(a) applies. [40 ILCS 5/3-109.3]",
+          "error": null,
+          "ttft": 29.330325700022513,
+          "total": 34.48779660000582,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "3-109.3",
+              "3-111",
+              "3-117"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1,
+            "outline": 1,
+            "get_section": 3,
+            "find_provision": 1
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "3-111",
+            "3-117",
+            "3-102",
+            "3-103",
+            "3-108.3",
+            "3-109.3"
+          ],
+          "articles": [
+            "3"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [
+            {
+              "formula_type": "retirement_annuity",
+              "reason": "No supplied provision establishes a retirement annuity for an officer who remains in service: Section 3-111(a) requires the officer to be no longer in service, while the provisions for fewer than 20 years of service do not apply to 20 or more years of service. Section 3-111(d) applies only to a person who first becomes a police officer on or after January 1, 2011 and also requires age 55 or more."
+            }
+          ],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1975-06-03",
+            "hire_date": "2002-08-15",
+            "article_number": 3,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 98000.0,
+            "age": 51,
+            "current_age": 51,
+            "age_at_annuity_start": 51,
+            "age_at_withdrawal": 51,
+            "attained_age": 51,
+            "service_years": 24.0,
+            "years_of_service": 24.0,
+            "total_service_years": 24.0,
+            "creditable_service_years": 24.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2030-06-03",
+            "age_60_date": "2035-06-03",
+            "months_before_age_60": 104,
+            "months_before_60": 104,
+            "full_months_under_age_60": 104,
+            "salary_attached_to_rank": 98000.0,
+            "highest_average_annual_salary_4yr": 93800.9775,
+            "final_average_salary": 93800.9775,
+            "highest_average_annual_salary": 93800.9775,
+            "fas": 93800.9775,
+            "highest_average_annual_salary_5yr": 92455.128,
+            "highest_average_annual_salary_8yr": 88570.96625
+          },
+          "coverage": {
+            "article": "3",
+            "basis": "record",
+            "record_article": "3",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 32144,
+            "completion_tokens": 1728,
+            "reasoning_tokens": 512,
+            "cached_tokens": 20812,
+            "total_tokens": 33872,
+            "calls": 8,
+            "by_node": {
+              "investigate": {
+                "prompt": 19680,
+                "completion": 287,
+                "reasoning": 0,
+                "cached": 16331,
+                "calls": 6
+              },
+              "derive_recipe": {
+                "prompt": 4484,
+                "completion": 1163,
+                "reasoning": 512,
+                "cached": 4481,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 7980,
+                "completion": 278,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.089999806135893e-05,
+            "fetch_employee_record": 1.18202169999131,
+            "investigate": 22.33918559999438,
+            "time_to_first_token": 29.329169899981935,
+            "total": 32.59909869998228
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "3",
+            "fund_figure": "3"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F04",
+      "name": "Firefighter outside Chicago",
+      "employee": "article-4-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "At the end of this year, your Article 4 pension would be based on **60% of the monthly salary attached to your rank at retirement**. That rate applies because you have at least 20 years of creditable service, with an increase for service over 20 years. [40 ILCS 5/4-109]\n\nI can\u2019t give a dollar estimate without your monthly salary attached to your rank at retirement.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 16.70297230000142,
+          "total": 21.490140700014308,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "4-109"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "compute_benefit": 1,
+            "outline": 1,
+            "get_section": 1
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "4-109"
+          ],
+          "articles": [
+            "4"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [
+            {
+              "formula_type": "retirement_annuity",
+              "reason": "No statute text was retrieved for this question, so there is nothing to derive a calculation from."
+            }
+          ],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1975-11-20",
+            "hire_date": "2002-05-06",
+            "article_number": 4,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 96500.0,
+            "age": 50,
+            "current_age": 50,
+            "age_at_annuity_start": 50,
+            "age_at_withdrawal": 50,
+            "attained_age": 50,
+            "service_years": 24.0,
+            "years_of_service": 24.0,
+            "total_service_years": 24.0,
+            "creditable_service_years": 24.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2030-11-20",
+            "age_60_date": "2035-11-20",
+            "months_before_age_60": 110,
+            "months_before_60": 110,
+            "full_months_under_age_60": 110,
+            "salary_attached_to_rank": 96500.0,
+            "highest_average_annual_salary_4yr": 92365.25,
+            "final_average_salary": 92365.25,
+            "highest_average_annual_salary": 92365.25,
+            "fas": 92365.25,
+            "highest_average_annual_salary_5yr": 91040.0,
+            "highest_average_annual_salary_8yr": 87215.28875
+          },
+          "coverage": {
+            "article": "4",
+            "basis": "record",
+            "record_article": "4",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 20314,
+            "completion_tokens": 374,
+            "reasoning_tokens": 0,
+            "cached_tokens": 13128,
+            "total_tokens": 20688,
+            "calls": 7,
+            "by_node": {
+              "investigate": {
+                "prompt": 15458,
+                "completion": 271,
+                "reasoning": 0,
+                "cached": 13128,
+                "calls": 6
+              },
+              "generate_answer": {
+                "prompt": 4856,
+                "completion": 103,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.489999941550195e-05,
+            "fetch_employee_record": 1.190650700009428,
+            "investigate": 11.745044200011762,
+            "time_to_first_token": 16.70132290001493,
+            "total": 19.638922000012826
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "4",
+            "fund_figure": "4"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F05",
+      "name": "Chicago police officer",
+      "employee": "article-5-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is:\n\n- **$65,660.68 per year**\n- **$5,471.72 per month**\n\nSection 5-132 was used for the annuity estimate. Section 5-167.1 provides automatic annual increases, but the timing and amount of those increases depend on facts not shown here, including your birth date and the applicable retirement date. Section 5-163 concerns refunds and does not determine the pension amount.\n\n**What I assumed:** I treated the date you stop working as today, **September 13, 2026**. The calculation also uses **24.5 years of service** and a final average salary of **$107,201.12**.\n\nI'm going by your record, which places you in Article 5 \u2014 tell me if that's not right. I could not establish from the sections available whether another Article 5 provision changes this estimate, because the relevant sections were not available to read.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 12.213058299996192,
+          "total": 17.523399300000165,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "5-132",
+              "5-163",
+              "5-167.1"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "final_average_salary": 107201.1175,
+            "service_years": 24.5,
+            "withdrawal_date": "2026-09-13"
+          },
+          "sections": [
+            "5-132",
+            "5-238",
+            "5-129.1",
+            "5-167.1",
+            "5-163",
+            "1-103.1"
+          ],
+          "articles": [
+            "1",
+            "5"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "5_retirement_annuity_5-132_69b24eab",
+              "section": "5-132",
+              "subsection": "(e)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to a policeman who withdraws after December 31, 2003 with at least 20 years of service credit; if withdrawal occurs before age 50, the annuity begins no earlier than age 50.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "5-238",
+                  "subsection": "(b)",
+                  "status": "not_applicable",
+                  "reason": "This provision applies only to a person who first becomes a policeman under Article 5 on or after January 1, 2011."
+                },
+                {
+                  "section": "5-129.1",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "This provision applies to a policeman required to withdraw because of mandatory retirement age and having at least 10 but less than 20 years of service credit."
+                },
+                {
+                  "section": "5-132",
+                  "subsection": "(a)",
+                  "status": "superseded",
+                  "reason": "This formula is displaced when the retirement annuity is computed under the later 20-year formula that applies in lieu of the other annuities in this section."
+                },
+                {
+                  "section": "5-132",
+                  "subsection": "(b)",
+                  "status": "superseded",
+                  "reason": "This formula is displaced when the retirement annuity is computed under the later 20-year formula that applies in lieu of the other annuities in this section."
+                },
+                {
+                  "section": "5-132",
+                  "subsection": "(d)",
+                  "status": "not_applicable",
+                  "reason": "This formula requires attainment of age 53 in service with at least 23 years of service credit."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1976-02-09",
+            "hire_date": "2001-10-01",
+            "article_number": 5,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 112000.0,
+            "age": 50,
+            "current_age": 50,
+            "age_at_annuity_start": 50,
+            "age_at_withdrawal": 50,
+            "attained_age": 50,
+            "service_years": 24.5,
+            "years_of_service": 24.5,
+            "total_service_years": 24.5,
+            "creditable_service_years": 24.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2031-02-09",
+            "age_60_date": "2036-02-09",
+            "months_before_age_60": 112,
+            "months_before_60": 112,
+            "full_months_under_age_60": 112,
+            "salary_attached_to_rank": 112000.0,
+            "highest_average_annual_salary_4yr": 107201.1175,
+            "final_average_salary": 107201.1175,
+            "highest_average_annual_salary": 107201.1175,
+            "fas": 107201.1175,
+            "highest_average_annual_salary_5yr": 105663.004,
+            "highest_average_annual_salary_8yr": 101223.96125
+          },
+          "coverage": {
+            "article": "5",
+            "basis": "record",
+            "record_article": "5",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Tier 1 20-Year Retirement Annuity",
+              "section": "5-132",
+              "subsection": "(e)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "65660.68",
+                "output_type": "money",
+                "monthly_amount": "5471.72",
+                "inputs_used": {
+                  "final_average_salary": "107201.12",
+                  "service_years": "24.5",
+                  "withdrawal_date": "2026-09-13"
+                },
+                "statutory_values_used": {
+                  "accrual_rate": {
+                    "value": 0.025,
+                    "source": {
+                      "section": "5-132",
+                      "subsection": "(e)"
+                    }
+                  },
+                  "eligibility_date": {
+                    "value": "2003-12-31",
+                    "source": {
+                      "section": "5-132",
+                      "subsection": "(e)"
+                    }
+                  },
+                  "minimum_service_years": {
+                    "value": 20,
+                    "source": {
+                      "section": "5-132",
+                      "subsection": "(e)"
+                    }
+                  },
+                  "minimum_commencement_age": {
+                    "value": 50,
+                    "source": {
+                      "section": "5-132",
+                      "subsection": "(e)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.75,
+                    "source": {
+                      "section": "5-132",
+                      "subsection": "(e)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "annual_accrual_per_service_year",
+                    "value": "2680.03"
+                  },
+                  {
+                    "name": "unreduced_annual_annuity",
+                    "value": "65660.68"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "80400.84"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "65660.68"
+                  }
+                ],
+                "intermediate": {
+                  "annual_accrual_per_service_year": "2680.03",
+                  "unreduced_annual_annuity": "65660.68",
+                  "statutory_maximum_annuity": "80400.84",
+                  "annual_annuity": "65660.68"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "at age 50",
+                  "retirement_age": 50,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "24.5",
+                    "months_before_age_60": 112,
+                    "final_average_salary": "107201.12",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "65660.68",
+                  "output_type": "money",
+                  "monthly_amount": "5471.72",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 9162,
+            "completion_tokens": 367,
+            "reasoning_tokens": 0,
+            "cached_tokens": 3828,
+            "total_tokens": 9529,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 3947,
+                "completion": 157,
+                "reasoning": 0,
+                "cached": 3828,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 5215,
+                "completion": 210,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.77000027988106e-05,
+            "fetch_employee_record": 1.190629099990474,
+            "investigate": 6.121164399984991,
+            "time_to_first_token": 12.211932700010948,
+            "total": 15.668101700022817
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "5",
+            "fund_figure": "5"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F06",
+      "name": "Chicago firefighter",
+      "employee": "article-6-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated retirement annuity is:\n\n- **$63,459.23 per year**\n- **$5,288.27 per month**\n\nThe applicable rule is Section 6-128(c), based on your 24 years of service. The estimate uses a final average salary of **$105,765.39** and **24.0 years** of creditable service. [40 ILCS 5/6-128]\n\n**What I assumed:** you stop working at the end of this year, treated here as today.\n\nSection 6-125 and Section 6-229 were considered but set aside for this retirement-annuity estimate. I could not establish from the sections available whether any additional Article 6 provisions affect your final entitlement. Section 6-128.4 concerns minimum widow\u2019s annuities, and Section 6-140 concerns death in the line of duty, so neither determines your retirement annuity. [40 ILCS 5/6-128.4] [40 ILCS 5/6-140]\n\nI\u2019m going by your record, which places you in Article 6 \u2014 tell me if that\u2019s not right.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 14.665614900004584,
+          "total": 19.769911199982744,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "6-128",
+              "6-128.4",
+              "6-140",
+              "6-125",
+              "6-229"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "final_average_salary": 105765.3875,
+            "creditable_service_years": 24.0
+          },
+          "sections": [
+            "6-128",
+            "6-125",
+            "6-229",
+            "1-103.1",
+            "6-128.4",
+            "6-140"
+          ],
+          "articles": [
+            "1",
+            "6"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "6_retirement_annuity_6-128_9f182110",
+              "section": "6-128",
+              "subsection": "(c)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to a future entrant who withdraws after the effective date of the amendatory Act of the 93rd General Assembly with at least 20 years of service and elects the annuity under subsection (c).",
+              "applicability_status": "verified",
+              "selection_basis": "statutory_election",
+              "alternatives_considered": [
+                {
+                  "section": "6-128",
+                  "subsection": "(b)",
+                  "status": "member_election",
+                  "reason": "Subsection (b) permits an annuity equal to 50% of average salary plus 2% of average salary for each year or fraction of service over the applicable minimum, subject to a 75% cap."
+                },
+                {
+                  "section": "6-125",
+                  "subsection": null,
+                  "status": "applicable_not_calculable",
+                  "reason": "Section 6-125 bases the annuity on accumulated age-and-service credits, and the Pension Code does not set out the conversion factors needed to work that out."
+                },
+                {
+                  "section": "6-229",
+                  "subsection": "(b)",
+                  "status": "not_applicable",
+                  "reason": "Section 6-229 applies to a person who first becomes a fireman under Article 6 on or after January 1, 2011."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1975-09-14",
+            "hire_date": "2002-03-18",
+            "article_number": 6,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 110500.0,
+            "age": 50,
+            "current_age": 50,
+            "age_at_annuity_start": 50,
+            "age_at_withdrawal": 50,
+            "attained_age": 50,
+            "service_years": 24.0,
+            "years_of_service": 24.0,
+            "total_service_years": 24.0,
+            "creditable_service_years": 24.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2030-09-14",
+            "age_60_date": "2035-09-14",
+            "months_before_age_60": 108,
+            "months_before_60": 108,
+            "full_months_under_age_60": 108,
+            "salary_attached_to_rank": 110500.0,
+            "highest_average_annual_salary_4yr": 105765.3875,
+            "final_average_salary": 105765.3875,
+            "highest_average_annual_salary": 105765.3875,
+            "fas": 105765.3875,
+            "highest_average_annual_salary_5yr": 104247.874,
+            "highest_average_annual_salary_8yr": 99868.2825
+          },
+          "coverage": {
+            "article": "6",
+            "basis": "record",
+            "record_article": "6",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Future Entrant 20-Year Election Annuity",
+              "section": "6-128",
+              "subsection": "(c)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "63459.23",
+                "output_type": "money",
+                "monthly_amount": "5288.27",
+                "inputs_used": {
+                  "final_average_salary": "105765.39",
+                  "creditable_service_years": "24"
+                },
+                "statutory_values_used": {
+                  "base_annuity_rate": {
+                    "value": 0.5,
+                    "source": {
+                      "section": "6-128",
+                      "subsection": "(c)"
+                    }
+                  },
+                  "maximum_annuity_rate": {
+                    "value": 0.75,
+                    "source": {
+                      "section": "6-128",
+                      "subsection": "(c)"
+                    }
+                  },
+                  "additional_service_rate": {
+                    "value": 0.025,
+                    "source": {
+                      "section": "6-128",
+                      "subsection": "(c)"
+                    }
+                  },
+                  "service_threshold_years": {
+                    "value": 20,
+                    "source": {
+                      "section": "6-128",
+                      "subsection": "(c)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "base_annuity",
+                    "value": "52882.69"
+                  },
+                  {
+                    "name": "annual_additional_annuity_per_service_year",
+                    "value": "2644.13"
+                  },
+                  {
+                    "name": "service_years_over_20",
+                    "value": "4.00"
+                  },
+                  {
+                    "name": "additional_annuity",
+                    "value": "10576.54"
+                  },
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "63459.23"
+                  },
+                  {
+                    "name": "statutory_maximum",
+                    "value": "79324.04"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "63459.23"
+                  }
+                ],
+                "intermediate": {
+                  "base_annuity": "52882.69",
+                  "annual_additional_annuity_per_service_year": "2644.13",
+                  "service_years_over_20": "4.00",
+                  "additional_annuity": "10576.54",
+                  "unreduced_annuity": "63459.23",
+                  "statutory_maximum": "79324.04",
+                  "annual_annuity": "63459.23"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "0 more years",
+                  "retirement_age": 50,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "24.0",
+                    "months_before_age_60": 108,
+                    "final_average_salary": "105765.39",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "63459.23",
+                  "output_type": "money",
+                  "monthly_amount": "5288.27",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 10860,
+            "completion_tokens": 401,
+            "reasoning_tokens": 0,
+            "cached_tokens": 5951,
+            "total_tokens": 11261,
+            "calls": 4,
+            "by_node": {
+              "investigate": {
+                "prompt": 6272,
+                "completion": 150,
+                "reasoning": 0,
+                "cached": 5951,
+                "calls": 3
+              },
+              "generate_answer": {
+                "prompt": 4588,
+                "completion": 251,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.780000356025994e-05,
+            "fetch_employee_record": 1.2251973999955226,
+            "investigate": 8.340442599990638,
+            "time_to_first_token": 14.66462809999939,
+            "total": 17.88027160000638
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "6",
+            "fund_figure": "6"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F07",
+      "name": "Municipal employee (IMRF)",
+      "employee": "article-7-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is **$19,022.26 per year**, or **$1,585.19 per month**, under Section 7-142. [40 ILCS 5/7-142]\n\nThe estimate uses the retirement annuity rule for a Tier 1 regular employee with at least 8 years of service. Your record places you in Article 7; tell me if that is not right.\n\n**What I assumed:** You stop working at the end of this year, treated as today for this estimate.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 12.487045499990927,
+          "total": 17.24276059999829,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "7-142"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "tier": 1,
+            "service_years": 20.5,
+            "final_average_salary": 58386.3225,
+            "months_before_age_60": 38
+          },
+          "sections": [
+            "7-142"
+          ],
+          "articles": [
+            "7"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "7_retirement_annuity_7-142_6633e92b",
+              "section": "7-142",
+              "subsection": "(a)(1)(b)",
+              "status": "agent_derived",
+              "applicability": "This rule applies to a Tier 1 regular employee with at least 8 years of service whose annuity is calculated under the service-and-final-rate formula in Section 7-142.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "7-142",
+                  "subsection": "(a)(1)(a)",
+                  "status": "applicable_not_calculable",
+                  "reason": "The Pension Code does not set out the actuarial conversion factors needed to calculate the annuity from accumulated normal, municipality, and prior service credits."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1969-12-01",
+            "hire_date": "2006-02-06",
+            "article_number": 7,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 61000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 20.5,
+            "years_of_service": 20.5,
+            "total_service_years": 20.5,
+            "creditable_service_years": 20.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2024-12-01",
+            "age_60_date": "2029-12-01",
+            "months_before_age_60": 38,
+            "months_before_60": 38,
+            "full_months_under_age_60": 38,
+            "salary_attached_to_rank": 61000.0,
+            "highest_average_annual_salary_4yr": 58386.3225,
+            "final_average_salary": 58386.3225,
+            "highest_average_annual_salary": 58386.3225,
+            "fas": 58386.3225,
+            "highest_average_annual_salary_5yr": 57548.6,
+            "highest_average_annual_salary_8yr": 55130.9075
+          },
+          "coverage": {
+            "article": "7",
+            "basis": "record",
+            "record_article": "7",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Tier 1 Regular Employee Retirement Annuity",
+              "section": "7-142",
+              "subsection": "(a)(1)(b)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "monthly_annuity",
+                "annual_amount": "19022.26",
+                "output_type": "money",
+                "monthly_amount": "1585.19",
+                "inputs_used": {
+                  "tier": "1",
+                  "service_years": "20.5",
+                  "final_average_salary": "58386.32",
+                  "months_before_age_60": "38"
+                },
+                "statutory_values_used": {
+                  "formula_salary_floor": {
+                    "value": 125,
+                    "source": {
+                      "section": "7-142",
+                      "subsection": "(a)(1)(b)(ii)"
+                    }
+                  },
+                  "first_service_years_limit": {
+                    "value": 15,
+                    "source": {
+                      "section": "7-142",
+                      "subsection": "(a)(1)(b)(i)"
+                    }
+                  },
+                  "first_service_accrual_rate": {
+                    "value": 0.0166666666666667,
+                    "source": {
+                      "section": "7-142",
+                      "subsection": "(a)(1)(b)(i)"
+                    }
+                  },
+                  "excess_service_accrual_rate": {
+                    "value": 0.02,
+                    "source": {
+                      "section": "7-142",
+                      "subsection": "(a)(1)(b)(i)"
+                    }
+                  },
+                  "maximum_final_rate_percentage": {
+                    "value": 0.75,
+                    "source": {
+                      "section": "7-142",
+                      "subsection": "(a)(1)(b)(iii)"
+                    }
+                  },
+                  "early_reduction_rate_per_month": {
+                    "value": 0.0025,
+                    "source": {
+                      "section": "7-142",
+                      "subsection": "(a)(1)(b)(iv)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "early_reduction_percentage",
+                    "value": "0.10"
+                  },
+                  {
+                    "name": "reduction_factor",
+                    "value": "0.91"
+                  },
+                  {
+                    "name": "first_15_years_accrual",
+                    "value": "0.25"
+                  },
+                  {
+                    "name": "excess_service_accrual",
+                    "value": "0.11"
+                  },
+                  {
+                    "name": "total_service_accrual_percentage",
+                    "value": "0.36"
+                  },
+                  {
+                    "name": "formula_final_rate_of_earnings",
+                    "value": "58386.32"
+                  },
+                  {
+                    "name": "unreduced_monthly_annuity",
+                    "value": "21019.08"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "43789.74"
+                  },
+                  {
+                    "name": "capped_unreduced_monthly_annuity",
+                    "value": "21019.08"
+                  },
+                  {
+                    "name": "monthly_annuity",
+                    "value": "19022.26"
+                  }
+                ],
+                "intermediate": {
+                  "early_reduction_percentage": "0.10",
+                  "reduction_factor": "0.91",
+                  "first_15_years_accrual": "0.25",
+                  "excess_service_accrual": "0.11",
+                  "total_service_accrual_percentage": "0.36",
+                  "formula_final_rate_of_earnings": "58386.32",
+                  "unreduced_monthly_annuity": "21019.08",
+                  "statutory_maximum_annuity": "43789.74",
+                  "capped_unreduced_monthly_annuity": "21019.08",
+                  "monthly_annuity": "19022.26"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "0 more years",
+                  "retirement_age": 56,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "20.5",
+                    "months_before_age_60": 38,
+                    "final_average_salary": "58386.32",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "monthly_annuity",
+                  "annual_amount": "19022.26",
+                  "output_type": "money",
+                  "monthly_amount": "1585.19",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 9170,
+            "completion_tokens": 272,
+            "reasoning_tokens": 0,
+            "cached_tokens": 5927,
+            "total_tokens": 9442,
+            "calls": 4,
+            "by_node": {
+              "investigate": {
+                "prompt": 6236,
+                "completion": 149,
+                "reasoning": 0,
+                "cached": 5927,
+                "calls": 3
+              },
+              "generate_answer": {
+                "prompt": 2934,
+                "completion": 123,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 9.630000567995012e-05,
+            "fetch_employee_record": 1.1806093000050168,
+            "investigate": 7.540977600001497,
+            "time_to_first_token": 12.48566259999643,
+            "total": 15.397840999998152
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "7",
+            "fund_figure": "7"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F08",
+      "name": "Chicago municipal employee",
+      "employee": "article-8-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension would be **$37,945.98 a year**, or **$3,162.17 a month**, if you retire at age 55. This estimate uses **23 years of service** and a final average salary of **$80,400.84**.\n\n**What I assumed**\n\n- You stop working at the end of this year, treated here as today.\n\nThe retirement annuity rule is in Section 8-138. Your service calculation is subject to Section 8-226, which describes what periods count as service and excludes overtime or extra service. [40 ILCS 5/8-138] [40 ILCS 5/8-226]\n\nSection 8-226 also refers to service-credit transfer and payment provisions in Sections 9-121.1, 12-127.1, and 8-230. I have not read those provisions, so I could not establish whether any of them would change your service credit.\n\nI'm going by your record, which places you in Article 8 \u2014 tell me if that's not right.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 11.459725799999433,
+          "total": 16.541934300010325,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "8-138",
+              "8-226"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "final_average_salary": 80400.84,
+            "creditable_service_years": 23.0,
+            "months_before_age_60": 58
+          },
+          "sections": [
+            "8-138",
+            "8-226"
+          ],
+          "articles": [
+            "8"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "8_retirement_annuity_8-138_f7708263",
+              "section": "8-138",
+              "subsection": "(b)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to an employee who withdraws on or after July 1, 1990, has at least 20 years of service, and begins the annuity at age 55 or later under the elected 2.4% formula.",
+              "applicability_status": "verified",
+              "selection_basis": "statutory_election",
+              "alternatives_considered": [
+                {
+                  "section": "8-138",
+                  "subsection": "(b)",
+                  "status": "member_election",
+                  "reason": "The Code permits an employee with at least 20 years of service to elect a formula using 1.80% for the first 10 years, 2.00% for the next 10 years, 2.20% for service over 20 through 30 years, and 2.40% for service over 30 years."
+                },
+                {
+                  "section": "8-138",
+                  "subsection": "(b)",
+                  "status": "member_election",
+                  "reason": "The Code permits an employee withdrawing on or after January 1, 2002 to elect an annuity equal to 2.40% of highest average annual salary for each year of service."
+                },
+                {
+                  "section": "8-138",
+                  "subsection": "(g-1)",
+                  "status": "not_applicable",
+                  "reason": "This provision requires the elected annuity to begin no earlier than attainment of age 60."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1971-07-22",
+            "hire_date": "2003-05-12",
+            "article_number": 8,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 84000.0,
+            "age": 55,
+            "current_age": 55,
+            "age_at_annuity_start": 55,
+            "age_at_withdrawal": 55,
+            "attained_age": 55,
+            "service_years": 23.0,
+            "years_of_service": 23.0,
+            "total_service_years": 23.0,
+            "creditable_service_years": 23.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2026-07-22",
+            "age_60_date": "2031-07-22",
+            "months_before_age_60": 58,
+            "months_before_60": 58,
+            "full_months_under_age_60": 58,
+            "salary_attached_to_rank": 84000.0,
+            "highest_average_annual_salary_4yr": 80400.84,
+            "final_average_salary": 80400.84,
+            "highest_average_annual_salary": 80400.84,
+            "fas": 80400.84,
+            "highest_average_annual_salary_5yr": 79247.254,
+            "highest_average_annual_salary_8yr": 75917.9725
+          },
+          "coverage": {
+            "article": "8",
+            "basis": "record",
+            "record_article": "8",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Post-2002 2.4% Retirement Annuity with Early-Commencement Reduction",
+              "section": "8-138",
+              "subsection": "(b)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "37945.98",
+                "output_type": "money",
+                "monthly_amount": "3162.17",
+                "inputs_used": {
+                  "final_average_salary": "80400.84",
+                  "creditable_service_years": "23",
+                  "months_before_age_60": "58"
+                },
+                "statutory_values_used": {
+                  "annual_accrual_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "8-138",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "minimum_service_years": {
+                    "value": 20,
+                    "source": {
+                      "section": "8-138",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "minimum_annuity_start_age": {
+                    "value": 55,
+                    "source": {
+                      "section": "8-138",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "8-138",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "early_commencement_reduction_rate_per_month": {
+                    "value": 0.0025,
+                    "source": {
+                      "section": "8-138",
+                      "subsection": "(b)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "annual_salary_accrual",
+                    "value": "1929.62"
+                  },
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "44381.26"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "64320.67"
+                  },
+                  {
+                    "name": "capped_unreduced_annuity",
+                    "value": "44381.26"
+                  },
+                  {
+                    "name": "early_commencement_reduction",
+                    "value": "0.15"
+                  },
+                  {
+                    "name": "early_commencement_reduction_factor",
+                    "value": "0.86"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "37945.98"
+                  }
+                ],
+                "intermediate": {
+                  "annual_salary_accrual": "1929.62",
+                  "unreduced_annuity": "44381.26",
+                  "statutory_maximum_annuity": "64320.67",
+                  "capped_unreduced_annuity": "44381.26",
+                  "early_commencement_reduction": "0.15",
+                  "early_commencement_reduction_factor": "0.86",
+                  "annual_annuity": "37945.98"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "at age 55",
+                  "retirement_age": 55,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "23.0",
+                    "months_before_age_60": 58,
+                    "final_average_salary": "80400.84",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "37945.98",
+                  "output_type": "money",
+                  "monthly_amount": "3162.17",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 7992,
+            "completion_tokens": 358,
+            "reasoning_tokens": 0,
+            "cached_tokens": 3828,
+            "total_tokens": 8350,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 3945,
+                "completion": 122,
+                "reasoning": 0,
+                "cached": 3828,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 4047,
+                "completion": 236,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 8.520000847056508e-05,
+            "fetch_employee_record": 1.1787068000121508,
+            "investigate": 5.692293500003871,
+            "time_to_first_token": 11.458484399976442,
+            "total": 14.65982439997606
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "8",
+            "fund_figure": "8"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F09",
+      "name": "Cook County employee",
+      "employee": "article-9-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is **$31,905.35 a year**, or **$2,658.78 a month**, under Article 9\u2019s retirement-annuity provision. [40 ILCS 5/9-134]\n\n**What I assumed:** you stop working on **September 13, 2026**, treated as today.\n\nThis estimate uses **57** as your age, **21.5 years** of service, and a highest four-year average salary of **$72,743.62**. It reflects the early-retirement reduction for starting the annuity before age 60.\n\nI\u2019m going by your record, which places you in Article 9\u2014tell me if that\u2019s not right. The Code sections I could read do not establish the separate coverage and service-credit rules referenced by the retirement provision, so those points could not be independently confirmed here.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 14.55698459999985,
+          "total": 19.637942100001965,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "9-134"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "withdrawal_date": "2026-09-13",
+            "age_at_annuity_start": 57,
+            "service_years": 21.5,
+            "highest_average_annual_salary_4yr": 72743.6175,
+            "months_before_age_60": 30
+          },
+          "sections": [
+            "9-134",
+            "20-107",
+            "20-109"
+          ],
+          "articles": [
+            "20",
+            "9"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "9_retirement_annuity_9-134_d57e9476",
+              "section": "9-134",
+              "subsection": "(b)",
+              "status": "agent_derived",
+              "applicability": "Employees who withdraw on or after June 30, 2002, have at least 10 years of service, elect this annuity, and begin it no earlier than age 50.",
+              "applicability_status": "verified",
+              "selection_basis": "statutory_election",
+              "alternatives_considered": [
+                {
+                  "section": "9-134",
+                  "subsection": "(a)",
+                  "status": "member_election",
+                  "reason": "Paragraph (a) supplies an alternative Article 9 annuity formula."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1969-03-30",
+            "hire_date": "2004-09-07",
+            "article_number": 9,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 76000.0,
+            "age": 57,
+            "current_age": 57,
+            "age_at_annuity_start": 57,
+            "age_at_withdrawal": 57,
+            "attained_age": 57,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2024-03-30",
+            "age_60_date": "2029-03-30",
+            "months_before_age_60": 30,
+            "months_before_60": 30,
+            "full_months_under_age_60": 30,
+            "salary_attached_to_rank": 76000.0,
+            "highest_average_annual_salary_4yr": 72743.6175,
+            "final_average_salary": 72743.6175,
+            "highest_average_annual_salary": 72743.6175,
+            "fas": 72743.6175,
+            "highest_average_annual_salary_5yr": 71699.898,
+            "highest_average_annual_salary_8yr": 68687.68875
+          },
+          "coverage": {
+            "article": "9",
+            "basis": "record",
+            "record_article": "9",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Post-2002 Article 9 Retirement Annuity",
+              "section": "9-134",
+              "subsection": "(b)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "31905.35",
+                "output_type": "money",
+                "monthly_amount": "2658.78",
+                "inputs_used": {
+                  "withdrawal_date": "2026-09-13",
+                  "age_at_annuity_start": "57",
+                  "service_years": "21.5",
+                  "highest_average_annual_salary_4yr": "72743.62",
+                  "months_before_age_60": "30"
+                },
+                "statutory_values_used": {
+                  "age_60": {
+                    "value": 60,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "annuity_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "minimum_service_years": {
+                    "value": 10,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "monthly_reduction_rate": {
+                    "value": 0.005,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "minimum_annuity_start_age": {
+                    "value": 50,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "reduction_service_threshold_years": {
+                    "value": 30,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "service_percentage",
+                    "value": "0.52"
+                  },
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "37535.71"
+                  },
+                  {
+                    "name": "early_retirement_reduction",
+                    "value": "0.15"
+                  },
+                  {
+                    "name": "early_retirement_reduction_factor",
+                    "value": "0.85"
+                  },
+                  {
+                    "name": "reduced_annuity",
+                    "value": "31905.35"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "58194.89"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "31905.35"
+                  }
+                ],
+                "intermediate": {
+                  "service_percentage": "0.52",
+                  "unreduced_annuity": "37535.71",
+                  "early_retirement_reduction": "0.15",
+                  "early_retirement_reduction_factor": "0.85",
+                  "reduced_annuity": "31905.35",
+                  "statutory_maximum_annuity": "58194.89",
+                  "annual_annuity": "31905.35"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "0 more years",
+                  "retirement_age": 57,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "21.5",
+                    "months_before_age_60": 30,
+                    "final_average_salary": "72743.62",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "31905.35",
+                  "output_type": "money",
+                  "monthly_amount": "2658.78",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ],
+              "thresholds": [
+                {
+                  "fact": "age",
+                  "boundary": 60,
+                  "current": 57,
+                  "distance_months": 30,
+                  "section": "9-134",
+                  "subsection": "(b)",
+                  "description": "age 60 under the controlling provision",
+                  "difference_from_now_annual": "10070.85",
+                  "difference_from_now_monthly": "839.24",
+                  "annual_amount": "41976.20",
+                  "monthly_amount": "3498.02"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 9817,
+            "completion_tokens": 351,
+            "reasoning_tokens": 0,
+            "cached_tokens": 5922,
+            "total_tokens": 10168,
+            "calls": 4,
+            "by_node": {
+              "investigate": {
+                "prompt": 6245,
+                "completion": 158,
+                "reasoning": 0,
+                "cached": 5922,
+                "calls": 3
+              },
+              "generate_answer": {
+                "prompt": 3572,
+                "completion": 193,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.8900011936202645e-05,
+            "fetch_employee_record": 1.1819734000018798,
+            "investigate": 8.486343500000658,
+            "time_to_first_token": 14.55551900001592,
+            "total": 17.740322800003923
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "9",
+            "fund_figure": "9"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F10",
+      "name": "Forest Preserve District employee",
+      "employee": "article-10-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is **$25,493.73 a year**.\n\nThat figure is based on your Article 10 record, **19.0 years of service**, and an annuity starting at age 58. The applicable retirement-annuity rule is Section 9-134. Article 10 also provides that benefits are not payable following a felony conviction related to service. [40 ILCS 5/9-134] [40 ILCS 5/10-109]\n\n**What I assumed:** the date you stop working is today.\n\nI could not establish from the sections available here whether Article 10 is the correct coverage article for you, because the relevant coverage provisions were not available. Article 20 defines a \u201cgovernmental unit\u201d and \u201cpension credit,\u201d but it does not determine your coverage. [40 ILCS 5/20-107] [40 ILCS 5/20-109]\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 10.989375399978599,
+          "total": 16.071333500003675,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "10-109",
+              "20-107",
+              "20-109",
+              "9-134"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "creditable_service_years": 19.0,
+            "highest_average_annual_salary_4yr": 63172.0875,
+            "age_at_annuity_start": 58,
+            "months_before_age_60": 23,
+            "withdrawal_date": "2026-09-13"
+          },
+          "sections": [
+            "9-134",
+            "10-103",
+            "10-109",
+            "20-107",
+            "20-109"
+          ],
+          "articles": [
+            "10",
+            "20",
+            "9"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "10_retirement_annuity_9-134_69d5d747",
+              "section": "9-134",
+              "subsection": "(b)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to an employee who withdraws on or after June 30, 2002, has at least 10 years of service, and begins the annuity no earlier than age 50.",
+              "applicability_status": "verified",
+              "selection_basis": "statutory_election",
+              "alternatives_considered": [
+                {
+                  "section": "9-134",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "The paragraph (a) provision for an employee retiring before age 60 requires at least 20 years of service."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1968-08-17",
+            "hire_date": "2007-04-02",
+            "article_number": 10,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 66000.0,
+            "age": 58,
+            "current_age": 58,
+            "age_at_annuity_start": 58,
+            "age_at_withdrawal": 58,
+            "attained_age": 58,
+            "service_years": 19.0,
+            "years_of_service": 19.0,
+            "total_service_years": 19.0,
+            "creditable_service_years": 19.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2023-08-17",
+            "age_60_date": "2028-08-17",
+            "months_before_age_60": 23,
+            "months_before_60": 23,
+            "full_months_under_age_60": 23,
+            "salary_attached_to_rank": 66000.0,
+            "highest_average_annual_salary_4yr": 63172.0875,
+            "final_average_salary": 63172.0875,
+            "highest_average_annual_salary": 63172.0875,
+            "fas": 63172.0875,
+            "highest_average_annual_salary_5yr": 62265.7,
+            "highest_average_annual_salary_8yr": 59649.835
+          },
+          "coverage": {
+            "article": "10",
+            "basis": "record",
+            "record_article": "10",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Post-2002 2.40% Retirement Annuity",
+              "section": "9-134",
+              "subsection": "(b)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "medium",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "25493.73",
+                "output_type": "money",
+                "monthly_amount": "2124.48",
+                "inputs_used": {
+                  "creditable_service_years": "19",
+                  "highest_average_annual_salary_4yr": "63172.09",
+                  "age_at_annuity_start": "58",
+                  "months_before_age_60": "23",
+                  "withdrawal_date": "2026-09-13"
+                },
+                "statutory_values_used": {
+                  "annuity_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "formula_start_date": {
+                    "value": 2002,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "normal_reduction_age": {
+                    "value": 60,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "minimum_annuity_start_age": {
+                    "value": 50,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "early_reduction_rate_per_month": {
+                    "value": 0.005,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "early_reduction_service_exception_years": {
+                    "value": 30,
+                    "source": {
+                      "section": "9-134",
+                      "subsection": "(b)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "28806.47"
+                  },
+                  {
+                    "name": "early_reduction_percentage",
+                    "value": "0.12"
+                  },
+                  {
+                    "name": "reduction_factor",
+                    "value": "0.89"
+                  },
+                  {
+                    "name": "reduced_annuity",
+                    "value": "25493.73"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "50537.67"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "25493.73"
+                  }
+                ],
+                "intermediate": {
+                  "unreduced_annuity": "28806.47",
+                  "early_reduction_percentage": "0.12",
+                  "reduction_factor": "0.89",
+                  "reduced_annuity": "25493.73",
+                  "statutory_maximum_annuity": "50537.67",
+                  "annual_annuity": "25493.73"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "at age 58",
+                  "retirement_age": 58,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "19.0",
+                    "months_before_age_60": 23,
+                    "final_average_salary": "63172.09",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "25493.73",
+                  "output_type": "money",
+                  "monthly_amount": "2124.48",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 7677,
+            "completion_tokens": 311,
+            "reasoning_tokens": 0,
+            "cached_tokens": 3962,
+            "total_tokens": 7988,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 3968,
+                "completion": 108,
+                "reasoning": 0,
+                "cached": 3962,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 3709,
+                "completion": 203,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 9.030001820065081e-05,
+            "fetch_employee_record": 1.1876013000146486,
+            "investigate": 4.783423499990022,
+            "time_to_first_token": 10.988049700012198,
+            "total": 14.19360980001511
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "10",
+            "fund_figure": "10"
+          },
+          "index": 0,
+          "problems": [
+            "figure computed under ['9-134'], not Article 10"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F11",
+      "name": "Chicago laborer (positive control)",
+      "employee": "article-11-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is **$32,126.78 a year**, or **$2,677.23 a month**.\n\n**What I assumed**\n\n- You stop working on **September 13, 2026**, treated as today.\n- Your age is **56**.\n- You have **21.5 years of service**.\n- Your highest 4-year average salary is **$69,956.40**.\n- Your annuity begins at age 56.\n\nSection 11-134 provides an annuity of **2.40% for each year of service**, with a **0.25% reduction for each full month or remaining fractional part** that the annuity begins before age 60. [40 ILCS 5/11-134]\n\nThe Code also contains other Article 11 retirement provisions, including the general age-and-service rules in Sections 11-130 and 11-131. The estimate uses the Section 11-134 option; the other provisions were weighed but are not the provision used for this estimate. The Code\u2019s service-credit rules refer to Section 11-216, and Section 11-215 explains which periods count as service. [40 ILCS 5/11-215] [40 ILCS 5/11-216]\n\nI'm going by your record, which places you in Article 11 \u2014 tell me if that's not right.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 17.758864000003086,
+          "total": 22.91623050000635,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-134",
+              "11-215",
+              "11-216"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "get_section": 1,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "withdrawal_date": "2026-09-13",
+            "age_at_annuity_start": 56,
+            "service_years": 21.5,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "months_before_age_60": 44
+          },
+          "sections": [
+            "11-134",
+            "11-216",
+            "11-130",
+            "11-131",
+            "11-164",
+            "11-215"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "11_retirement_annuity_11-134_d095f232",
+              "section": "11-134",
+              "subsection": "(a)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to an employee who withdraws on or after July 1, 1990, has at least 20 years of service, and begins the elected annuity no earlier than attained age 55.",
+              "applicability_status": "verified",
+              "selection_basis": "statutory_election",
+              "alternatives_considered": [
+                {
+                  "section": "11-134",
+                  "subsection": "(a)",
+                  "status": "member_election",
+                  "reason": "The member may elect a tiered formula of 1.80%, 2.00%, 2.20%, and 2.40% of highest average annual salary for successive service periods in lieu of another annuity provided in this Section."
+                },
+                {
+                  "section": "11-134",
+                  "subsection": "(f-1)",
+                  "status": "not_applicable",
+                  "reason": "This election requires the annuity to begin no earlier than attained age 60."
+                },
+                {
+                  "section": "11-130",
+                  "subsection": null,
+                  "status": "applicable_not_calculable",
+                  "reason": "The age-and-service annuity in this provision is based on accumulated contributions, and the Pension Code does not set out the conversion factors needed to work that out."
+                },
+                {
+                  "section": "11-131",
+                  "subsection": null,
+                  "status": "not_applicable",
+                  "reason": "This provision applies when an employee withdraws before age 55 and later attains age 55."
+                },
+                {
+                  "section": "11-164",
+                  "subsection": "(1)",
+                  "status": "not_applicable",
+                  "reason": "This provision governs refunds for withdrawal before age 55 or, with less than 10 years of service, withdrawal before age 60."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "article": "11",
+            "basis": "record",
+            "record_article": "11",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "2.4% Minimum Retirement Annuity with Early-Retirement Reduction",
+              "section": "11-134",
+              "subsection": "(a)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "32126.78",
+                "output_type": "money",
+                "monthly_amount": "2677.23",
+                "inputs_used": {
+                  "withdrawal_date": "2026-09-13",
+                  "age_at_annuity_start": "56",
+                  "service_years": "21.5",
+                  "highest_average_annual_salary_4yr": "69956.40",
+                  "months_before_age_60": "44"
+                },
+                "statutory_values_used": {
+                  "age_60": {
+                    "value": 60,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "minimum_service_years": {
+                    "value": 20,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "maximum_salary_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "withdrawal_effective_date": {
+                    "value": 1990,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "annual_service_accrual_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "minimum_annuity_commencement_age": {
+                    "value": 55,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "monthly_early_retirement_reduction_rate": {
+                    "value": 0.0025,
+                    "source": {
+                      "section": "11-134",
+                      "subsection": "(a)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "36097.50"
+                  },
+                  {
+                    "name": "early_retirement_reduction_amount",
+                    "value": "0.11"
+                  },
+                  {
+                    "name": "early_retirement_reduction_factor",
+                    "value": "0.89"
+                  },
+                  {
+                    "name": "reduced_annuity",
+                    "value": "32126.78"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "55965.12"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "32126.78"
+                  }
+                ],
+                "intermediate": {
+                  "unreduced_annuity": "36097.50",
+                  "early_retirement_reduction_amount": "0.11",
+                  "early_retirement_reduction_factor": "0.89",
+                  "reduced_annuity": "32126.78",
+                  "statutory_maximum_annuity": "55965.12",
+                  "annual_annuity": "32126.78"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "0 more years",
+                  "retirement_age": 56,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "21.5",
+                    "months_before_age_60": 44,
+                    "final_average_salary": "69956.40",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "32126.78",
+                  "output_type": "money",
+                  "monthly_amount": "2677.23",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ],
+              "thresholds": [
+                {
+                  "fact": "age",
+                  "boundary": 60,
+                  "current": 56,
+                  "distance_months": 44,
+                  "section": "11-134",
+                  "subsection": "(a)",
+                  "description": "age 60 under the controlling provision",
+                  "difference_from_now_annual": "10130.33",
+                  "difference_from_now_monthly": "844.20",
+                  "annual_amount": "42257.11",
+                  "monthly_amount": "3521.43"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 22354,
+            "completion_tokens": 534,
+            "reasoning_tokens": 0,
+            "cached_tokens": 11240,
+            "total_tokens": 22888,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 14752,
+                "completion": 235,
+                "reasoning": 0,
+                "cached": 11240,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 7602,
+                "completion": 299,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.4199976148083806e-05,
+            "fetch_employee_record": 1.1850743999821134,
+            "investigate": 10.189186700008577,
+            "time_to_first_token": 17.757551100017736,
+            "total": 21.03119120001793
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "11",
+            "fund_figure": "11"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F12",
+      "name": "Chicago Park District employee (positive control)",
+      "employee": "article-12-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is **$37,475.12 a year**, or **$3,122.93 a month**, under Section 12-133. [40 ILCS 5/12-133]\n\n**What I assumed:** You stop working at the end of this year, using today as the retirement-date assumption.\n\nYour record places you in Article 12. The estimate uses your age of **58**, **25.0 years of service**, and final average salary of **$66,269.00**. Section 12-130 was considered but does not reach your circumstances. [40 ILCS 5/12-130]\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 13.3396924000117,
+          "total": 18.39597509999294,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-130",
+              "12-133"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "age": 58,
+            "service_years": 25.0,
+            "final_average_salary": 66269.0,
+            "months_before_age_60": 23,
+            "withdrawal_date": "2026-09-13"
+          },
+          "sections": [
+            "12-133",
+            "12-130"
+          ],
+          "articles": [
+            "12"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "12_retirement_annuity_12-133_ae3efb16",
+              "section": "12-133",
+              "subsection": "(a)",
+              "status": "agent_derived",
+              "applicability": "Employees who withdraw on or after December 31, 2003, at age 50 or over with at least 10 years of service, or at age 60 or over with at least 4 years of service.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "12-133",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "The earlier fixed-benefit rates apply only to withdrawals before December 31, 2003."
+                },
+                {
+                  "section": "12-133",
+                  "subsection": "(b)",
+                  "status": "not_applicable",
+                  "reason": "The accumulation-based provision applies only to an employee in service before July 1, 1971."
+                },
+                {
+                  "section": "12-130",
+                  "subsection": null,
+                  "status": "not_applicable",
+                  "reason": "The accumulation-based retirement amount applies only to an employee who entered service before July 1, 1971."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1968-09-02",
+            "hire_date": "2001-07-16",
+            "article_number": 12,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 68000.0,
+            "age": 58,
+            "current_age": 58,
+            "age_at_annuity_start": 58,
+            "age_at_withdrawal": 58,
+            "attained_age": 58,
+            "service_years": 25.0,
+            "years_of_service": 25.0,
+            "total_service_years": 25.0,
+            "creditable_service_years": 25.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2023-09-02",
+            "age_60_date": "2028-09-02",
+            "months_before_age_60": 23,
+            "months_before_60": 23,
+            "full_months_under_age_60": 23,
+            "salary_attached_to_rank": 68000.0,
+            "highest_average_annual_salary_4yr": 66269.0,
+            "final_average_salary": 66269.0,
+            "highest_average_annual_salary": 66269.0,
+            "fas": 66269.0,
+            "highest_average_annual_salary_5yr": 65395.796,
+            "highest_average_annual_salary_8yr": 62759.80875
+          },
+          "coverage": {
+            "article": "12",
+            "basis": "record",
+            "record_article": "12",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Tier 1 Fixed Benefit Retirement Annuity",
+              "section": "12-133",
+              "subsection": "(a)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "37475.12",
+                "output_type": "money",
+                "monthly_amount": "3122.93",
+                "inputs_used": {
+                  "age": "58",
+                  "service_years": "25",
+                  "final_average_salary": "66269.00",
+                  "months_before_age_60": "23",
+                  "withdrawal_date": "2026-09-13"
+                },
+                "statutory_values_used": {
+                  "post_2003_accrual_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)(2)"
+                    }
+                  },
+                  "early_retirement_reduction_base": {
+                    "value": 1,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)(1)"
+                    }
+                  },
+                  "early_retirement_monthly_reduction_rate": {
+                    "value": 0.0025,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)(1)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "39761.40"
+                  },
+                  {
+                    "name": "early_retirement_reduction",
+                    "value": "0.06"
+                  },
+                  {
+                    "name": "early_retirement_reduction_factor",
+                    "value": "0.94"
+                  },
+                  {
+                    "name": "reduced_annuity",
+                    "value": "37475.12"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "53015.20"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "37475.12"
+                  }
+                ],
+                "intermediate": {
+                  "unreduced_annuity": "39761.40",
+                  "early_retirement_reduction": "0.06",
+                  "early_retirement_reduction_factor": "0.94",
+                  "reduced_annuity": "37475.12",
+                  "statutory_maximum_annuity": "53015.20",
+                  "annual_annuity": "37475.12"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "0 more years",
+                  "retirement_age": 58,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "25.0",
+                    "months_before_age_60": 23,
+                    "final_average_salary": "66269.00",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "37475.12",
+                  "output_type": "money",
+                  "monthly_amount": "3122.93",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 9270,
+            "completion_tokens": 298,
+            "reasoning_tokens": 0,
+            "cached_tokens": 5953,
+            "total_tokens": 9568,
+            "calls": 4,
+            "by_node": {
+              "investigate": {
+                "prompt": 6296,
+                "completion": 150,
+                "reasoning": 0,
+                "cached": 5953,
+                "calls": 3
+              },
+              "generate_answer": {
+                "prompt": 2974,
+                "completion": 148,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.57999883312732e-05,
+            "fetch_employee_record": 1.2218105999927502,
+            "investigate": 7.7075932000007015,
+            "time_to_first_token": 13.33764230000088,
+            "total": 16.51533989998279
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "12",
+            "fund_figure": "12"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F13",
+      "name": "Water Reclamation District employee",
+      "employee": "article-13-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension is **$39,083.69 a year**, or **$3,256.97 a month**, under Section 13-302. That provision applies to an employee who withdraws at age 55 or older but before age 60 with at least 10 years of service, subject to the early-retirement reduction. [40 ILCS 5/13-302]\n\n**What I assumed:** you stop working on **September 13, 2026**, treated as today.\n\nSection 13-301 is the age-60 retirement-annuity rule, so it is not the rule used for this estimate. The survivor and child annuity provisions address benefits after an employee or annuitant dies, not your retirement pension. [40 ILCS 5/13-301] [40 ILCS 5/13-305] [40 ILCS 5/13-308]\n\nI could not establish from the sections available whether any other benefits, contribution provisions, or exceptions would change this estimate. The statute text available also does not establish the date you will actually stop working; the estimate therefore depends on the assumption stated above.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 15.778374200017424,
+          "total": 20.85460069999681,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "13-301",
+              "13-302",
+              "13-305",
+              "13-308"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "final_average_salary": 88058.06,
+            "service_years": 26.0,
+            "months_before_age_60": 48,
+            "age_at_withdrawal": 55,
+            "withdrawal_date": "2026-09-13"
+          },
+          "sections": [
+            "13-208",
+            "13-301",
+            "13-302",
+            "13-305",
+            "13-308",
+            "13-313"
+          ],
+          "articles": [
+            "13"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "13_retirement_annuity_13-302_9a657743",
+              "section": "13-302",
+              "subsection": "(a)-(b)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to an employee who withdraws on or after age 55 and before age 60 with at least 10 years of service, subject to the early-retirement reduction.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "13-301",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "The age-60 withdrawal route applies only upon withdrawal on or after attainment of age 60."
+                },
+                {
+                  "section": "13-301",
+                  "subsection": "(c)",
+                  "status": "not_applicable",
+                  "reason": "The deferred-retirement route applies to withdrawal before attainment of age 55."
+                },
+                {
+                  "section": "13-302",
+                  "subsection": "(c)",
+                  "status": "not_applicable",
+                  "reason": "The Rule of 80 without discount applies only to retirements occurring on or after January 1, 2003 and on or before December 31, 2007."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-10-05",
+            "hire_date": "2000-06-19",
+            "article_number": 13,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 92000.0,
+            "age": 55,
+            "current_age": 55,
+            "age_at_annuity_start": 55,
+            "age_at_withdrawal": 55,
+            "attained_age": 55,
+            "service_years": 26.0,
+            "years_of_service": 26.0,
+            "total_service_years": 26.0,
+            "creditable_service_years": 26.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-10-05",
+            "age_60_date": "2030-10-05",
+            "months_before_age_60": 48,
+            "months_before_60": 48,
+            "full_months_under_age_60": 48,
+            "salary_attached_to_rank": 92000.0,
+            "highest_average_annual_salary_4yr": 88058.06,
+            "final_average_salary": 88058.06,
+            "highest_average_annual_salary": 88058.06,
+            "fas": 88058.06,
+            "highest_average_annual_salary_5yr": 86794.61,
+            "highest_average_annual_salary_8yr": 83148.25375
+          },
+          "coverage": {
+            "article": "13",
+            "basis": "record",
+            "record_article": "13",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Tier 1 Early Retirement Annuity",
+              "section": "13-302",
+              "subsection": "(a)-(b)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "monthly_retirement_annuity",
+                "annual_amount": "39083.69",
+                "output_type": "money",
+                "monthly_amount": "3256.97",
+                "inputs_used": {
+                  "final_average_salary": "88058.06",
+                  "service_years": "26",
+                  "months_before_age_60": "48",
+                  "age_at_withdrawal": "55",
+                  "withdrawal_date": "2026-09-13"
+                },
+                "statutory_values_used": {
+                  "months_per_year": {
+                    "value": 12,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "first_service_years": {
+                    "value": 20,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "first_years_accrual_rate": {
+                    "value": 0.022,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "excess_years_accrual_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "early_retirement_monthly_rate": {
+                    "value": 0.005,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(b)"
+                    }
+                  },
+                  "retirement_annuity_effective_date": {
+                    "value": "1989-07-01",
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "minimum_monthly_retirement_annuity": {
+                    "value": 250,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(e)"
+                    }
+                  },
+                  "maximum_service_years_for_early_reduction": {
+                    "value": 30,
+                    "source": {
+                      "section": "13-302",
+                      "subsection": "(b)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "first_20_years_annuity",
+                    "value": "38745.55"
+                  },
+                  {
+                    "name": "excess_service_annuity",
+                    "value": "12680.36"
+                  },
+                  {
+                    "name": "unreduced_retirement_annuity",
+                    "value": "51425.91"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "51425.91"
+                  },
+                  {
+                    "name": "reduction_months",
+                    "value": "48.00"
+                  },
+                  {
+                    "name": "early_retirement_reduction",
+                    "value": "0.24"
+                  },
+                  {
+                    "name": "early_retirement_reduction_factor",
+                    "value": "0.76"
+                  },
+                  {
+                    "name": "reduced_retirement_annuity",
+                    "value": "39083.69"
+                  },
+                  {
+                    "name": "monthly_retirement_annuity",
+                    "value": "39083.69"
+                  }
+                ],
+                "intermediate": {
+                  "first_20_years_annuity": "38745.55",
+                  "excess_service_annuity": "12680.36",
+                  "unreduced_retirement_annuity": "51425.91",
+                  "statutory_maximum_annuity": "51425.91",
+                  "reduction_months": "48.00",
+                  "early_retirement_reduction": "0.24",
+                  "early_retirement_reduction_factor": "0.76",
+                  "reduced_retirement_annuity": "39083.69",
+                  "monthly_retirement_annuity": "39083.69"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "0 more years",
+                  "retirement_age": 55,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "26.0",
+                    "months_before_age_60": 48,
+                    "final_average_salary": "88058.06",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "monthly_retirement_annuity",
+                  "annual_amount": "39083.69",
+                  "output_type": "money",
+                  "monthly_amount": "3256.97",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 11019,
+            "completion_tokens": 406,
+            "reasoning_tokens": 0,
+            "cached_tokens": 5947,
+            "total_tokens": 11425,
+            "calls": 4,
+            "by_node": {
+              "investigate": {
+                "prompt": 6288,
+                "completion": 156,
+                "reasoning": 0,
+                "cached": 5947,
+                "calls": 3
+              },
+              "generate_answer": {
+                "prompt": 4731,
+                "completion": 250,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.72000169288367e-05,
+            "fetch_employee_record": 1.1796813000109978,
+            "investigate": 8.73278510000091,
+            "time_to_first_token": 15.77662109999801,
+            "total": 18.982897499983665
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "13",
+            "fund_figure": "13"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F14",
+      "name": "State employee",
+      "employee": "article-14-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "At age 61 with 21.0 years of service, you meet the normal Article 14 retirement requirements. You may claim your retirement annuity at age 60 or later with at least 8 years of creditable service. [40 ILCS 5/14-107]\n\nThe dollar amount depends on your **final average compensation**\u2014generally your highest 48 consecutive months within your last 120 months of service. [40 ILCS 5/14-103.12]\n\nFor a noncovered employee, Article 14 provides 2.2% of final average compensation for each year of service. For a covered employee, service established as a covered employee uses 1.67%, while noncovered service uses 2.2%. [40 ILCS 5/14-108]\n\nYou may also have a choice of the alternative retirement annuity if at least 20 of your years are **eligible creditable service** and your position is one of those listed in Section 14-110. That section includes positions such as State policeman, certain investigators, certain security employees, and State highway maintenance worker. The alternative formula applies only to eligible creditable service, so I cannot tell from your age and total service whether it applies or calculate it here. [40 ILCS 5/14-110]\n\nI'm going by your record, which places you in Article 14 \u2014 tell me if that's not right.",
+          "error": null,
+          "ttft": 35.23087050000322,
+          "total": 40.48752000002423,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "14-103.12",
+              "14-107",
+              "14-108",
+              "14-110"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 2,
+            "compute_benefit": 1,
+            "outline": 1,
+            "get_section": 4
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "14-107",
+            "14-108",
+            "14-103.12",
+            "14-103.41",
+            "14-110",
+            "14-104",
+            "14-108.2"
+          ],
+          "articles": [
+            "14"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [
+            {
+              "formula_type": "retirement_annuity",
+              "reason": "The retirement annuity formula for a covered employee requires the years of service credit established as a covered employee and the years established as a noncovered employee. Those service components are not stated, so the applicable annuity cannot be calculated. The statute also expresses final average compensation as a monthly amount, while the member facts identify only an annual final average salary."
+            }
+          ],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1965-01-25",
+            "hire_date": "2005-07-01",
+            "article_number": 14,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 70000.0,
+            "age": 61,
+            "current_age": 61,
+            "age_at_annuity_start": 61,
+            "age_at_withdrawal": 61,
+            "attained_age": 61,
+            "service_years": 21.0,
+            "years_of_service": 21.0,
+            "total_service_years": 21.0,
+            "creditable_service_years": 21.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2020-01-25",
+            "age_60_date": "2025-01-25",
+            "months_before_age_60": 0,
+            "months_before_60": 0,
+            "full_months_under_age_60": 0,
+            "salary_attached_to_rank": 70000.0,
+            "covered_by_social_security": true,
+            "is_covered_employee": true,
+            "covered_employee": true,
+            "social_security_covered": true,
+            "highest_average_annual_salary_4yr": 67000.7,
+            "final_average_salary": 67000.7,
+            "highest_average_annual_salary": 67000.7,
+            "fas": 67000.7,
+            "highest_average_annual_salary_5yr": 66039.378,
+            "highest_average_annual_salary_8yr": 63264.97625
+          },
+          "coverage": {
+            "article": "14",
+            "basis": "record",
+            "record_article": "14",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 50911,
+            "completion_tokens": 1975,
+            "reasoning_tokens": 512,
+            "cached_tokens": 24708,
+            "total_tokens": 52886,
+            "calls": 9,
+            "by_node": {
+              "investigate": {
+                "prompt": 27762,
+                "completion": 446,
+                "reasoning": 0,
+                "cached": 22167,
+                "calls": 7
+              },
+              "derive_recipe": {
+                "prompt": 5416,
+                "completion": 1237,
+                "reasoning": 512,
+                "cached": 2541,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 17733,
+                "completion": 292,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 7.270000060088933e-05,
+            "fetch_employee_record": 1.179096900013974,
+            "investigate": 26.860051399999065,
+            "time_to_first_token": 35.22927909999271,
+            "total": 38.632885500002885
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "14",
+            "fund_figure": "14"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F15",
+      "name": "State university employee",
+      "employee": "article-15-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your pension cannot be put into dollars from the information available. Section 15-136 uses your **final rate of earnings** and your service years; your salary figure is missing. [40 ILCS 5/15-136]\n\nAt age 55, a Tier 1 member with at least 8 years of service can generally begin a retirement annuity after ending employment. The standard calculation is reduced by 0.50% for each month you are under age 60, unless an exception applies. Your 22.0 years of service do not establish the 30-year exception. [40 ILCS 5/15-135] [40 ILCS 5/15-136]\n\nThe Code also contains an \u201cearly retirement without discount\u201d election, but the text available here limits that provision to annuities beginning on or before September 1, 2002, so it does not provide a current-year option. [40 ILCS 5/15-136.2]\n\nI could not establish whether any other exception applies because the necessary provisions and facts are not available here. Your final rate of earnings is needed for any dollar estimate.",
+          "error": null,
+          "ttft": 79.88799810002092,
+          "total": 84.88558600001852,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "15-135",
+              "15-136",
+              "15-136.2"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 2,
+            "outline": 1,
+            "get_section": 4,
+            "find_provision": 1
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "15-135",
+            "15-136",
+            "15-136.2",
+            "15-138",
+            "15-116",
+            "15-107",
+            "15-113.3",
+            "15-113.6"
+          ],
+          "articles": [
+            "15"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [
+            {
+              "formula_type": "retirement_annuity",
+              "reason": "The retirement annuity payment period cannot begin before termination of employment, and the member's employment status is active."
+            }
+          ],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1971-05-08",
+            "hire_date": "2004-08-16",
+            "article_number": 15,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 78000.0,
+            "age": 55,
+            "current_age": 55,
+            "age_at_annuity_start": 55,
+            "age_at_withdrawal": 55,
+            "attained_age": 55,
+            "service_years": 22.0,
+            "years_of_service": 22.0,
+            "total_service_years": 22.0,
+            "creditable_service_years": 22.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2026-05-08",
+            "age_60_date": "2031-05-08",
+            "months_before_age_60": 55,
+            "months_before_60": 55,
+            "full_months_under_age_60": 55,
+            "salary_attached_to_rank": 78000.0,
+            "highest_average_annual_salary_4yr": 74657.9225,
+            "final_average_salary": 74657.9225,
+            "highest_average_annual_salary": 74657.9225,
+            "fas": 74657.9225,
+            "highest_average_annual_salary_5yr": 73586.736,
+            "highest_average_annual_salary_8yr": 70495.26
+          },
+          "coverage": {
+            "article": "15",
+            "basis": "record",
+            "record_article": "15",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 63957,
+            "completion_tokens": 7744,
+            "reasoning_tokens": 4473,
+            "cached_tokens": 34709,
+            "total_tokens": 71701,
+            "calls": 10,
+            "by_node": {
+              "investigate": {
+                "prompt": 36801,
+                "completion": 401,
+                "reasoning": 0,
+                "cached": 29627,
+                "calls": 7
+              },
+              "derive_recipe": {
+                "prompt": 14542,
+                "completion": 7106,
+                "reasoning": 4473,
+                "cached": 5082,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 12614,
+                "completion": 237,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.399997462518513e-05,
+            "fetch_employee_record": 1.1938614000100642,
+            "investigate": 72.66595500000403,
+            "time_to_first_token": 79.8872626000084,
+            "total": 83.05701329998556
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "15",
+            "fund_figure": "15"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F16",
+      "name": "Teacher outside Chicago",
+      "employee": "article-16-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "Your estimated pension would be **$29,567.70 a year**, or **$2,463.97 a month**, if you retire at age 57.\n\nThe estimate uses the retirement-annuity rule in Section 16-133. It reflects **23 years** of service, a final average salary of **$70,829.31**, and the applicable reduction for months before age 60. [40 ILCS 5/16-133]\n\n**What I assumed:** You stop working at the end of this year, treated as today for this estimate.\n\nSection 16-129.1 may allow an optional contribution to qualify for an augmented rate for service before July 1, 1998. Whether that applies depends on your election and contribution; it is not included in this figure. [40 ILCS 5/16-129.1]\n\nI\u2019m going by your record, which places you in Article 16 \u2014 tell me if that\u2019s not right. I could not establish from the sections available whether any other retirement option or post-retirement employment rule changes your result. Section 16-118 addresses permitted teaching after retirement, not the amount of your initial annuity. [40 ILCS 5/16-118]\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 11.973531700001331,
+          "total": 16.98868089998723,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "16-118",
+              "16-129.1",
+              "16-133"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "final_average_salary": 70829.31,
+            "creditable_service_years": 23.0,
+            "months_before_age_60": 35,
+            "age": 57,
+            "employment_status": "active"
+          },
+          "sections": [
+            "16-132",
+            "16-133",
+            "16-133.2",
+            "14-103.04",
+            "16-118",
+            "16-129.1"
+          ],
+          "articles": [
+            "14",
+            "16"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "16_retirement_annuity_16-133_36cebfde",
+              "section": "16-133",
+              "subsection": "(a)(B)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to an Article 16 member with at least 20 years of creditable service who begins the retirement annuity at or after age 55, satisfies the retirement-effective-date requirements, and is not employed as a prohibited teacher.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "16-133",
+                  "subsection": "(a)(A)",
+                  "status": "applicable_not_calculable",
+                  "reason": "This amount depends on actuarially equivalent conversion factors that the Pension Code does not set out."
+                },
+                {
+                  "section": "16-133.2",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "This early-retirement-without-discount provision applies only to retirement dates no later than June 30, 2005."
+                },
+                {
+                  "section": "16-133.2",
+                  "subsection": "(b)",
+                  "status": "not_applicable",
+                  "reason": "This early-retirement-without-discount provision applies only when the specified notice and retirement-date conditions are satisfied by July 1, 2007."
+                },
+                {
+                  "section": "16-133.2",
+                  "subsection": "(c)",
+                  "status": "not_applicable",
+                  "reason": "This early-retirement-without-discount provision applies only to the specified retirement and last-day-of-teaching dates ending no later than June 30, 2013, with the stated extension through January 1, 2014."
+                },
+                {
+                  "section": "16-133.2",
+                  "subsection": "(d)",
+                  "status": "not_applicable",
+                  "reason": "This early-retirement-without-discount provision terminates on July 1, 2016."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1969-09-02",
+            "hire_date": "2003-08-18",
+            "article_number": 16,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 74000.0,
+            "age": 57,
+            "current_age": 57,
+            "age_at_annuity_start": 57,
+            "age_at_withdrawal": 57,
+            "attained_age": 57,
+            "service_years": 23.0,
+            "years_of_service": 23.0,
+            "total_service_years": 23.0,
+            "creditable_service_years": 23.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2024-09-02",
+            "age_60_date": "2029-09-02",
+            "months_before_age_60": 35,
+            "months_before_60": 35,
+            "full_months_under_age_60": 35,
+            "salary_attached_to_rank": 74000.0,
+            "highest_average_annual_salary_4yr": 70829.31,
+            "final_average_salary": 70829.31,
+            "highest_average_annual_salary": 70829.31,
+            "fas": 70829.31,
+            "highest_average_annual_salary_5yr": 69813.056,
+            "highest_average_annual_salary_8yr": 66880.11625
+          },
+          "coverage": {
+            "article": "16",
+            "basis": "record",
+            "record_article": "16",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Tier 1 Retirement Annuity Under the Final-Average-Salary Formula",
+              "section": "16-133",
+              "subsection": "(a)(B)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "29567.70",
+                "output_type": "money",
+                "monthly_amount": "2463.97",
+                "inputs_used": {
+                  "final_average_salary": "70829.31",
+                  "creditable_service_years": "23",
+                  "months_before_age_60": "35",
+                  "age": "57",
+                  "employment_status": "active"
+                },
+                "statutory_values_used": {
+                  "alternative_1_rate": {
+                    "value": 0.022,
+                    "source": {
+                      "section": "16-133",
+                      "subsection": "(a)(B)(1)"
+                    }
+                  },
+                  "alternative_2_rate": {
+                    "value": 0.015,
+                    "source": {
+                      "section": "16-133",
+                      "subsection": "(a)(B)(2)"
+                    }
+                  },
+                  "minimum_annuity_age": {
+                    "value": 55,
+                    "source": {
+                      "section": "16-132"
+                    }
+                  },
+                  "first_20_years_limit": {
+                    "value": 20,
+                    "source": {
+                      "section": "16-133",
+                      "subsection": "(a)(B)(2)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.75,
+                    "source": {
+                      "section": "16-133",
+                      "subsection": "(e)"
+                    }
+                  },
+                  "service_eligibility_threshold_years": {
+                    "value": 20,
+                    "source": {
+                      "section": "16-132"
+                    }
+                  },
+                  "alternative_2_service_amount_per_year": {
+                    "value": 7.5,
+                    "source": {
+                      "section": "16-133",
+                      "subsection": "(a)(B)(2)"
+                    }
+                  },
+                  "early_retirement_reduction_rate_per_month": {
+                    "value": 0.005,
+                    "source": {
+                      "section": "16-133",
+                      "subsection": "(a)(B)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "early_retirement_reduction",
+                    "value": "0.18"
+                  },
+                  {
+                    "name": "reduced_annuity_factor",
+                    "value": "0.83"
+                  },
+                  {
+                    "name": "paragraph_B_1_amount",
+                    "value": "35839.63"
+                  },
+                  {
+                    "name": "paragraph_B_2_salary_component",
+                    "value": "24436.11"
+                  },
+                  {
+                    "name": "paragraph_B_2_fixed_component",
+                    "value": "150.00"
+                  },
+                  {
+                    "name": "paragraph_B_2_amount",
+                    "value": "24586.11"
+                  },
+                  {
+                    "name": "greater_paragraph_B_amount",
+                    "value": "35839.63"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "35839.63"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "29567.70"
+                  }
+                ],
+                "intermediate": {
+                  "early_retirement_reduction": "0.18",
+                  "reduced_annuity_factor": "0.83",
+                  "paragraph_B_1_amount": "35839.63",
+                  "paragraph_B_2_salary_component": "24436.11",
+                  "paragraph_B_2_fixed_component": "150.00",
+                  "paragraph_B_2_amount": "24586.11",
+                  "greater_paragraph_B_amount": "35839.63",
+                  "statutory_maximum_annuity": "35839.63",
+                  "annual_annuity": "29567.70"
+                }
+              },
+              "scenarios": [
+                {
+                  "label": "at age 57",
+                  "retirement_age": 57,
+                  "assumptions": {
+                    "as_of_date": "2026-09-13",
+                    "service_years": "23.0",
+                    "months_before_age_60": 35,
+                    "final_average_salary": "70829.31",
+                    "salary_basis": "carried forward at today's level; future pay rises are not projected",
+                    "service_basis": "assumes continuous employment to that age"
+                  },
+                  "ok": true,
+                  "output_name": "annual_annuity",
+                  "annual_amount": "29567.70",
+                  "output_type": "money",
+                  "monthly_amount": "2463.97",
+                  "difference_from_now_annual": "0.00",
+                  "difference_from_now_monthly": "0.00"
+                }
+              ]
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 8298,
+            "completion_tokens": 418,
+            "reasoning_tokens": 0,
+            "cached_tokens": 3828,
+            "total_tokens": 8716,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 3954,
+                "completion": 149,
+                "reasoning": 0,
+                "cached": 3828,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 4344,
+                "completion": 269,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.709999823011458e-05,
+            "fetch_employee_record": 1.1916837000171654,
+            "investigate": 5.679142000008142,
+            "time_to_first_token": 11.972527100006118,
+            "total": 15.123660900018876
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "16",
+            "fund_figure": "16"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "F17",
+      "name": "Chicago Public Schools teacher",
+      "employee": "article-17-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "You appear eligible for a service retirement pension at age 56 because the Code covers a teacher with at least 20 years of service who has reached age 55. You must also leave employment, have made the required contributions, and file a written application. [40 ILCS 5/17-115] [40 ILCS 5/17-116]\n\nThe amount cannot be estimated from the information available because Section 17-116 bases the pension on your average salary and the applicable service percentage. Your average salary is the average annual salary rate for your highest-paid 4 consecutive years within your last 10 years of service. The statute also contains different percentage rules depending on when the service was earned and other service-history details. [40 ILCS 5/17-116]\n\nBecause retirement before age 60 is involved, the pension may be discounted for each month your age is below 60, unless an exception applies. I could not establish whether an exception applies from the information available. [40 ILCS 5/17-116]\n\nI'm going by your record, which places you in Article 17 \u2014 tell me if that's not right.",
+          "error": null,
+          "ttft": 51.64355340000475,
+          "total": 61.77950060000876,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "17-115",
+              "17-116"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1,
+            "outline": 1,
+            "get_section": 2,
+            "find_provision": 1
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "17-115",
+            "17-116",
+            "15-113",
+            "16-127",
+            "17-106"
+          ],
+          "articles": [
+            "15",
+            "16",
+            "17"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "derived",
+              "section": "17-116",
+              "subsection": "(b)(3)",
+              "applicability": "This recipe applies to a teacher with at least 20 years of service who begins a service retirement pension at or after age 55 and satisfies the separation, contribution, and application requirements for eligibility.",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "17-116",
+                  "subsection": "(b)(1)",
+                  "status": "not_applicable",
+                  "reason": "This rate schedule applies to creditable service earned before July 1, 1998 that has not been augmented under Section 17-119.1."
+                },
+                {
+                  "section": "17-116",
+                  "subsection": "(b)(2)",
+                  "status": "not_applicable",
+                  "reason": "This rate schedule applies only to a member who had at least 30 years of creditable service on July 1, 1998 and did not elect augmentation under Section 17-119.1."
+                }
+              ],
+              "reused": false
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-04-27",
+            "hire_date": "2004-08-30",
+            "article_number": 17,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 92000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 22.0,
+            "years_of_service": 22.0,
+            "total_service_years": 22.0,
+            "creditable_service_years": 22.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-04-27",
+            "age_60_date": "2030-04-27",
+            "months_before_age_60": 43,
+            "months_before_60": 43,
+            "full_months_under_age_60": 43,
+            "salary_attached_to_rank": 92000.0,
+            "highest_average_annual_salary_4yr": 88058.06,
+            "final_average_salary": 88058.06,
+            "highest_average_annual_salary": 88058.06,
+            "fas": 88058.06,
+            "highest_average_annual_salary_5yr": 86794.61,
+            "highest_average_annual_salary_8yr": 83148.25375
+          },
+          "coverage": {
+            "article": "17",
+            "basis": "record",
+            "record_article": "17",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 43183,
+            "completion_tokens": 5291,
+            "reasoning_tokens": 1941,
+            "cached_tokens": 24315,
+            "total_tokens": 48474,
+            "calls": 9,
+            "by_node": {
+              "investigate": {
+                "prompt": 19258,
+                "completion": 237,
+                "reasoning": 0,
+                "cached": 15989,
+                "calls": 6
+              },
+              "derive_recipe": {
+                "prompt": 4416,
+                "completion": 4576,
+                "reasoning": 1941,
+                "cached": 4413,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 9541,
+                "completion": 242,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "repair_answer": {
+                "prompt": 9968,
+                "completion": 236,
+                "reasoning": 0,
+                "cached": 3913,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.619998021051288e-05,
+            "fetch_employee_record": 1.1818742000032216,
+            "investigate": 44.90710549999494,
+            "time_to_first_token": 51.64207770000212,
+            "total": 59.73156429998926
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "17",
+            "fund_figure": "17"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F18",
+      "name": "Judge",
+      "employee": "article-18-standard",
+      "turns": [
+        {
+          "question": "Roughly what would my pension be if I retired at the end of this year?",
+          "answer": "At age 63, you meet Article 18\u2019s age and service requirements for a retirement annuity. The early-retirement reduction in Section 18-125(c) applies only when retirement is before age 60, so it would not apply to a retirement at 63. [40 ILCS 5/18-124] [40 ILCS 5/18-125]\n\nI can\u2019t give a dollar estimate without your **final average salary**. For a Tier 1 participant who began service on or after July 14, 1995, Section 18-125 generally uses the salary on the last day of employment or the highest salary held for at least 4 consecutive years, whichever is greater. The statute also provides an 85% maximum annuity, but I cannot determine your amount without the salary figure. [40 ILCS 5/18-125]\n\nI could not establish the amount of any automatic increase in annuity because Section 18-125.1 was not available here.\n\nI\u2019m going by your record, which places you in Article 18 \u2014 tell me if that\u2019s not right.",
+          "error": null,
+          "ttft": 21.641600000002654,
+          "total": 27.340878299990436,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "18-124",
+              "18-125",
+              "18-125.1"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "find_provision": 1,
+            "outline": 1,
+            "get_section": 3
+          },
+          "resolved_inputs": {},
+          "sections": [
+            "18-124",
+            "18-125",
+            "18-103",
+            "18-104",
+            "18-118",
+            "18-133"
+          ],
+          "articles": [
+            "18"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [
+            {
+              "formula_type": "retirement_annuity",
+              "reason": "No statute text was retrieved for this question, so there is nothing to derive a calculation from."
+            }
+          ],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1962-11-11",
+            "hire_date": "2006-12-04",
+            "article_number": 18,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 235000.0,
+            "age": 63,
+            "current_age": 63,
+            "age_at_annuity_start": 63,
+            "age_at_withdrawal": 63,
+            "attained_age": 63,
+            "service_years": 19.5,
+            "years_of_service": 19.5,
+            "total_service_years": 19.5,
+            "creditable_service_years": 19.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2017-11-11",
+            "age_60_date": "2022-11-11",
+            "months_before_age_60": 0,
+            "months_before_60": 0,
+            "full_months_under_age_60": 0,
+            "salary_attached_to_rank": 235000.0,
+            "highest_average_annual_salary_4yr": 224930.9175,
+            "final_average_salary": 224930.9175,
+            "highest_average_annual_salary": 224930.9175,
+            "fas": 224930.9175,
+            "highest_average_annual_salary_5yr": 221703.626,
+            "highest_average_annual_salary_8yr": 212389.5625
+          },
+          "coverage": {
+            "article": "18",
+            "basis": "record",
+            "record_article": "18",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 25747,
+            "completion_tokens": 629,
+            "reasoning_tokens": 0,
+            "cached_tokens": 15724,
+            "total_tokens": 26376,
+            "calls": 7,
+            "by_node": {
+              "investigate": {
+                "prompt": 18875,
+                "completion": 398,
+                "reasoning": 0,
+                "cached": 15724,
+                "calls": 6
+              },
+              "generate_answer": {
+                "prompt": 6872,
+                "completion": 231,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.2400020649656653e-05,
+            "fetch_employee_record": 1.3616407999943476,
+            "investigate": 14.81265920001897,
+            "time_to_first_token": 21.638698900002055,
+            "total": 25.29311840000446
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_article": "18",
+            "fund_figure": "18"
+          },
+          "index": 0,
+          "problems": [
+            "no figure, and no missing input or blocked recipe to say why"
+          ]
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "F19",
+      "name": "Closed fund member, already retired",
+      "employee": "article-19-standard",
+      "turns": [
+        {
+          "question": "Roughly how much is my pension each year?",
+          "answer": "Your estimated pension is **$24,000.00 per year**, or **$2,000.00 per month**, under Article 19, Section 19-109. [40 ILCS 5/19-109]\n\nI\u2019m going by your record, which places you in Article 19 \u2014 tell me if that\u2019s not right.\n\n**What I assumed:** You stop working today.\n\nSection 19-101 describes the Article 19 fund and its membership; it is not the benefit provision used for this estimate. [40 ILCS 5/19-101]\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 10.558696400024928,
+          "total": 16.282226400013315,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "19-101",
+              "19-109"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {
+            "compute_benefit": 1
+          },
+          "resolved_inputs": {
+            "age": 84,
+            "service_years": 30.0,
+            "current_annual_salary": 48000.0,
+            "salary_attached_to_rank": 48000.0
+          },
+          "sections": [
+            "19-109",
+            "19-101"
+          ],
+          "articles": [
+            "19"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "19_retirement_annuity_19-109_e226991a",
+              "section": "19-109",
+              "subsection": "(9)",
+              "status": "agent_derived",
+              "applicability": "This recipe applies to a contributor who is at least 55 years old, has at least 25 years of house of correction service, and has contributed to the fund for the same period.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1942-03-14",
+            "hire_date": "1968-06-03",
+            "article_number": 19,
+            "tier": 1,
+            "employment_status": "retired",
+            "current_annual_salary": 48000.0,
+            "age": 84,
+            "current_age": 84,
+            "age_at_annuity_start": 84,
+            "age_at_withdrawal": 84,
+            "attained_age": 84,
+            "service_years": 30.0,
+            "years_of_service": 30.0,
+            "total_service_years": 30.0,
+            "creditable_service_years": 30.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "1997-03-14",
+            "age_60_date": "2002-03-14",
+            "months_before_age_60": 0,
+            "months_before_60": 0,
+            "full_months_under_age_60": 0,
+            "salary_attached_to_rank": 48000.0
+          },
+          "coverage": {
+            "article": "19",
+            "basis": "record",
+            "record_article": "19",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Section 19-109 Tiered Retirement Annuity",
+              "section": "19-109",
+              "subsection": "(9)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "24000.00",
+                "output_type": "money",
+                "monthly_amount": "2000.00",
+                "inputs_used": {
+                  "age": "84",
+                  "service_years": "30",
+                  "current_annual_salary": "48000.00",
+                  "salary_attached_to_rank": "48000.00"
+                },
+                "statutory_values_used": {
+                  "maximum_annuity_rate": {
+                    "value": 0.5,
+                    "source": {
+                      "section": "19-109",
+                      "subsection": "(9)"
+                    }
+                  },
+                  "minimum_service_years": {
+                    "value": 25,
+                    "source": {
+                      "section": "19-109",
+                      "subsection": "(9)"
+                    }
+                  },
+                  "minimum_retirement_age": {
+                    "value": 55,
+                    "source": {
+                      "section": "19-109",
+                      "subsection": "(9)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "salary_used_under_statutory_salary_limit",
+                    "value": "48000.00"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "24000.00"
+                  }
+                ],
+                "intermediate": {
+                  "salary_used_under_statutory_salary_limit": "48000.00",
+                  "annual_annuity": "24000.00"
+                }
+              }
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 6591,
+            "completion_tokens": 196,
+            "reasoning_tokens": 0,
+            "cached_tokens": 3816,
+            "total_tokens": 6787,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 3919,
+                "completion": 62,
+                "reasoning": 0,
+                "cached": 3816,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 2672,
+                "completion": 134,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.019999273121357e-05,
+            "fetch_employee_record": 1.3939215999853332,
+            "investigate": 4.746616799995536,
+            "time_to_first_token": 10.554851199995028,
+            "total": 14.14024119998794
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "coverage_article": "19",
+            "fund_figure": "19"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "fund_smoke",
+      "critical": false,
+      "status": "active",
+      "source": "fund_smoke.yaml",
+      "verdict": "PASS"
+    }
+  ]
+}

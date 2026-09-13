@@ -331,3 +331,62 @@ prose with no figure in it. The other five runs called `compute_benefit`. Not
 acted on: one occurrence is not a mechanism, and the pipeline cannot have this
 failure because `_needs_calculation` is an edge rather than a decision. Worth
 watching in Phase 6's full-suite runs.
+
+
+## fund_smoke, 2026-09-14: the loop passes the pipeline
+
+`2026-09-14-{loop,pipeline}-fund_smoke.json`, both agents, same code, same day.
+
+| | before | after |
+|---|---|---|
+| pipeline | 13/18 | **15/18** |
+| loop | 10/18 | **17/18** |
+
+Three fixes, and only one of them was a bug in the ordinary sense.
+
+**F10 was never broken.** Section 10-103 gives Forest Preserve District
+employees "the same annuities, refunds and benefits ... as are made and allowed
+for employees of the county" — employees of the county being Article 9. So an
+Article 10 figure computed under §9-134 is right, and both agents had been
+marked down for getting it right for as long as Article 10 has been ingested.
+`fund_figure`'s rule is true of every fund but this one. The exception is
+declared in `funds.py` with the section that establishes it and never inferred
+from cross-references: an Article whose text merely *mentions* another is not
+incorporating it, and guessing would re-admit the failure the suite exists to
+catch.
+
+**F15 was a null in a field that was never required.** The derivation emitted
+`{"section": "15-136", "subsection": None}` for a provision with no lettered
+subdivision — more honest than omitting the key or inventing "(a)" — and
+`dict[str, str]` threw away the whole recipe over it.
+
+**F03, F04 and F14 were sound reasoning on facts that were wrong for the
+question.** Every fact `build_member_facts` publishes describes the member at
+`as_of`; `employment_status` alone passed the record's value through. So a
+derivation read §3-111(a), "no longer in service", against an active record and
+correctly concluded the provision does not reach them — on a question that
+begins "if I retired at the end of this year". Article 11's recipe never tests
+status, which is why it stayed invisible for so long, and Article 19's
+documented defect is the same shape with age.
+
+A retirement annuity posits withdrawal, so at the date the figure is for, a
+member the record calls active has stopped. The record's own value keeps a
+name, because §11-128 ("employees who attain age 65 in service") has to be able
+to test it, and the two places that report what is *on file* read that one.
+
+### What the run cost to get right
+
+Making the status a framing default meant the guardrail demanded its own
+disclosure, and F04 was thrown away on **both** agents for
+ASSUMPTION_NOT_DISCLOSED — an answer that had disclosed "the date you stop
+working, taken as today" and then said nothing about the status derived from
+it. It is not a second guess, and `render_assumptions` exists to stop one
+choice being reported as two. Caught by verifying rather than by reasoning,
+which is the only method that has worked all week.
+
+### What is still open
+
+- **F15**, now failing on both, with "no figure and no reason" rather than the
+  schema error. A different cause from the one just fixed.
+- **F05 and F12 on the pipeline**: an undisclosed assumption, and a generation
+  call that failed outright.
