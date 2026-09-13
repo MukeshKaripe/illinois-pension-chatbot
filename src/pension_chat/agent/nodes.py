@@ -78,6 +78,7 @@ from pension_chat.calculation.assumption_policy import (
 )
 from pension_chat.calculation.dsl_interpreter import DSLExecutionError, DSLInterpreter
 from pension_chat.calculation.risk_assessor import RiskAssessor
+from pension_chat.calculation.thresholds import find_thresholds
 from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
 from pension_chat.db.models import Employee
@@ -1613,6 +1614,41 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 )
             if variants:
                 entry["scenarios"] = variants
+
+        # ── The cliffs this member is walking towards ────────────────
+        # Priced the same way a scenario is, through the same interpreter under
+        # the same validator, so a cliff figure is exactly as trustworthy as the
+        # figure beside it. Bounded to the two nearest, and only where the
+        # member's own facts are usable -- a supposition borrows none of them.
+        base_result = entry.get("base") or {}
+        if employee and base_result.get("ok") and not _coverage_elsewhere(state):
+            priced: list[dict[str, Any]] = []
+            already = {
+                _resolve_retirement_age(s, member_facts) for s in scenarios
+            }
+            for threshold in find_thresholds(spec, member_facts)[:2]:
+                if threshold.fact != "age" or threshold.boundary in already:
+                    # Only an age boundary can be priced by moving the annuity
+                    # start date. A service boundary is reached by working, not
+                    # by waiting, and pricing it would need an assumption about
+                    # employment this layer has no business making.
+                    continue
+                at_boundary = build_member_facts(
+                    employee, salary_history, assumed_retirement_age=int(threshold.boundary)
+                )
+                outcome = run({**base_inputs, **at_boundary, **user_supplied}, breakdown=False)
+                if not outcome.get("ok"):
+                    continue
+                priced.append(
+                    {
+                        **threshold.to_dict(),
+                        **_difference_from(base_result, outcome),
+                        "annual_amount": outcome.get("annual_amount"),
+                        "monthly_amount": outcome.get("monthly_amount"),
+                    }
+                )
+            if priced:
+                entry["thresholds"] = priced
 
         results[formula_type] = entry
 

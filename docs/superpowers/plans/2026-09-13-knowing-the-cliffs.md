@@ -465,10 +465,21 @@ uv run python scripts/eval_agent.py --category capabilities --json docs/superpow
 
 - [ ] **Step 3: Read the report, not the verdict**
 
-Check the threshold figures against the statute by hand for one case: 44 months
-× 0.25% is an 11% reduction on $36,097.50, so retiring at 60 instead of now is
-worth about $3,970 a year. If the reported difference is not close to that, the
-pricing is wrong however green the case is.
+Check the threshold figures against the statute by hand. Measured on the live
+system, the standard member's age-60 cliff prices at $42,257.11 against a base
+of $32,126.78 -- a difference of $10,130.33:
+
+```
+service at 60   21.5 + 44/12   = 25.17 years
+unreduced       69,956.40 x 25.17 x 2.40%  = $42,255      (reported 42,257.11)
+reduction       months_before_60 = 0, so none
+difference      42,257.11 - 32,126.78      = $10,130.33   (reported 10,130.33)
+```
+
+Note what this corrects: the plan first predicted ~$3,970, being 11% of
+$36,097.50 -- the reduction vanishing with service held constant. Waiting to 60
+also adds 3.7 years of service, and the member gets both. The larger figure is
+the right one, and it is the one they can act on.
 
 - [ ] **Step 4: Commit**
 
