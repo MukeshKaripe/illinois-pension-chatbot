@@ -96,3 +96,33 @@ def test_conditional_wants_the_answer_to_stay_in_the_subjunctive():
     flat = result("Your annuity is 50% of salary attached to rank.")
     flat["expect"] = {"conditional": True}
     assert harness.check(flat, []), "a flat indicative must fail a conditional check"
+
+
+def test_projects_wants_a_variant_that_moved_the_service_forward():
+    """A future-dated question is answered by a variant, not by the base.
+
+    The base is always "as of today" and stays that way -- it is a legitimate
+    row in the table. So an expectation about a projection has to read the
+    variant, and asserting an exact projected service is a date-dependent
+    assertion that rots: two more years from a 56-year-old is 23.2 today and
+    something else next month.
+    """
+    harness = _harness()
+
+    moved = result("...", calculation={
+        "retirement_annuity": {
+            "base": {"ok": True, "inputs_used": {"service_years": "21.5"}},
+            "scenarios": [{"label": "at 58", "assumptions": {"service_years": "23.2"}}],
+        }
+    })
+    moved["expect"] = {"projects": True}
+    assert harness.check(moved, []) == []
+
+    flat = result("...", calculation={
+        "retirement_annuity": {
+            "base": {"ok": True, "inputs_used": {"service_years": "21.5"}},
+            "scenarios": [],
+        }
+    })
+    flat["expect"] = {"projects": True}
+    assert harness.check(flat, []), "no variant means nothing was projected"

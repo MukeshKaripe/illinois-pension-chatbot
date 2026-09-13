@@ -19,26 +19,20 @@ cases:
   - id: L03
     name: Eligibility and amount are one question, not two
     employee: article-11-standard
-    status: expected_fail
-    gap: >
-      Measured on 2026-09-13, then re-diagnosed from the report, and the fix is
-      cheaper than it looked. The scenario variant was computed correctly --
-      "at age 58", as_of 2028-05-15, service_years 23.2, months_before_age_60
-      24, $36,567.41, with salary_basis "carried forward at today's level" --
-      so projection works. The answer quoted the *base* instead: $32,126.78 on
-      21.5 years. Two bugs, neither of them projection. (1) A variant that
-      answers the question asked must be what the answer leads with. (2) The
-      base is internally inconsistent: extraction took age_at_annuity_start 58
-      from the message while months_before_age_60 stayed 44 and service_years
-      stayed 21.5, so one fact moved and its dependents did not.
+    # Passes since Phase 2a. Verified from the report rather than the verdict,
+    # because it passed once before while computing on 21.5 years: the base now
+    # runs on withdrawal_date 2028-05-15, age 58, service 23.17 and
+    # months_before_age_60 24 -- every input agreeing with every other, where it
+    # used to pair age 58 with a 56-year-old's reduction.
+    status: active
     turns:
       - q: I'm thinking of retiring at 58. Am I eligible, and how much would I get?
         expect:
           calculation: true
-          # Two years on from 56 is 23.5 years of service. Without this the
-          # case passes on a figure whose own inputs disagree -- which is how
-          # it passed on the baseline run.
-          uses_input: { service_years: 23.5 }
+          # Without this the case passes on a figure whose own inputs
+          # disagree, which is how it passed on the baseline run. `projects`
+          # reads the variant and asserts only that service moved forward.
+          projects: true
           # The eligibility half, in the Code's own terms.
           mentions: ["eligib", "qualif", "20 years", "age 55"]
           cites: ["11-134|11-130"]

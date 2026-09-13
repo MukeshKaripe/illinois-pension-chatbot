@@ -48,6 +48,7 @@ import sys
 import time
 import uuid
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import yaml
@@ -326,6 +327,27 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
     # guardrail, and then one of them is wrong with no way to tell which.
     if expect.get("conditional") and not _CONDITIONAL_MARKER.search(answer):
         problems.append("answered a supposition in the plain indicative")
+
+    # A future-dated question is answered by a variant, not by the base -- the
+    # base is always "as of today" and stays a legitimate row in the table. And
+    # the assertion is "service moved forward", not an exact figure: two more
+    # years from a 56-year-old is 23.2 today and something else next month, so
+    # an exact expectation rots on the calendar.
+    if expect.get("projects"):
+        moved = False
+        for entry in (result["calculation"] or {}).values():
+            base_service = (entry.get("base") or {}).get("inputs_used", {}).get("service_years")
+            for variant in entry.get("scenarios") or []:
+                variant_service = (variant.get("assumptions") or {}).get("service_years")
+                if variant_service is None or base_service is None:
+                    continue
+                try:
+                    if Decimal(str(variant_service)) > Decimal(str(base_service)):
+                        moved = True
+                except (InvalidOperation, TypeError, ValueError):
+                    continue
+        if not moved:
+            problems.append("no variant carried service past the base -- nothing was projected")
 
     if expect.get("article_only"):
         stray = [a for a in result["articles"] if a and a != expect["article_only"]]

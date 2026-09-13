@@ -29,14 +29,16 @@ cases:
     employee: article-11-standard
     status: expected_fail
     gap: >
-      Measured on 2026-09-13, then re-diagnosed from the report. The failure is
-      not that projection is missing -- it is that no scenario was produced:
-      scenario_set is empty and the calculation carries no variants, so "work
-      two more years" was answered with the base retire-now figure ($32,126.78
-      on 21.5 years) three turns running. `extract_scenarios` reads "wait 2 more
-      years"; it does not read this phrasing, and nothing else recognised it.
-      Turn 2 ("assume I get a 3% raise") is a second gap: a growth rule is not a
-      fact the worksheet holds, so nothing goes stale and nothing recomputes.
+      Turns 1 and 3 pass after Phase 2a: "work two more years" now produces a
+      variant at $36,567.41 on 23.2 years of service, and the answer leads with
+      it. Turn 2 is what remains. "Assume I get a 3% raise each year" names no
+      age and no offset, so `corroborated` will not carry turn 1's scenario
+      forward, and `recompute` looks for a revised fact the worksheet holds --
+      a growth rule is not one. The machinery works when the rule arrives with
+      the horizon: "if I work two more years assuming a 3% raise each year"
+      returns years_from_now 2 with salary_growth 0.03, verified live. What is
+      missing is a rule stated in a later turn than the scenario it modifies,
+      which is conversational state the pipeline does not keep (Phase 3).
     turns:
       - q: if I work two more years, what would my pension be?
         expect:
@@ -46,9 +48,11 @@ cases:
           # `calculation` and `mentions` alone are satisfied by the wrong
           # answer -- the retire-now figure carries its own "assuming you
           # withdraw today" disclosure, and passed this case until the baseline
-          # run showed the number had not moved. The service figure is what
-          # proves a projection happened: 21.5 on file, two more years, 23.5.
-          uses_input: { service_years: 23.5 }
+          # run showed the number had not moved. `projects` reads the variant,
+          # because the base is always today's figure and stays a legitimate
+          # row in the table; and it asserts that service moved rather than an
+          # exact 23.2, which would rot on the calendar.
+          projects: true
           calculation: true
           mentions: ["assum", "held flat", "as it stands"]
 
