@@ -160,3 +160,48 @@ pipeline stays the default until the criteria in `baselines/README.md` are met.
 - **Deleting the CONTEXT blocks** — Phase 4, each gated on its eval.
 - **Cutover** — Phase 6.
 - **R02 / L05 survivor retrieval** — fails on both architectures; a retrieval-quality problem neither phase addresses.
+
+---
+
+## Execution status: Tasks 1-4 done; **not merged**
+
+- **Task 1 `compute_benefit`** — done, `eee4427`. Live: L02 returns $32,126.78
+  under Section 11-134 on the same inputs as the pipeline. Its `stated`
+  parameter, specified in the Interfaces block above, **was not built** — see
+  gap A below.
+- **Task 2 `check_coverage`** — done, `3081c18`.
+- **Task 3 stand-ins** — done, `b0272f9`. `SOURCE_STAND_IN` is a source rather
+  than a flag, usable and never durable; the invitation is the member's and the
+  premise is required alongside it.
+- **Evidence confined to the premise** — `f1b6932`, found by measuring L08
+  rather than by reading the code: the loop cited Article 3 (police outside
+  Chicago) after reading it to rule it out.
+- **Task 4 measure** — done. `baselines/README.md`, "Phase 3b: both modes, five
+  categories".
+
+**Decision: do not merge.** The criterion in Task 4 Step 3 was that routing and
+conversational reach the pipeline's rates. Conversational, no_ask and the two
+cases 3b was aimed at (L08, L09) pass; **routing is 3/7 against 7/7 and R03,
+which is CRITICAL, fails.** The pipeline stays the default, per
+`baselines/README.md`.
+
+## What the measurement says to build next
+
+Five gaps, every one of them the loop missing a deterministic step the pipeline
+has — the same species as the evidence-completion defect, and none a reasoning
+failure. In the order their evidence justifies:
+
+1. **`compute_benefit(stated=...)`** — a corrected or restated value has no way
+   to reach the engine. R03 (CRITICAL), G16, G19, half of L04. Specified in
+   Task 1 and not built.
+2. **Assumption disclosure in `compose`** — R03, G19, L05, G15 were all
+   rejected by `ASSUMPTION_NOT_DISCLOSED` and the member saw the fallback.
+3. **Accumulate calculation results across calls** — a second `compute_benefit`
+   overwrites the first, so R04's three-way comparison quoted a figure that was
+   no longer in state.
+4. **An outline is not a section** — L06 described Article 4 from headings while
+   `consulted_nothing` stayed false, because Article 5 had been read.
+5. **`answer_rung`** — never set outside `prepare_answer`, so R07 fails on the
+   instrument while its answer is correct.
+
+1 and 2 alone address R03, G16, G19, G15 and L05. They are the next phase.

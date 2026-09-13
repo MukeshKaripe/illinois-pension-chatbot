@@ -143,3 +143,78 @@ inside the report and only the event log tells them apart.
 A full run is ~40 minutes of continuous network. Idle standby is already
 disabled on this machine (`standby-timeout-ac` and `-dc` both 0), so nothing
 sleeps on its own — but a lid close triggers Modern Standby regardless.
+
+
+## Phase 3b: both modes, five categories, 2026-09-13
+
+`2026-09-13-phase3b-{loop,pipeline}-{routing,conversational,no_ask,goal_completion,state}.json`.
+94 turns, both agents, the same afternoon. `calculation` has no cases of its
+own and was skipped; every calculation case lives in `routing` or `state`.
+
+| category | loop | pipeline | tokens/turn, loop vs pipeline |
+|---|---|---|---|
+| routing | **3/7** | 7/7 | 25.1k vs 11.7k |
+| conversational | 2/2 | 2/2 | 18.9k vs 11.7k |
+| no_ask | 1/1 | 1/1 | 19.5k vs 12.4k |
+| goal_completion | 1/3 | 2/3 | 19.3k vs 14.3k |
+| state | **3/7** | 6/7 | 19.4k vs 12.5k |
+
+**Decision: do not merge.** The plan's criterion was that routing and
+conversational reach the pipeline's rates. Conversational does; routing does
+not, and **R03 is CRITICAL and fails**. The pipeline stays the default.
+
+### What 3b bought
+
+Real, and visible in the cases it was aimed at. **L08 passes on the loop** —
+`check_coverage` resolves "a Chicago police officer" to Article 5 on Section
+5-111, `compute_benefit` works $37,601.57 from Section 5-132(e), and the
+member's own salary and service stand in because they asked for them. The
+pipeline fails the same case, reaching Article 3 and then starving every input.
+**L09 passes on the loop** and is a known gap on the pipeline. Routing went
+2/7 to 3/7, and the token gap closed from ~4x to ~1.7x.
+
+### What it did not buy, and why
+
+Every remaining loop failure is one of five gaps, and all five are the same
+species as the evidence-completion defect: **the loop dropped a deterministic
+step the pipeline has.** None is a reasoning failure.
+
+- **A. A corrected or restated value never reaches the engine.** R03 turn 2
+  ("actually it's more like 23 years"), G19 turn 2 ("my salary is actually
+  $76,000"), G16 turn 4 ("change Scenario A's salary to $80,000"). Each reports
+  *no calculation ran* with nothing missing and nothing blocked — the model
+  simply had no way to hand the corrected value to the engine.
+  `compute_benefit` has no `stated` parameter. The plan's own Task 1 interface
+  specified one and it was not built; this is the single biggest lever, and it
+  accounts for R03 (CRITICAL), G16, G19 and half of L04.
+- **B. Assumptions are never disclosed.** `prepare_answer` renders an
+  ASSUMPTIONS slot; `compose` renders nothing, so the model cannot say what it
+  could not know it assumed. `ASSUMPTION_NOT_DISCLOSED` rejected the answer on
+  R03, G19, L05 and G15 — the member saw the fallback.
+- **C. A second `compute_benefit` overwrites the first.** R04 asked for
+  retire-now, 58 and 60 side by side. State held the base and *one* variant, so
+  the 58 figure the answer quoted could not be traced: `UNVERIFIED_FIGURE
+  ['$36,567.41', '$3,047.28']`, answer replaced. Results must accumulate across
+  calls, not replace.
+- **D. `answer_rung` is never set.** `select_rung` runs inside `prepare_answer`,
+  which the loop does not use, so every loop answer reports rung 0. R07's
+  content is fine and discloses its assumption properly; only the instrument
+  says otherwise.
+- **E. An outline is still being answered from.** L06 described what Article 4
+  provides — correctly, and correcting the member's premise, which the pipeline
+  did not do — having read no Article 4 section at all (`articles: ['5']`,
+  cited `5-111`). The `consulted_nothing` guard only fires when *nothing* was
+  read; here Article 5 had been, so an Article described from headings passed
+  underneath it.
+
+### A note on instruments
+
+`article_only` polices retrieval. On the pipeline that is the same question as
+"what did the answer rest on", because the Article filter *is* the
+determination. On the loop it is not: looking at the neighbouring fund is how
+you rule it out. L08 moved to `answers_from_article`, which checks the
+citations the verifier accepted and the provision the figure was worked from.
+
+L06 was checked before assuming the same applied, and it does not — L06 is a
+genuine failure, of a different kind than the key was written for. The rule
+that keeps paying: read the report before reclassifying the case.
