@@ -19,7 +19,8 @@ registry as ``agent_derived`` with an ``estimate`` execution policy; promotion t
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -170,25 +171,89 @@ async def verify_freshness(
     """
     stored = row.evidence_fingerprint or {}
     if not stored:
-        # Nothing to compare against — treat as unverifiable rather than fresh.
-        return {"__unfingerprinted__": "missing"}
+        # Nothing to compare against — unverifiable, which is not fresh.
+        #
+        # This used to return here, *above* the marking below, and the
+        # consequence was silent in the worst way: the row stayed reusable, so
+        # `lookup_recipe` kept returning it, freshness kept refusing it, and the
+        # agent re-derived the same recipe on every turn forever. A cache that
+        # never hits and a status that never changes, and nothing logs anything
+        # because from each turn's point of view it worked.
+        mismatches = {"__unfingerprinted__": "missing"}
+    else:
+        mismatches = verify_fingerprints(
+            stored,
+            [{"section_id": s, "content": t} for s, t in current_sections.items()],
+        )
 
-    mismatches = verify_fingerprints(
-        stored,
-        [{"section_id": s, "content": t} for s, t in current_sections.items()],
-    )
     if mismatches:
         logger.warning(
-            "Recipe %s is stale; evidence changed: %s", row.formula_id, mismatches
+            "Recipe %s is stale; evidence %s", row.formula_id, mismatches
         )
-        async with async_session_factory() as db:
-            await db.execute(
-                update(FormulaRegistry)
-                .where(FormulaRegistry.id == row.id)
-                .values(knowledge_status="stale")
-            )
-            await db.commit()
+        await _mark(row, knowledge_status="stale")
     return mismatches
+
+
+async def _mark(row: FormulaRegistry, **values: Any) -> None:
+    """Write to one registry row, or do nothing if there is no row to write to."""
+    if getattr(row, "id", None) is None:
+        return
+    async with async_session_factory() as db:
+        await db.execute(
+            update(FormulaRegistry).where(FormulaRegistry.id == row.id).values(**values)
+        )
+        await db.commit()
+
+
+async def _mark_by_formula_id(formula_id: str, **values: Any) -> None:
+    """Write to one registry row addressed by its `formula_id`.
+
+    Used where the row itself is not to hand. A recipe reaches the rest of the
+    graph as a plain dict on purpose -- state is checkpointed, and an ORM object
+    in a checkpoint is a detached instance waiting to happen -- so the string is
+    the only handle a downstream node has.
+    """
+    if not formula_id:
+        return
+    async with async_session_factory() as db:
+        await db.execute(
+            update(FormulaRegistry)
+            .where(FormulaRegistry.formula_id == formula_id)
+            .values(**values)
+        )
+        await db.commit()
+
+
+async def note_reuse(row: FormulaRegistry) -> None:
+    """Count a recipe being reused, and when.
+
+    Repurposed from "what earned approval" to **what is load-bearing**. A
+    reviewer should see the recipe that has quietly produced four hundred
+    figures first, because that is where an error costs most — and no column
+    could answer that question before.
+    """
+    await _mark(
+        row,
+        reuse_count=FormulaRegistry.reuse_count + 1,
+        last_reused_at=datetime.now(UTC),
+    )
+
+
+async def note_contested(formula_id: str) -> None:
+    """Count a member disputing a value the recipe computed on.
+
+    `resolve_inputs` already detects this — `input_overrides` is written
+    whenever a member states a value their record contradicts — and until now
+    it reached only the answer's prose and was then thrown away. A recipe whose
+    inputs members keep correcting is a recipe worth reading again.
+
+    Not a claim that the recipe is wrong. The member may be wrong, or their
+    record may be out of date. It is a count, and counts are for prioritising
+    attention, not for deciding anything.
+    """
+    await _mark_by_formula_id(
+        formula_id, contested_count=FormulaRegistry.contested_count + 1
+    )
 
 
 async def persist_recipe(

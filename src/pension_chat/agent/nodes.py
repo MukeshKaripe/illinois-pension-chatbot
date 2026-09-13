@@ -47,6 +47,8 @@ from pension_chat.agent.presentation import (
 from pension_chat.agent.registry import (
     RegistryRecipe,
     lookup_recipe,
+    note_contested,
+    note_reuse,
     persist_recipe,
     verify_freshness,
 )
@@ -840,6 +842,11 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
                             "reused": True,
                         }
                     )
+                    # Counted where the reuse actually happens. A row that
+                    # `lookup_recipe` returned and freshness then refused has
+                    # not been reused, and counting it there would make the
+                    # column measure lookups rather than load.
+                    await note_reuse(row)
                     return
             else:
                 logger.info(
@@ -1200,6 +1207,16 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         for name, spec in declared.items()
         if name not in resolved and spec.get("required", True)
     ]
+
+    # A member disputing a value a recipe computes on is the one signal the
+    # system gets for free about a recipe being worth reading again. It reached
+    # the answer's prose and was then dropped. Not a verdict -- they may be
+    # wrong, or the record may be out of date -- so it is counted, and counts
+    # prioritise attention rather than decide anything.
+    if overrides:
+        for recipe in recipes.values():
+            if formula_id := recipe.get("formula_id"):
+                await note_contested(str(formula_id))
 
     sheet = WorkSheet.from_state(
         state,

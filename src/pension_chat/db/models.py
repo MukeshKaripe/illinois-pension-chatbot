@@ -388,6 +388,20 @@ class FormulaRegistry(Base):
     )
     test_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_public_act: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What this recipe is actually carrying. Not "what earned approval" -- the
+    # registry is trusted by default and the admin's power is to correct and
+    # retire, not to admit -- but what a reviewer should read first, because an
+    # error in a recipe that has quietly produced four hundred figures costs
+    # more than an error in one that has produced none. `contested_count` comes
+    # from `input_overrides`, which already detects a member disputing a value a
+    # figure rested on and until now only mentioned it in prose.
+    reuse_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_reused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    contested_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # A recipe that replaced this one, set when `rederive` supersedes it.
+    superseded_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

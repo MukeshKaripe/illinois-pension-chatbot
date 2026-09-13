@@ -12,6 +12,12 @@ doc puts that gate behind.
 It was survivable only because registration required a pre-seeded email and the
 pilot had two. Self-service signup is what turns it into a hole anyone can walk
 through, which is why it is fixed before signup rather than after.
+
+`POST /formulas/{id}/promote` no longer exists -- Phase 5 removed promotion
+entirely, since the gate on a recipe is `validator.py` and always was. What
+remains is negative control, `retire` and `suspend`, and both are guarded the
+same way. The lesson outlives the endpoint: `require_auth` asks whether somebody
+is signed in, which is not the question an admin action needs answered.
 """
 
 from __future__ import annotations
