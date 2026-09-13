@@ -54,6 +54,10 @@ Work like a lawyer reading a statute, not like a search box.
 - A provision usually leans on others. Follow the sections it names. Ask what
   names *it* -- an exception that changes the answer normally lives elsewhere.
 - Stop when you can answer, not when you are tired. Stop as soon as you can.
+- Not every message is a question about the Code. If it is an aside, small talk
+  or plainly somebody else's job, do not research it: stop immediately and say
+  in one or two sentences that it is outside what you can help with. A long
+  refusal is worse than a short one.
 
 When you have enough, stop calling tools and say briefly what you found. Do not
 write the member's answer at that point; you will be asked for it next, with the
@@ -273,6 +277,24 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                     "not state what the Code provides or name any Article's fund "
                     "from memory. Say what you can without it, and say plainly that "
                     "you could not consult the statute."
+                ),
+            }
+        )
+
+    readable = [s["section"] for s in (state.get("retrieved_sections") or []) if s.get("section")]
+    if readable:
+        # A list is harder to misread than a rule. The loop saw 11-124 in an
+        # outline and cited it without reading it; ANSWER_SYSTEM's "cite only
+        # what is in front of you" was already there, and the guardrail already
+        # caught the breach, but naming the set costs nothing.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "You read these sections, and may cite only these: "
+                    + ", ".join(readable)
+                    + ". A section you saw named in an outline or inside another "
+                    "section's text is not one you have read."
                 ),
             }
         )

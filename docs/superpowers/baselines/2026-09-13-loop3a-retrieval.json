@@ -1,0 +1,268 @@
+{
+  "mode": "loop",
+  "cases": [
+    {
+      "id": "1",
+      "name": "Direct legal retrieval",
+      "category": "retrieval",
+      "critical": false,
+      "turns": [
+        {
+          "question": "What does Section 11-116 define as salary?",
+          "answer": "\u201cSalary\u201d means your annual salary under the rules in Section 11-116. If your pay is fixed annually, it is the amount payable for a full year of normal work at your rate of compensation, excluding overtime and final vacation. If your pay is not fixed annually, the section requires conversion to an annual amount under Section 11-217. [40 ILCS 5/11-116]\n\nThe section also addresses city-provided lodging and meals, and certain Board of Education contributions. I could not establish how those provisions apply because the referenced text for Section 11-217 and Section 11-170.1 was not available.",
+          "error": null,
+          "ttft": 20.391249200009042,
+          "total": 24.375733599998057,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-116",
+              "11-170.1",
+              "11-217"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-116"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 4818,
+            "completion_tokens": 325,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 5143,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 2104,
+                "completion": 191,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 2714,
+                "completion": 134,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 0.000215300009585917,
+            "fetch_employee_record": 2.1538036999991164,
+            "investigate": 7.948325000004843,
+            "time_to_first_token": 20.374662400019588,
+            "total": 24.363622700009728
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "cites": [
+              "11-116"
+            ],
+            "no_calculation": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "2",
+      "name": "Direct retirement-rule retrieval",
+      "category": "retrieval",
+      "critical": false,
+      "turns": [
+        {
+          "question": "Explain Section 11-130 and the circumstances under which it applies to an employee.",
+          "answer": "Section 11-130 applies when an employee:\n\n- Is at least age 55 but under age 60 while still in service;\n- Withdraws from service through resignation or discharge; and\n- Has at least 10 years of service at the time of withdrawal.\n\n\u201cWithdrawal from service\u201d has that specific meaning in Article 11. [40 ILCS 5/11-120]\n\nWith 20 or more years of service, Section 11-130 provides an age-and-service annuity from the amounts accumulated from employee and city contributions. A \u201cpresent employee\u201d also receives the prior-service annuity accumulated to the employee\u2019s credit. The annuity is computed using the employee\u2019s age on the withdrawal date. [40 ILCS 5/11-130]\n\nYour record places you in Article 11, at age 56, with 21.5 years of service, and as an active employee. Tell me if any of that is not right. On those facts, Section 11-130 reaches your situation if you leave service now. The statute text in front of me does not provide the account balances, salary information, or other figures needed to calculate your pension amount. It also does not state an annuity-reduction percentage in Section 11-130.\n\nSection 11-129 does not reach a withdrawal before age 60 because it covers withdrawal at age 60 or older and before age 65. Section 11-131 covers an employee who leaves before age 55 and later reaches age 55 while out of service, so it does not describe a withdrawal at your current age. [40 ILCS 5/11-129] [40 ILCS 5/11-131]\n\nI could not establish from the sections available whether the definitions of \u201cpresent employee\u201d and \u201cfuture entrant,\u201d or the definition of \u201cannuity,\u201d affect your classification or the amount. Those definitions are in Sections 11-111, 11-112, and 11-124, whose text is not before me.",
+          "error": null,
+          "ttft": 28.475203200010583,
+          "total": 33.075166399998125,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-120",
+              "11-129",
+              "11-130",
+              "11-131"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-130",
+            "11-102",
+            "11-120",
+            "11-127",
+            "11-129",
+            "11-131",
+            "11-164"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 20299,
+            "completion_tokens": 965,
+            "reasoning_tokens": 0,
+            "cached_tokens": 6967,
+            "total_tokens": 21264,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 13222,
+                "completion": 551,
+                "reasoning": 0,
+                "cached": 6967,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 7077,
+                "completion": 414,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 0.00031880001188255847,
+            "fetch_employee_record": 1.4254856999905314,
+            "investigate": 19.15101329999743,
+            "time_to_first_token": 28.472170499997446,
+            "total": 33.07477460001246
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "cites": [
+              "11-130"
+            ],
+            "no_calculation": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    }
+  ]
+}

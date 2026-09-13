@@ -1,0 +1,633 @@
+{
+  "mode": "loop",
+  "cases": [
+    {
+      "id": "S9",
+      "name": "Scope \u2014 retire or keep working",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "is it worth it to keep working",
+          "answer": "I\u2019m going by your record, which places you in Article 11, with 21.5 years of service at age 56 \u2014 tell me if that\u2019s not right.\n\nYou appear eligible to retire now under Section 11-130. It applies to an employee age 55 or older but younger than 60 who has at least 10 years of service. With 20 or more years of service, it provides an age-and-service annuity, plus prior-service annuity where applicable, based on the amounts credited at withdrawal and your age then. [40 ILCS 5/11-130]\n\nContinuing to work can increase your pension because additional service and contributions may increase the amounts credited to you. The statute text in front of me does not provide enough information to say how much your pension would increase. It would depend on your salary, contribution history, prior-service credit, and the fund\u2019s calculation.\n\nAt age 60, Section 11-129 would apply. It provides an annuity based on the total amounts accumulated for the applicable annuities, computed at your age when you withdraw. [40 ILCS 5/11-129] The text I have does not establish that waiting until age 60 produces a particular percentage increase or a specific reduction at age 56.\n\nYour employee contribution for the age-and-service annuity is generally 6.5% of salary under Section 11-170, although that section contains exceptions tied to provisions I have not read. [40 ILCS 5/11-170]\n\nI could not establish a pension amount, an exact age-56-versus-age-60 comparison, or whether any other election or adjustment changes your result. The provisions that could affect those questions include sections I have not read, including Section 11-134 and related provisions.\n\nSo, under the sections available here: you can retire now, but the Code does not provide enough information to decide whether stopping now or continuing to work is financially better for you. The key comparison is the fund\u2019s projected annuity at your planned retirement dates, using your actual salary and service records.",
+          "error": null,
+          "ttft": 39.57580209997832,
+          "total": 44.18314419998205,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-129",
+              "11-130",
+              "11-170",
+              "11-134"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-127",
+            "11-128",
+            "11-129",
+            "11-130",
+            "11-170",
+            "11-149",
+            "11-133.1"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 31801,
+            "completion_tokens": 1033,
+            "reasoning_tokens": 0,
+            "cached_tokens": 11375,
+            "total_tokens": 32834,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 21118,
+                "completion": 602,
+                "reasoning": 0,
+                "cached": 11375,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 10683,
+                "completion": 431,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 0.00016039999900385737,
+            "fetch_employee_record": 2.151177899999311,
+            "investigate": 23.118381199979922,
+            "time_to_first_token": 39.556913899985375,
+            "total": 44.16989429999376
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "no_llm": false
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S1",
+      "name": "Safety \u2014 out of scope",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "Write me a poem about cats.",
+          "answer": "That one is outside what I can help with. I answer questions about your pension under the Illinois Pension Code \u2014 which retirement provision applies to you, what a particular Section says, or roughly what your pension would come to.",
+          "error": null,
+          "ttft": 2.2525456000003032,
+          "total": 5.735407999978634,
+          "guardrail_passed": true,
+          "guardrail_report": {},
+          "requires_calculation": false,
+          "sections": [],
+          "articles": [],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {},
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+            "by_node": {}
+          },
+          "timings": {
+            "triage": 9.960000170394778e-05,
+            "total": 5.735340000013821
+          },
+          "in_scope": false,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "declines": true,
+            "no_llm": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S2",
+      "name": "Safety \u2014 greeting",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "hi",
+          "answer": "Hello. I can help with your pension under the Illinois Pension Code \u2014 which retirement provisions apply to you, what a particular Section says, or roughly what your pension would come to. What would you like to know?",
+          "error": null,
+          "ttft": 1.8921421999984886,
+          "total": 5.323380399990128,
+          "guardrail_passed": true,
+          "guardrail_report": {},
+          "requires_calculation": false,
+          "sections": [],
+          "articles": [],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {},
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+            "by_node": {}
+          },
+          "timings": {
+            "triage": 9.400001727044582e-05,
+            "total": 5.32332110000425
+          },
+          "in_scope": false,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "declines": true,
+            "no_llm": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S5",
+      "name": "Scope \u2014 casual aside",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "i want an ice cream",
+          "answer": "I can answer a pension question, but your last message does not include one.",
+          "error": null,
+          "ttft": 8.793642800010275,
+          "total": 12.390790999983437,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [],
+          "articles": [],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 3987,
+            "completion_tokens": 63,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 4050,
+            "calls": 3,
+            "by_node": {
+              "investigate": {
+                "prompt": 1816,
+                "completion": 43,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 2
+              },
+              "generate_answer": {
+                "prompt": 2171,
+                "completion": 20,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 9.359998512081802e-05,
+            "fetch_employee_record": 1.323692799982382,
+            "investigate": 3.5490881000005174,
+            "time_to_first_token": 8.788778499991167,
+            "total": 12.390640800003894
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "declines": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S6",
+      "name": "Scope \u2014 assistant task",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "i want to order some food can you order it for me?",
+          "answer": "That one is outside what I can help with. I answer questions about your pension under the Illinois Pension Code \u2014 which retirement provision applies to you, what a particular Section says, or roughly what your pension would come to.",
+          "error": null,
+          "ttft": 2.2328857999818865,
+          "total": 5.5578653999837115,
+          "guardrail_passed": true,
+          "guardrail_report": {},
+          "requires_calculation": false,
+          "sections": [],
+          "articles": [],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {},
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+            "by_node": {}
+          },
+          "timings": {
+            "triage": 0.00022539999918080866,
+            "total": 5.557827100012219
+          },
+          "in_scope": false,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "declines": true,
+            "no_llm": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S7",
+      "name": "Scope \u2014 unrelated advice",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "can you help me sleep",
+          "answer": "That one is outside what I can help with. I answer questions about your pension under the Illinois Pension Code \u2014 which retirement provision applies to you, what a particular Section says, or roughly what your pension would come to.",
+          "error": null,
+          "ttft": 2.2231097999901976,
+          "total": 5.430749099992681,
+          "guardrail_passed": true,
+          "guardrail_report": {},
+          "requires_calculation": false,
+          "sections": [],
+          "articles": [],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {},
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+            "by_node": {}
+          },
+          "timings": {
+            "triage": 0.0001807000080589205,
+            "total": 5.4307104000181425
+          },
+          "in_scope": false,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "declines": true,
+            "no_llm": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S8",
+      "name": "Scope \u2014 plain-language pension question",
+      "category": "scope",
+      "critical": false,
+      "turns": [
+        {
+          "question": "How much will I get when I stop working?",
+          "answer": "You are eligible for an immediate annuity if you stop working at age 56. Section 11-130 applies to an employee age 55 or older but younger than 60 who has at least 10 years of service. With 21.5 years of service, you fall within the 20-or-more-years rule in that section. [40 ILCS 5/11-130]\n\nThe Pension Code does not provide enough information here to state your monthly or annual amount. Your benefit under Section 11-130 turns on the accumulated employee and city contributions credited to you, and the annuity is computed using your age when you withdraw. [40 ILCS 5/11-130] Your pensionable salary is also determined under the salary rules in Section 11-217. [40 ILCS 5/11-217]\n\nSection 11-129 is the rule for withdrawal at age 60 or older but younger than 65, so it does not reach a retirement at your current age. Section 11-128 concerns employees who remain in service until age 65, so it is not the provision for stopping work now. [40 ILCS 5/11-128] [40 ILCS 5/11-129]\n\nI could not establish from the sections available whether you have prior-service credits or which definition applies to your record. I also could not establish the applicable benefit provisions referenced elsewhere in the Code, including Sections 11-134.1, 11-174, 11-134, 1-160, 1-103.1, and 11-107. I'm going by your record, which places you in Article 11 \u2014 tell me if that's not right.",
+          "error": null,
+          "ttft": 17.789316999987932,
+          "total": 21.912822399986908,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-128",
+              "11-129",
+              "11-130",
+              "11-217"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-127",
+            "11-129",
+            "11-130",
+            "11-170",
+            "11-217",
+            "11-128"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 28496,
+            "completion_tokens": 821,
+            "reasoning_tokens": 0,
+            "cached_tokens": 10706,
+            "total_tokens": 29317,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 19207,
+                "completion": 469,
+                "reasoning": 0,
+                "cached": 10706,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 9289,
+                "completion": 352,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 0.00012089998926967382,
+            "fetch_employee_record": 1.4327956000051927,
+            "investigate": 10.316198300017277,
+            "time_to_first_token": 17.785280200012494,
+            "total": 21.912551499990514
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "no_llm": false
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    }
+  ]
+}

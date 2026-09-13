@@ -100,3 +100,23 @@ async def test_compose_refuses_to_let_an_unread_answer_speak_for_the_code():
     tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "did not read" in tail.lower() or "have not read" in tail.lower()
     assert "memory" in tail.lower()
+
+
+async def test_compose_names_exactly_what_may_be_cited():
+    """The loop read an outline, saw section 11-124 listed, and cited it without
+    ever reading it -- UNVERIFIED_CITATION, answer replaced.
+
+    ANSWER_SYSTEM already says to cite only what is in front of you, and the
+    guardrail already catches the breach. Naming the readable set outright is
+    the cheap deterministic half: a list is harder to misread than a rule.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "q",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-101", "title": "Creation of fund"}],
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "11-101" in tail
+    assert "only" in tail.lower()

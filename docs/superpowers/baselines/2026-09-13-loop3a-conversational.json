@@ -1,0 +1,686 @@
+{
+  "mode": "loop",
+  "cases": [
+    {
+      "id": "L07",
+      "name": "A question in the member's words, answered from the Code's",
+      "employee": "article-11-standard",
+      "status": "active",
+      "turns": [
+        {
+          "question": "can I retire early without losing too much?",
+          "answer": "I'm going by your record, which places you in Article 11 \u2014 tell me if that's not right.\n\nAt age 56 with 21.5 years of service, Article 11 allows you to retire immediately. An employee age 55 or more but less than 60 with at least 10 years of service may receive an annuity beginning at withdrawal. [40 ILCS 5/11-130]\n\nThe Code also provides an option for an employee with at least 20 years of service to receive an annuity based on **2.40% for each year of service**, using the highest average annual salary for 4 consecutive years in the last 10 years. If the annuity begins before age 60, it is reduced by **0.25% for each month or remaining fractional part** that your age is below 60. [40 ILCS 5/11-134]\n\nThe no-reduction exception requires at least **25 years of service** for retirement at age 55 or older but below age 60. With 21.5 years, you do not currently meet that exception. [40 ILCS 5/11-134]\n\nThe Code also contains other annuity provisions for this age and service range, including the annuity payable from accumulated employee and city contributions under Section 11-130. The statute does not provide enough information here to calculate that amount. It would turn on your contribution accumulations and the applicable salary and service records. The Code also provides a later-starting option beginning no earlier than age 60, but its amount cannot be calculated here. [40 ILCS 5/11-130]\n\nI could not establish whether any separate early-retirement incentive, refund rule, or automatic-increase provision changes your result because the relevant sections were not available.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 41.15848690000712,
+          "total": 46.191497500025434,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-130",
+              "11-134"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-134",
+            "11-145.1",
+            "11-215",
+            "11-216",
+            "11-130",
+            "11-120",
+            "11-131",
+            "11-227",
+            "11-149"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 55154,
+            "completion_tokens": 979,
+            "reasoning_tokens": 0,
+            "cached_tokens": 21059,
+            "total_tokens": 56133,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 37686,
+                "completion": 597,
+                "reasoning": 0,
+                "cached": 21059,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 17468,
+                "completion": 382,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 3.999998443759978e-05,
+            "fetch_employee_record": 2.2625354999909177,
+            "investigate": 25.19114459998673,
+            "time_to_first_token": 41.153395399975125,
+            "total": 46.18714909997652
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "cites": [
+              "11-134"
+            ],
+            "mentions": [
+              "reduc",
+              "0.25",
+              "age 60"
+            ]
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "conversational",
+      "critical": false,
+      "source": "gold_conversational.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "L08",
+      "name": "A figure under a premise the member supposed",
+      "employee": "article-11-standard",
+      "status": "expected_fail",
+      "gap": "Measured against the pipeline on 2026-09-13, and the failure is upstream of where this case was aimed. The frame was created -- premise \"Chicago police officer with my salary and service\" -- but with article: None, because nothing resolved the description to a fund. So retrieval stayed on Article 11 and returned 11-134, 11-130, 11-131: the member's own law, answering a question about somebody else's. That is the harmful shape, not merely an unhelpful one. Needs coverage resolving a described job inside a supposition (Phase 3), then the stand-in input origin (Phase 2).\n",
+      "turns": [
+        {
+          "question": "if I were a Chicago police officer with my salary and service, what would I get?",
+          "answer": "Your record places you in Article 11, with age 56 and 21.5 years of service \u2014 tell me if that is not right.\n\nThe Code provides more than one potentially relevant retirement provision. Section 11-130 reaches an employee age 55 or older but younger than 60 who has at least 10 years of service. With 20 or more years, it provides an annuity based on the amounts credited from employee and city contributions, computed at your age when you withdraw. The text we have does not provide those account balances, so that amount cannot be calculated here. [40 ILCS 5/11-130]\n\nSection 11-134 also reaches an employee with 20 or more years of service who withdraws before age 60. It permits an election of an annuity equal to 2.40% for each year of service, based on the highest average annual salary for any 4 consecutive years in the last 10 years, with a reduction of 0.25% for each month the annuity begins before age 60. The section also provides an exception for retirement at age 55 or older with at least 25 years of service. Your record shows 21.5 years, so I cannot establish that exception from the figures available. [40 ILCS 5/11-134]\n\nI cannot state your pension amount because your highest average annual salary for the required 4-year period and the contribution balances under Section 11-130 are not before me. The Code also does not establish from the material available whether you are a \u201cpresent employee\u201d or \u201cfuture entrant,\u201d terms used in Article 11\u2019s annuity provisions. [40 ILCS 5/11-102]\n\nSection 11-129 does not reach you now because it applies to an employee age 60 or more but less than 65. Section 11-127 identifies the age-and-service annuity but does not itself set the amount. Section 11-170 sets contribution rules, but it does not supply your individual account balances. Sections 11-215 and 11-216 describe how service is computed; they do not provide your salary basis or calculate your pension. Section 11-217 explains which compensation counts as annual salary and excludes overtime, but your salary figures are not available. Section 11-145.1 concerns a widow\u2019s annuity, not your retirement annuity.\n\nI also could not establish from the sections available the Article 11 coverage test, the meaning of \u201csalary\u201d and \u201cannuity,\u201d or the effect of the provisions referenced in Section 11-134. The Code\u2019s text available here is therefore insufficient to give you a reliable dollar amount.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 26.09813860000577,
+          "total": 30.19721769998432,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-102",
+              "11-130",
+              "11-134",
+              "11-127",
+              "11-129",
+              "11-145.1",
+              "11-170",
+              "11-217"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-102",
+            "11-127",
+            "11-129",
+            "11-130",
+            "11-170",
+            "11-217",
+            "11-134",
+            "11-145.1",
+            "11-215",
+            "11-216"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 41981,
+            "completion_tokens": 1391,
+            "reasoning_tokens": 0,
+            "cached_tokens": 10842,
+            "total_tokens": 43372,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 25858,
+                "completion": 828,
+                "reasoning": 0,
+                "cached": 10842,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 16123,
+                "completion": 563,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 0.00010460001067258418,
+            "fetch_employee_record": 1.4014410999952815,
+            "investigate": 16.38353749999078,
+            "time_to_first_token": 26.096915300004184,
+            "total": 30.196940599998925
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "calculation": true,
+            "conditional": true,
+            "article_only": "5"
+          },
+          "index": 0,
+          "problems": [
+            "answered a supposition in the plain indicative",
+            "retrieved other articles: ['11']",
+            "no calculation ran"
+          ]
+        }
+      ],
+      "category": "conversational",
+      "critical": false,
+      "source": "gold_conversational.yaml",
+      "verdict": "known gap"
+    },
+    {
+      "id": "L09",
+      "name": "A question that needs no member and no calculation",
+      "employee": "article-11-standard",
+      "status": "expected_fail",
+      "gap": "Measured against the pipeline on 2026-09-13. It correctly plans no calculation and quotes no figure, but retrieval returned 11-178, 11-149, 11-160.1, 11-221.1, 11-170.1 and 11-169 -- none of the sections that say what Article 11 is. Hybrid search over \"what is Article 11?\" has nothing to match on in 11-101 \"Creation of fund\", so the most basic question about an Article cannot reach the Article's own opening sections. This is the case the Phase 1 outline tool was built for: list the headings, see 11-101, read it. Needs the loop to be able to call it (Phase 3).\n",
+      "turns": [
+        {
+          "question": "what is Article 11?",
+          "answer": "Article 11 establishes and governs the **Laborers\u2019 and Retirement Board Employees\u2019 Annuity and Benefit Fund** for each city with more than 500,000 inhabitants. [40 ILCS 5/11-101]\n\nIt covers eligible labor-service employees, certain employees of retirement boards, and employees of the fund, as defined in Section 11-110. [40 ILCS 5/11-110] The Article provides for age-and-service annuities, including benefits for employees who withdraw from service at different ages. [40 ILCS 5/11-127, 11-129]\n\nThe outline also includes provisions on disability benefits, survivor and child annuities, refunds, contributions, service credit, and administration of the fund. I could not establish the full scope of those provisions from the sections read here.\n\nI\u2019m going by your record, which places you in Article 11 \u2014 tell me if that\u2019s not right.",
+          "error": null,
+          "ttft": 16.277763599995524,
+          "total": 19.859983000002103,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-101",
+              "11-110",
+              "11-127"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-101",
+            "11-102",
+            "11-110",
+            "11-127",
+            "11-129"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 17853,
+            "completion_tokens": 721,
+            "reasoning_tokens": 0,
+            "cached_tokens": 6698,
+            "total_tokens": 18574,
+            "calls": 5,
+            "by_node": {
+              "investigate": {
+                "prompt": 11990,
+                "completion": 525,
+                "reasoning": 0,
+                "cached": 6698,
+                "calls": 4
+              },
+              "generate_answer": {
+                "prompt": 5863,
+                "completion": 196,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 3.23000131174922e-05,
+            "fetch_employee_record": 1.4322655000141822,
+            "investigate": 10.143350199999986,
+            "time_to_first_token": 16.276414499996463,
+            "total": 19.85990809998475
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "no_calculation": true,
+            "no_figures": true,
+            "cites": [
+              "11-101|11-102|11-103"
+            ]
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "conversational",
+      "critical": false,
+      "source": "gold_conversational.yaml",
+      "verdict": "XPASS"
+    },
+    {
+      "id": "L10",
+      "name": "The same calculation asked twice reuses what was derived",
+      "employee": "article-11-standard",
+      "status": "active",
+      "turns": [
+        {
+          "question": "what would my pension be if I retired now?",
+          "answer": "You are eligible for an Article 11 annuity now: Section 11-130 applies to an employee age 55 or more but less than 60 who has at least 10 years of service, and it provides an annuity from the date of withdrawal. With 21.5 years of service, you fall within its 20-or-more-years provision. [40 ILCS 5/11-130]\n\nThe Code text available here does not provide enough information to calculate your pension amount. Your calculation requires your accumulated employee and city annuity credits. It also requires your salary history because annual salary is determined under Section 11-217. [40 ILCS 5/11-217]\n\nSection 11-134 contains minimum-annuity formulas for qualifying employees with 20 or more years of service, including formulas based on the highest average annual salary for 4 consecutive years within the last 10 years. That section also contains election language and early-retirement provisions. But I cannot determine from the available information which option applies to you or calculate its amount. [40 ILCS 5/11-134]\n\nSection 11-129 does not reach you because it applies to withdrawal at age 60 or more but less than 65. Section 11-131 does not reach you because it concerns withdrawal before age 55 followed by reaching age 55 while out of service. Section 11-128 concerns an employee reaching age 65 in service. [40 ILCS 5/11-129] [40 ILCS 5/11-131] [40 ILCS 5/11-128]\n\nI'm going by your record, which places you in Article 11 \u2014 tell me if that's not right.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 23.45363860001089,
+          "total": 27.546667400019942,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-128",
+              "11-129",
+              "11-130",
+              "11-131",
+              "11-134",
+              "11-217"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-129",
+            "11-130",
+            "11-127",
+            "11-102",
+            "11-217",
+            "11-128",
+            "11-131",
+            "11-124",
+            "11-170",
+            "11-134"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 61439,
+            "completion_tokens": 1035,
+            "reasoning_tokens": 0,
+            "cached_tokens": 26501,
+            "total_tokens": 62474,
+            "calls": 9,
+            "by_node": {
+              "investigate": {
+                "prompt": 47783,
+                "completion": 670,
+                "reasoning": 0,
+                "cached": 26501,
+                "calls": 8
+              },
+              "generate_answer": {
+                "prompt": 13656,
+                "completion": 365,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 4.7200010158121586e-05,
+            "fetch_employee_record": 1.4968529999896418,
+            "investigate": 15.97266070000478,
+            "time_to_first_token": 23.45195240000612,
+            "total": 27.546589300007327
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "calculation": true
+          },
+          "index": 0,
+          "problems": [
+            "no calculation ran"
+          ]
+        },
+        {
+          "question": "remind me what my annuity would come to?",
+          "answer": "The Pension Code does not provide enough information here to state your annuity amount. It depends on your highest average annual salary for 4 consecutive years within your last 10 years of service, and the statute\u2019s account-based calculation also depends on contribution amounts and age-based computation. [40 ILCS 5/11-130] [40 ILCS 5/11-134]\n\nAt age 56 with 21.5 years of service, Section 11-130 reaches employees age 55 or older and under age 60 with at least 10 years of service. Because you have at least 20 years, it provides an age-and-service annuity based on the amounts credited for employee and city contributions. [40 ILCS 5/11-130]\n\nSection 11-134 also provides a minimum-annuity formula for employees with at least 20 years of service, but the statute text available here does not establish which calculation would produce the larger benefit in your case. It also provides an optional formula and an early-start reduction of \u201c0.25% for each full month or remaining fractional part\u201d that the annuity begins before age 60. [40 ILCS 5/11-134]\n\nI\u2019m going by your record, which places you in Article 11 \u2014 tell me if that\u2019s not right.",
+          "error": null,
+          "ttft": 15.566096599999582,
+          "total": 19.14825599998585,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-130",
+              "11-134"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "sections": [
+            "11-102",
+            "11-127",
+            "11-129",
+            "11-130",
+            "11-170",
+            "11-217",
+            "11-128",
+            "11-134"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {},
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 42841,
+            "completion_tokens": 693,
+            "reasoning_tokens": 0,
+            "cached_tokens": 18568,
+            "total_tokens": 43534,
+            "calls": 6,
+            "by_node": {
+              "investigate": {
+                "prompt": 30342,
+                "completion": 421,
+                "reasoning": 0,
+                "cached": 18568,
+                "calls": 5
+              },
+              "generate_answer": {
+                "prompt": 12499,
+                "completion": 272,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 8.070000330917537e-05,
+            "fetch_employee_record": 0.00018440000712871552,
+            "investigate": 9.752801399998134,
+            "time_to_first_token": 15.565342899993993,
+            "total": 19.148173499997938
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 0,
+          "expect": {
+            "calculation": true,
+            "reuse": true
+          },
+          "index": 1,
+          "problems": [
+            "no calculation ran",
+            "derived a new recipe instead of reusing one"
+          ]
+        }
+      ],
+      "category": "conversational",
+      "critical": false,
+      "source": "gold_conversational.yaml",
+      "verdict": "FAIL"
+    }
+  ]
+}
