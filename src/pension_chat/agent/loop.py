@@ -23,7 +23,12 @@ from typing import Any
 
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM
-from pension_chat.agent.tools import CALCULATION_TOOLS, RETRIEVAL_TOOLS, run_tool
+from pension_chat.agent.tools import (
+    CALCULATION_TOOLS,
+    COVERAGE_TOOLS,
+    RETRIEVAL_TOOLS,
+    run_tool,
+)
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.loop")
@@ -38,11 +43,14 @@ BUDGETS: dict[str, int] = {
     "outline": 4,
     "related_sections": 6,
     "compute_benefit": 4,
+    "check_coverage": 3,
 }
 
-#: Everything the loop may reach for. Retrieval and calculation together,
-#: because a member asking "how much would I get" is asking one question.
-LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS
+#: Everything the loop may reach for. Retrieval, calculation and coverage
+#: together, because a member asking "how much would I get" is asking one
+#: question -- and "if I were a Chicago police officer, what would I get?" is
+#: still one question, with all three in it.
+LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
 
 #: How many cross-referenced sections to read before answering. Bounded so one
 #: section naming a dozen others cannot flood the answer's context.
@@ -62,6 +70,12 @@ Work like a lawyer reading a statute, not like a search box.
   opening sections, not by whichever section a search happened to rank first.
 - A provision usually leans on others. Follow the sections it names. Ask what
   names *it* -- an exception that changes the answer normally lives elsewhere.
+- Which Article governs is a determination, not an assumption. The moment the
+  member says what they do for a living -- or supposes a different job -- call
+  check_coverage with their own words. Their record is a prior, not an oracle:
+  it can disagree with them, and a description you place in an Article yourself
+  is a guess with a citation on it. Wait for its verdict before you search an
+  Article, and say what it tells you to say about their coverage.
 - A figure is never yours to work out. Call compute_benefit: it finds the
   controlling provision, resolves the inputs from the record and from what the
   member said, and computes. If it reports a missing input, ask the member for
@@ -102,6 +116,23 @@ def _context(state: dict[str, Any]) -> str:
         lines.append(
             f"Their record places them in Article {coverage['article']} "
             f"(basis: {coverage.get('basis', 'record')})."
+        )
+    frame = state.get("hypothetical_frame")
+    if frame:
+        # A follow-up exploring a premise carries none of its words: "and at 60?"
+        # is still a question about being a park employee. The frame holds by
+        # default and is left explicitly, so it has to be visible every turn --
+        # otherwise the supposition quietly reverts to the record the turn after
+        # it was set up.
+        where = (
+            f"which is Article {frame['article']}"
+            if frame.get("article")
+            else "which was never placed in an Article"
+        )
+        lines.append(
+            f"This conversation is inside a premise the member supposed: "
+            f"{frame.get('premise')!r}, {where}. It holds until they step out of "
+            "it, and everything resting on it stays conditional."
         )
     return "\n".join(lines)
 

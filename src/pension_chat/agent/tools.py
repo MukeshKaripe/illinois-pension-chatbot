@@ -24,13 +24,14 @@ import logging
 from typing import Any
 
 from pension_chat.agent import corpus
+from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
     execute_calculations,
     resolve_inputs,
     resolve_recipes,
     validate_recipes,
 )
-from pension_chat.agent.retrieval import retrieve
+from pension_chat.agent.retrieval import retrieve, retrieve_coverage
 from pension_chat.agent.understanding import BENEFIT_TYPES
 from pension_chat.config import get_settings
 
@@ -190,8 +191,58 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+COVERAGE_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "check_coverage",
+            "description": (
+                "Work out which Article of the Code covers someone described a "
+                "particular way, by matching the description against the Code's own "
+                "coverage tests. Call this whenever the member says what they do for "
+                "a living, or supposes a different job -- their record is a prior, "
+                "not an oracle, and a description you place yourself is a guess. "
+                "It also tells you whether the answer may state their coverage as a "
+                "fact, or must attribute it to their file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "How they described the job, in their own words -- "
+                            "'a park employee', 'a Chicago police officer'. Do not "
+                            "translate it into the statute's vocabulary; that is what "
+                            "this does."
+                        ),
+                    },
+                    "act": {
+                        "type": "string",
+                        "enum": [
+                            coverage_mod.ASSERTED,
+                            coverage_mod.STIPULATED,
+                            coverage_mod.DOUBTED,
+                        ],
+                        "description": (
+                            "What they did with the description. 'asserted': they say "
+                            "it is so ('I am a park employee'). 'stipulated': they are "
+                            "supposing it ('if I were a park employee'). 'doubted': "
+                            "they are unsure or asking you ('I think I'm a park "
+                            "employee', 'am I a park employee?'). These are different "
+                            "acts, not degrees of confidence."
+                        ),
+                    },
+                },
+                "required": ["description", "act"],
+            },
+        },
+    },
+]
+
 TOOL_NAMES = tuple(
-    tool["function"]["name"] for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS
+    tool["function"]["name"]
+    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
 )
 
 
@@ -393,8 +444,181 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
     )
 
 
+#: The acts a description can be performed with. Kept as a tuple read by both
+#: the schema's enum and the handler's check, so an act the model is offered
+#: always has a branch in `adjudicate` -- one that did not would be read
+#: silently as an assertion, which is the worst of the three to be wrong about.
+_ACTS = (coverage_mod.ASSERTED, coverage_mod.STIPULATED, coverage_mod.DOUBTED)
+
+#: As `nodes._MAX_COVERAGE_SECTIONS`: every section a verdict rests on is made
+#: readable, capped so a broad description cannot flood the answer's context.
+_MAX_COVERAGE_SECTIONS = 6
+
+
+def _candidate_line(candidate: dict[str, Any]) -> str:
+    test = str(candidate.get("test") or "").strip()
+    line = f"  Article {candidate.get('article')} -- Section {candidate.get('section')}"
+    return f"{line}: {test}" if test else line
+
+
+def _coverage_text(verdict: dict[str, Any], description: str, evidence: str) -> str:
+    """The verdict, put to the model as the determination it is.
+
+    Each branch says two things: which Article to read from, and what the answer
+    is allowed to claim about it. The second is what `guardrails._verify_coverage`
+    polices -- an answer may state coverage as a fact only on a confirmed or
+    statutory basis, and must attribute it to the file otherwise.
+    """
+    basis = verdict["basis"]
+    article = verdict.get("article")
+    record = verdict.get("record_article")
+    candidates = verdict.get("candidates") or []
+    pointed = ", ".join(dict.fromkeys(str(c.get("article")) for c in candidates))
+    lines: list[str] = []
+
+    if basis == coverage_mod.BASIS_HYPOTHETICAL:
+        if article:
+            elsewhere = (
+                f"Article {record}, which is the member's own"
+                if record
+                else "the member's own Article"
+            )
+            lines.append(
+                f"Premise adopted: someone described as {description!r} is covered by "
+                f"Article {article}. Read Article {article} from here, not {elsewhere}."
+            )
+        else:
+            lines.append(
+                f"Premise adopted, but no coverage test in the Code matched "
+                f"{description!r}, so it cannot be placed in an Article. Do not answer "
+                "it out of the member's own Article -- say which fund you could not "
+                "identify."
+            )
+        lines.append(
+            "This is a supposition. Nothing about the member has changed, so every "
+            "sentence resting on it stays conditional."
+        )
+    elif basis == coverage_mod.BASIS_STATUTORY:
+        agrees = (
+            ", which is where their record places them too" if record else ""
+        )
+        lines.append(
+            f"The Code's own coverage test places {description!r} in Article "
+            f"{article}{agrees}. You may state this as a fact about them."
+        )
+    elif basis == coverage_mod.BASIS_UNRESOLVED:
+        lines.append(
+            "There is no record to fall back on, and the description "
+            + (
+                f"matches more than one Article ({pointed})."
+                if pointed
+                else "matched no coverage test in the Code."
+            )
+        )
+        lines.append(
+            "Ask which employer pays them before saying which fund governs, and "
+            "answer what you can from the Code meanwhile."
+        )
+    elif verdict.get("conflict"):
+        if verdict.get("why") == "doubted":
+            lines.append(
+                "They are not sure themselves, which outranks every other kind of "
+                f"uncertainty here. Their record says Article {record}"
+                + (
+                    f"; the Code's coverage tests for {description!r} point at "
+                    f"Article {pointed}."
+                    if pointed
+                    else "."
+                )
+            )
+        else:
+            lines.append(
+                f"Their own words point at Article {pointed}; their record says Article "
+                f"{record}. The record holds until they settle it, so attribute Article "
+                f"{record} to their file rather than stating it as law."
+            )
+        lines.append(
+            "Ask them the one thing that separates the two -- usually which employer "
+            "pays them -- and answer what you can meanwhile."
+        )
+    else:
+        lines.append(
+            f"{description!r} matched no coverage test in the Code. Falling back to "
+            f"their record, Article {record}: attribute that to their file rather than "
+            "saying their job puts them there."
+        )
+
+    if candidates:
+        lines.append("Grounded in:")
+        lines.extend(_candidate_line(c) for c in candidates)
+    if evidence:
+        lines.append("")
+        lines.append(evidence)
+    return chr(10).join(lines)
+
+
+async def _check_coverage(
+    arguments: dict[str, Any], state: dict[str, Any]
+) -> tuple[str, dict]:
+    description = str(arguments.get("description") or "").strip()
+    if not description:
+        return (
+            "check_coverage needs a `description` -- the member's own words for the job.",
+            {},
+        )
+    act = str(arguments.get("act") or "").strip()
+    if act not in _ACTS:
+        return f"There is no act called {act!r}. Use one of: " + ", ".join(_ACTS) + ".", {}
+
+    employee = state.get("employee_record")
+    record_article = str(employee["article_number"]) if employee else None
+    turn = state.get("turn_index") or 0
+
+    # The member's own Article goes in alongside whatever their description
+    # ranked: the assessment is being asked to weigh a description against a
+    # record, and cannot do that having read only one side.
+    sections = await retrieve_coverage(description, also_covering=record_article)
+    report = await coverage_mod.assess(description, sections)
+    reference = coverage_mod.SelfReference(text=description, act=act)
+    verdict = coverage_mod.adjudicate(reference, report, record_article, turn=turn)
+
+    # Every section the verdict rests on becomes readable, because a verdict the
+    # answer may not cite is a verdict the answer cannot explain -- and citing an
+    # unread section is what verification exists to refuse.
+    by_id = {s.section: s for s in sections}
+    grounding: list[dict[str, Any]] = []
+    for candidate in verdict.get("candidates") or []:
+        row = by_id.get(str(candidate.get("section") or ""))
+        if row is not None and all(g["section"] != row.section for g in grounding):
+            grounding.append(row.to_dict())
+    grounding = grounding[:_MAX_COVERAGE_SECTIONS]
+
+    update: dict[str, Any] = {
+        "coverage": verdict,
+        "self_reference": reference.to_dict(),
+        "coverage_sections": [g["section"] for g in grounding],
+        "candidate_articles": [verdict["article"]] if verdict.get("article") else [],
+    }
+    if grounding:
+        update["retrieved_sections"] = grounding
+    if verdict["basis"] == coverage_mod.BASIS_HYPOTHETICAL:
+        # Adopted whole, and durable: "and what if I had 30 years?" is still
+        # inside the premise. The frame is what keeps later turns under it and
+        # what starves the record-derived facts a supposition may not borrow.
+        update["hypothetical_frame"] = {
+            "premise": description,
+            "article": verdict.get("article"),
+            "entered_turn": turn,
+            "last_used_turn": turn,
+        }
+
+    evidence = _render(grounding, get_settings().retrieval_context_token_budget * 4)
+    return _coverage_text(verdict, description, evidence), update
+
+
 _HANDLERS = {
     "search_statute": _search,
+    "check_coverage": _check_coverage,
     "compute_benefit": _compute,
     "get_section": _get_section,
     "outline": _outline,

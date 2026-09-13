@@ -350,3 +350,41 @@ async def test_a_tool_sees_what_earlier_tools_found(monkeypatch):
     await loop_mod.investigate({"question": "q", "messages": [], "retrieved_sections": []})
 
     assert saw == [["11-134"]], "the calculation must see what the search found"
+
+
+async def test_a_live_premise_is_re_stated_every_turn(monkeypatch):
+    """A follow-up exploring a supposition carries none of its words.
+
+    "and at 60?" is still a question about being a Chicago police officer, so
+    the frame has to be in front of the model on every turn it is live --
+    otherwise the premise quietly reverts to the record the turn after it was
+    set up, and the member gets their own fund's law under somebody else's job.
+    """
+    context = loop_mod._context(
+        {
+            "question": "and at 60?",
+            "hypothetical_frame": {"premise": "a Chicago police officer", "article": "5"},
+        }
+    )
+    assert "a Chicago police officer" in context
+    assert "Article 5" in context
+    assert "conditional" in context
+
+
+async def test_a_premise_that_was_never_placed_says_so(monkeypatch):
+    """L08's original failure, in one line of context: the frame existed with
+    `article: None`, so retrieval stayed on Article 11 and answered a question
+    about somebody else's law with the member's own."""
+    context = loop_mod._context(
+        {"question": "q", "hypothetical_frame": {"premise": "a dog walker", "article": None}}
+    )
+    assert "never placed in an Article" in context
+
+
+async def test_the_loop_can_reach_coverage(monkeypatch):
+    """Coverage is a tool here, not a stage. The pipeline settles it in a node
+    before retrieval; the loop has no such node, and the model reading the
+    question is the one who knows a supposition when it sees one."""
+    names = {t["function"]["name"] for t in loop_mod.LOOP_TOOLS}
+    assert "check_coverage" in names
+    assert names <= set(loop_mod.BUDGETS), "every tool offered must have a budget"
