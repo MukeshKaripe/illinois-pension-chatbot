@@ -326,11 +326,15 @@ ALIAS_GROUPS: tuple[frozenset[str], ...] = (
 #: `as_of_date` is deliberately absent. Today's date is not an assumption.
 #: Values the facts layer supplies so the arithmetic has something to run on,
 #: rather than values anybody stated. Each is disclosed as an assumption.
-#: `employment_status` joins them because a retirement annuity posits
-#: withdrawal: the member is taken to have stopped working at `as_of`.
-FRAMING_DEFAULTS: frozenset[str] = frozenset(
-    {"withdrawal_date", "annuity_start_date", "employment_status"}
-)
+#:
+#: `employment_status` is deliberately **not** among them, though it is derived
+#: from the same supposition. It is not a second guess: "you have stopped
+#: working" is what "the date you stop working, taken as today" already says,
+#: and `render_assumptions` exists to keep one choice from being disclosed as
+#: two separate ones. Adding it produced exactly that -- an answer that
+#: disclosed the withdrawal date, said nothing about the status derived from
+#: it, and was thrown away for ASSUMPTION_NOT_DISCLOSED.
+FRAMING_DEFAULTS: frozenset[str] = frozenset({"withdrawal_date", "annuity_start_date"})
 
 
 def aliases_of(name: str) -> frozenset[str]:

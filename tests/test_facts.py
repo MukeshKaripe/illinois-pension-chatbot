@@ -257,3 +257,19 @@ def test_service_still_accrues_to_a_posited_retirement():
     )
     assert Decimal(str(later["service_years"])) > Decimal(str(now["service_years"]))
     assert later["employment_status"] == "separated"
+
+
+def test_the_stopped_working_status_is_not_a_second_assumption():
+    """It is derived from the withdrawal date, not guessed beside it.
+
+    Making it a framing default meant the guardrail demanded its own
+    disclosure, and F04 was thrown away on both agents for
+    ASSUMPTION_NOT_DISCLOSED -- an answer that had disclosed "the date you stop
+    working, taken as today" and then said nothing about the status that
+    follows from it. `render_assumptions` exists precisely to stop one choice
+    being reported as two.
+    """
+    from pension_chat.agent.facts import FRAMING_DEFAULTS
+
+    assert "employment_status" not in FRAMING_DEFAULTS
+    assert "withdrawal_date" in FRAMING_DEFAULTS
