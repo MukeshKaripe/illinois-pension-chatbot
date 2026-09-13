@@ -584,3 +584,64 @@ def test_a_stale_question_is_not_bound_against():
 
 def test_nothing_asked_means_nothing_to_bind():
     assert loop_mod._bind_open_question({"question": "what is Article 11?"}) == {}
+
+
+async def test_a_turn_that_says_nothing_about_the_member_still_knows_their_article(monkeypatch):
+    """fund_smoke, all eighteen funds, 0/18 against the pipeline's 13/18 -- and
+    every one on the same line: `coverage article None`.
+
+    `assess_coverage` sets coverage from the record even on its fast exit, so
+    the pipeline always has a verdict. The loop only had one when the model
+    called check_coverage, which it does only when the member describes
+    themselves -- and "roughly what would my pension be if I retired at the end
+    of this year?" describes nobody. So the ordinary turn, which is nearly every
+    turn, ran with no coverage at all.
+
+    It mostly worked by luck: `_governing_article` falls back to the record, so
+    recipes resolved. What it broke was everything that reads `coverage` --
+    the answer's own account of which fund it is speaking for, and `memory`,
+    which refuses to remember an answer it cannot place in an Article.
+    """
+    _script(monkeypatch, [_turn(content="Here.")])
+    _tools(monkeypatch)
+
+    out = await loop_mod.investigate(
+        {
+            "question": "Roughly what would my pension be if I retired at the end of this year?",
+            "employee_record": {"article_number": 5},
+            "turn_index": 0,
+        }
+    )
+    assert out["coverage"]["article"] == "5"
+    assert out["coverage"]["basis"] == "record"
+    assert out["coverage"]["conflict"] is False
+
+
+async def test_an_established_verdict_is_not_overwritten_by_the_record(monkeypatch):
+    """A member who confirmed Article 12 does not revert to Article 11 on their
+    next quiet turn."""
+    _script(monkeypatch, [_turn(content="Here.")])
+    _tools(monkeypatch)
+    settled = {
+        "article": "12",
+        "record_article": "11",
+        "basis": "member_confirmed",
+        "conflict": False,
+    }
+    out = await loop_mod.investigate(
+        {
+            "question": "and what about at 60?",
+            "employee_record": {"article_number": 11},
+            "coverage": settled,
+            "turn_index": 3,
+        }
+    )
+    assert out.get("coverage", settled)["article"] == "12"
+
+
+async def test_an_anonymous_member_gets_no_invented_article(monkeypatch):
+    _script(monkeypatch, [_turn(content="Here.")])
+    _tools(monkeypatch)
+    out = await loop_mod.investigate({"question": "what is a refund?", "turn_index": 0})
+    assert out["coverage"]["article"] is None
+    assert out["coverage"]["basis"] == "unresolved"

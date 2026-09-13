@@ -24,7 +24,7 @@ from typing import Any
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.blocks import render_assumptions
 from pension_chat.agent.llm import call_with_tools
-from pension_chat.agent.nodes import ANSWER_SYSTEM
+from pension_chat.agent.nodes import ANSWER_SYSTEM, _record_coverage
 from pension_chat.agent.presentation import select_rung
 from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
 from pension_chat.agent.tools import (
@@ -333,6 +333,29 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # what we asked last time?
     settled = _bind_open_question(state)
     state = {**state, **settled} if settled else state
+
+    # And if nothing has established coverage yet, the record establishes it.
+    #
+    # `assess_coverage` does this on its fast exit, so the pipeline always has a
+    # verdict. The loop only had one when the model called check_coverage, which
+    # it does only when the member describes themselves -- and the ordinary
+    # turn describes nobody. All eighteen fund_smoke cases failed on the same
+    # line, `coverage article None`, against the pipeline's thirteen passes.
+    #
+    # It mostly worked by luck: `_governing_article` falls back to the record,
+    # so recipes resolved. What it broke was everything that *reads* coverage --
+    # the answer's own account of which fund it speaks for, and `memory`, which
+    # refuses to remember an answer it cannot place in an Article.
+    if not (state.get("coverage") or {}).get("basis"):
+        employee = state.get("employee_record")
+        settled = {
+            **settled,
+            "coverage": _record_coverage(
+                str(employee["article_number"]) if employee else None,
+                int(state.get("turn_index") or 0),
+            ),
+        }
+        state = {**state, **settled}
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": INVESTIGATE_SYSTEM},
