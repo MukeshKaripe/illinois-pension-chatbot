@@ -243,3 +243,43 @@ def test_an_extra_fact_is_edited_and_checked_against_its_fund() -> None:
         personas.ARTICLE_11_STANDARD, {"extra_facts": {"social_security_covered": True}}
     )
     assert personas.validate(laborer, today=TODAY) != []
+
+
+# ── Benefits one Article takes from another ───────────────────────
+
+
+def test_the_forest_preserve_fund_takes_its_benefits_from_article_9():
+    """§10-103, quoted because the whole exception rests on it:
+
+        "The board shall cause the same deductions to be made from salaries
+        and, subject to Section 10-109, allow the same annuities, refunds and
+        benefits for employees of the district as are made and allowed for
+        employees of the county."
+
+    Employees of the county are Article 9. So an Article 10 member's annuity
+    *is* computed under Article 9's formula, and a figure resting on §9-134 is
+    the right answer rather than a borrowed one.
+
+    `fund_smoke` called this a borrowed formula on both agents for as long as
+    Article 10 has been ingested, because its rule -- a figure must rest on the
+    fund's own Article -- is true of every fund but this one.
+    """
+    fund = funds.FUNDS[10]
+    assert fund.benefits_from == 9
+    assert fund.benefits_from_section == "10-103"
+
+
+def test_no_other_fund_borrows():
+    """Declared, never inferred. An Article whose text merely *mentions*
+    another is not incorporating it, and guessing that from cross-references
+    would re-admit the exact failure this rule exists to catch."""
+    borrowers = {a: f.benefits_from for a, f in funds.FUNDS.items() if f.benefits_from}
+    assert borrowers == {10: 9}
+
+
+def test_an_incorporating_article_accepts_its_source_and_nothing_else():
+    """The exception is one Article wide. Article 10 may rest on Article 9 or
+    on its own sections; a figure from Article 8 is still borrowed."""
+    assert funds.benefit_articles(10) == {"9", "10"}
+    assert funds.benefit_articles(9) == {"9"}
+    assert funds.benefit_articles(11) == {"11"}

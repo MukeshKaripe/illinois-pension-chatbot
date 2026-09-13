@@ -36,6 +36,7 @@ from pension_chat.agent.tools import (
 )
 from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
+from pension_chat.funds import FUNDS
 
 logger = logging.getLogger("pension_chat.agent.loop")
 
@@ -524,6 +525,30 @@ def _assumed(state: dict[str, Any]) -> str:
     return render_assumptions(WorkSheet.from_state(state))
 
 
+def _borrowed_benefits(state: dict[str, Any]) -> str:
+    """What to say when this member's fund takes its benefits from another.
+
+    Declared in `funds.py` with the section that establishes it, never inferred
+    from a cross-reference.
+    """
+    article = (state.get("coverage") or {}).get("article")
+    try:
+        fund = FUNDS.get(int(article))
+    except (TypeError, ValueError):
+        return ""
+    if fund is None or not fund.benefits_from:
+        return ""
+    return (
+        f"This member is in Article {fund.article}, and Article {fund.article} "
+        f"takes its benefits from Article {fund.benefits_from}: Section "
+        f"{fund.benefits_from_section} allows them the same annuities and "
+        f"benefits as Article {fund.benefits_from} members. So a figure worked "
+        f"under Article {fund.benefits_from} is theirs, not another fund's -- "
+        f"but say why, and cite Section {fund.benefits_from_section} for it. An "
+        "Article 9 citation with no bridge reads like somebody else's law."
+    )
+
+
 async def compose(state: dict[str, Any]) -> dict[str, Any]:
     """Turn the investigation into the answer, in the same conversation.
 
@@ -620,6 +645,13 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+
+    if bridge := _borrowed_benefits(state):
+        # A Forest Preserve figure is computed under Section 9-134, and that is
+        # correct -- but an answer citing Article 9 to an Article 10 member
+        # without saying why has handed them another fund's law with no bridge,
+        # which reads exactly like the borrowed-formula error it is not.
+        messages.append({"role": "system", "content": bridge})
 
     if frame := (state.get("hypothetical_frame") or {}):
         # The guardrail catches an unconditional answer under a premise, and

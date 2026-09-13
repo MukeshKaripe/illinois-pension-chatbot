@@ -282,3 +282,40 @@ async def test_compose_is_indicative_when_nothing_was_supposed():
     )
     tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "conditional" not in tail.lower()
+
+
+async def test_compose_explains_a_fund_that_takes_its_benefits_from_another():
+    """A Forest Preserve member's figure is computed under Section 9-134, and
+    that is correct: §10-103 gives district employees "the same annuities,
+    refunds and benefits ... as are made and allowed for employees of the
+    county". But an answer that cites Article 9 to an Article 10 member without
+    saying why has handed them another fund's law with no bridge, which reads
+    exactly like the borrowed-formula error it is not.
+
+    The fact comes from `funds.py`, where the incorporation is declared with
+    the section that establishes it.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "what would my pension be?",
+            "loop_messages": [],
+            "coverage": {"article": "10", "basis": "record"},
+            "retrieved_sections": [{"section": "9-134"}, {"section": "10-103"}],
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "10-103" in tail
+    assert "Article 9" in tail
+
+
+async def test_compose_says_nothing_of_the_kind_for_an_ordinary_fund():
+    out = await loop_mod.compose(
+        {
+            "question": "q",
+            "loop_messages": [],
+            "coverage": {"article": "11", "basis": "record"},
+            "retrieved_sections": [{"section": "11-134"}],
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "takes its benefits" not in tail.lower()

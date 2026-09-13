@@ -71,6 +71,20 @@ class Fund:
     # `employees.extra_facts` (migration 006) and reach the engine through
     # `facts.build_member_facts`.
     extra_fields: tuple[FieldSpec, ...] = ()
+    # An Article whose benefits this fund takes as its own, and the section
+    # that says so. Article 10 is the only one, and §10-103 is why: "the board
+    # shall cause the same deductions to be made from salaries and, subject to
+    # Section 10-109, allow the same annuities, refunds and benefits for
+    # employees of the district as are made and allowed for employees of the
+    # county" -- employees of the county being Article 9.
+    #
+    # **Declared, never inferred**, for the same reason `support_level` is: an
+    # incorporation by reference is a reading of the law, and deducing one from
+    # cross-references would re-admit the exact failure the fund smoke test
+    # exists to catch. An Article whose text merely mentions another is not
+    # incorporating it.
+    benefits_from: int | None = None
+    benefits_from_section: str | None = None
 
     @property
     def fields(self) -> tuple[FieldSpec, ...]:
@@ -125,7 +139,13 @@ FUNDS: dict[int, Fund] = {
         Fund(12, CHICAGO, "Chicago Park District employee", support_level="checked"),
         Fund(17, CHICAGO, "Chicago Public Schools teacher"),
         Fund(9, COOK, "Cook County employee", support_level="checked"),
-        Fund(10, COOK, "Forest Preserve District employee"),
+        Fund(
+            10,
+            COOK,
+            "Forest Preserve District employee",
+            benefits_from=9,
+            benefits_from_section="10-103",
+        ),
         Fund(2, STATE, "General Assembly member", min_hire_age=_UNIFORMED_OR_ELECTED),
         Fund(14, STATE, "State employee", extra_fields=(SOCIAL_SECURITY,)),
         Fund(15, STATE, "State university employee"),
@@ -155,3 +175,21 @@ def support_level(article: int | str | None) -> SupportLevel | None:
     except (TypeError, ValueError):
         return None
     return fund.support_level if fund else None
+
+
+def benefit_articles(article: int | str) -> set[str]:
+    """Which Articles a figure for this fund may legitimately rest on.
+
+    Its own, and -- for the one fund that takes its benefits from another --
+    that one too. Everything else is a borrowed formula, which is a wrong
+    number with a real citation on it.
+    """
+    try:
+        number = int(article)
+    except (TypeError, ValueError):
+        return {str(article)}
+    allowed = {str(number)}
+    fund = FUNDS.get(number)
+    if fund is not None and fund.benefits_from:
+        allowed.add(str(fund.benefits_from))
+    return allowed

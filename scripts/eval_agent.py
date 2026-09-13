@@ -65,6 +65,7 @@ from pension_chat.agent.llm import close_clients  # noqa: E402
 from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES  # noqa: E402
 from pension_chat.calculation.applicability import normalize_fact_name  # noqa: E402
 from pension_chat.config import get_settings  # noqa: E402
+from pension_chat.funds import benefit_articles  # noqa: E402
 
 EVALS = Path(__file__).resolve().parents[1] / "evals"
 
@@ -266,6 +267,19 @@ def fund_figure_problems(result: dict, article: str) -> list[str]:
     a figure from another Article's recipe. A missing input or a validator
     rejection is an honest answer; a borrowed formula is a wrong number with a
     real citation on it.
+
+    **One fund borrows by law, and this called it a failure for as long as
+    Article 10 has been ingested.** Section 10-103: "the board shall cause the
+    same deductions to be made from salaries and, subject to Section 10-109,
+    allow the same annuities, refunds and benefits for employees of the district
+    as are made and allowed for employees of the county" -- employees of the
+    county being Article 9. So a Forest Preserve figure computed under 9-134 is
+    the right answer, and both agents were marked down for getting it right.
+
+    The exception is read from `funds.py`, where it is declared with the section
+    that establishes it, never inferred from cross-references: an Article whose
+    text merely mentions another is not incorporating it, and guessing would
+    re-admit the failure above.
     """
     ran = [
         entry
@@ -273,11 +287,12 @@ def fund_figure_problems(result: dict, article: str) -> list[str]:
         if (entry.get("base") or {}).get("ok")
     ]
     if ran:
+        allowed = benefit_articles(article)
         foreign = sorted(
             {
                 str(entry.get("section"))
                 for entry in ran
-                if not str(entry.get("section") or "").startswith(f"{article}-")
+                if str(entry.get("section") or "").split("-")[0] not in allowed
             }
         )
         return [f"figure computed under {foreign}, not Article {article}"] if foreign else []
