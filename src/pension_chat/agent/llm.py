@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -161,6 +162,123 @@ def current_usage() -> TokenUsage | None:
 
 def _resolve_usage(explicit: TokenUsage | None) -> TokenUsage | None:
     return explicit if explicit is not None else _current_usage.get()
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool the model asked for, with its arguments already parsed."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolTurn:
+    """What one model call came back with: tools to run, or an answer.
+
+    ``raw_message`` is the assistant turn that *made* the calls, as a plain
+    dict ready to append. The API rejects a ``role: "tool"`` result whose call
+    is not already in the history, so the loop cannot skip it.
+    """
+
+    calls: tuple[ToolCall, ...]
+    content: str
+    raw_message: dict[str, Any]
+
+    @property
+    def done(self) -> bool:
+        return not self.calls
+
+
+def _parse_arguments(raw: Any) -> dict[str, Any]:
+    """A tool call's arguments, or an empty dict if the model mangled them.
+
+    Raising would end a member's turn over a recoverable mistake: the model has
+    still said which tool it wants, and the tool can report what it needed.
+    """
+    try:
+        parsed = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+async def call_with_tools(
+    *,
+    node: str,
+    messages: list[dict],
+    tools: list[dict],
+    usage: TokenUsage | None = None,
+    reasoning_effort: str = "none",
+    attempts: int = 2,
+    timeout: float | None = None,
+) -> ToolTurn:
+    """One completion that may ask for tools.
+
+    Retries transport failures the way `complete` does, and for the same
+    reason: a 400 from a malformed request is a bug, not something a second
+    attempt fixes.
+    """
+    settings = get_settings()
+    client = get_llm()
+    if timeout is not None:
+        client = client.with_options(timeout=timeout)
+    kwargs: dict[str, Any] = {
+        "model": settings.azure_openai_chat_deployment,
+        "messages": messages,
+        "reasoning_effort": reasoning_effort,
+    }
+    # An empty tool list with `tool_choice` set is a 400, not a no-op.
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        started = time.perf_counter()
+        try:
+            response = await client.chat.completions.create(**kwargs)
+            accumulator = _resolve_usage(usage)
+            if accumulator is not None:
+                accumulator.record(node, response.usage)
+            message = response.choices[0].message
+            raw_calls = list(getattr(message, "tool_calls", None) or [])
+            calls = tuple(
+                ToolCall(
+                    id=call.id,
+                    name=call.function.name,
+                    arguments=_parse_arguments(call.function.arguments),
+                )
+                for call in raw_calls
+            )
+            raw_message: dict[str, Any] = {"role": "assistant"}
+            if message.content:
+                raw_message["content"] = message.content
+            if raw_calls:
+                raw_message["tool_calls"] = [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.function.name,
+                            "arguments": call.function.arguments,
+                        },
+                    }
+                    for call in raw_calls
+                ]
+            logger.debug(
+                "%s asked for %d tool(s) in %.2fs", node, len(calls), time.perf_counter() - started
+            )
+            return ToolTurn(
+                calls=calls, content=message.content or "", raw_message=raw_message
+            )
+        except _RETRYABLE as exc:
+            last_error = exc
+            logger.warning("%s transport error (attempt %d): %s", node, attempt + 1, exc)
+            await asyncio.sleep(0.4 * (attempt + 1))
+
+    raise last_error if last_error else RuntimeError(f"{node} failed with no error")
 
 
 async def complete(
