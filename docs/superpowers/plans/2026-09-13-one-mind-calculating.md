@@ -212,7 +212,7 @@ failure. In the order their evidence justifies:
 
 Built after the 3b measurement, gated on re-running `routing` before anything
 else: `642f47a` (the four state-visibility fixes, routing 3/7 -> 7/7) and
-`7bd7f3f` (the null-content 400).
+`62cea31` (the null-content 400).
 
 **The loop now matches the pipeline at 18/20, category for category**, passes
 L08 and L09 where the pipeline does not, and withdraws fewer answers (1/47
