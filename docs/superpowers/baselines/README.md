@@ -4,9 +4,8 @@ What the pipeline scored before the agent loop existed, so "the loop is better"
 is a measurement rather than an impression.
 
 Cutover (spec §7) compares the loop against the full-suite pipeline report.
-**That report does not exist yet** — see "The full-suite run does not fit in
-one quota window" below. The three category reports here are valid; the
-full-suite one is not.
+**That report does not exist yet** — the first attempt died when the machine
+went to sleep mid-run; see below. The three category reports here are valid.
 
 The criteria:
 
@@ -60,26 +59,36 @@ measurement tends to assert the diagnosis. The `gap:` on each `expected_fail`
 now records what the pipeline actually did, not what it was assumed to do.
 
 
-## The full-suite run does not fit in one quota window
+## The first full-suite attempt: the machine went to sleep
 
 `2026-09-13-pipeline-INCOMPLETE.json` is kept as evidence, not as a baseline.
-The first 38 cases ran clean; **every case from index 38 onward failed**, with
-no token usage recorded at all on most of them:
+The first 38 cases ran clean; **every case from index 38 onward failed**, most
+with no token usage recorded at all:
 
 ```
 . . . . . X . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X X
 ```
 
-A hard cutover partway through, not a scatter. `llm.py` already retries
-`RateLimitError`, so the retries were exhausted too: the run spent 660,750
-tokens across 152 turns and ran out of Azure quota. Nothing in the agent
-regressed — the three category suites, run separately an hour earlier, were
-healthy, and excluding the errors leaves only a handful of genuine case
-failures.
+The Windows event log settles it. The run was 01:13:09 to 01:53:46, and:
 
-**This matters beyond one bad run.** Cutover needs the *same* suite run twice,
-once per mode, and neither fits. So the procedure has to change: run by
-category with `--category`, write a report per category, and compare
-category-to-category rather than whole-run to whole-run. Whoever executes
-Phase 3 should plan for that rather than discover it.
+```
+01:31:11  Kernel-Power 506  The system is entering Modern Standby
+01:31:17  Kernel-Power 172  Connectivity state in standby: Disconnected
+01:53:42  Kernel-Power 172  Connectivity state in standby: Connected
+```
+
+The lid closed 18 minutes in. Network went down at 01:31:17 — which is case 38
+— and came back four seconds before the run ended. `APIConnectionError` is in
+`llm.py`'s `_RETRYABLE`, so every turn retried into a network that was not
+there and then gave up.
+
+Nothing regressed, and nothing was throttled: the three category suites ran
+healthy an hour earlier, and stripping the connection errors leaves only a
+handful of genuine case failures.
+
+**The lesson is mundane and worth writing down anyway:** a full-suite run is
+~40 minutes of continuous network, so it needs the machine kept awake —
+`powercfg /change standby-timeout-ac 0` for the duration, or simply not closing
+the lid. Re-running by `--category` also works and has the side benefit of a
+report per category, which is the shape cutover compares anyway.
