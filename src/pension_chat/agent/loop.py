@@ -39,6 +39,10 @@ BUDGETS: dict[str, int] = {
     "related_sections": 6,
 }
 
+#: How many cross-referenced sections to read before answering. Bounded so one
+#: section naming a dozen others cannot flood the answer's context.
+MAX_COMPLETION_FETCHES = 3
+
 INVESTIGATE_SYSTEM = """You are researching one member's question about the Illinois
 Pension Code (40 ILCS 5/). You are not writing the answer yet -- you are finding
 out what the Code says, and you will write the answer yourself once you have.
@@ -103,6 +107,23 @@ def _available(spent: dict[str, int]) -> list[dict[str, Any]]:
 def _merge_sections(existing: list[dict], incoming: list[dict]) -> list[dict]:
     seen = {s.get("section") for s in existing}
     return existing + [s for s in incoming if s.get("section") not in seen]
+
+
+def _reference_weights(sections: list[dict]) -> dict[str, int]:
+    """How many of the gathered sections lean on each one they name.
+
+    The same weighting Phase 1 gave `_follow_references`, for the same reason: a
+    provision two sections turn on is likelier to be load-bearing than one
+    mentioned once in passing.
+    """
+    read = {s.get("section") for s in sections}
+    weights: dict[str, int] = {}
+    for section in sections:
+        for reference in section.get("referenced_sections") or []:
+            target = str(reference).split("(")[0].strip()
+            if target and target not in read:
+                weights[target] = weights.get(target, 0) + 1
+    return weights
 
 
 def _unread_references(sections: list[dict]) -> list[str]:
@@ -216,6 +237,35 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
+
+    # ── Complete the evidence before the answer is written ───────
+    #
+    # The step the loop dropped and the pipeline always had: `resolve_recipes`
+    # pulls a recipe's cross-referenced sections in explicitly, because an
+    # answer that names Section 11-216 without its text in front of it is
+    # citing from memory and verification rejects it outright. The loop gathered
+    # evidence that leaned on sections it never read, cited them, and had each
+    # answer thrown away. Two prompt-level attempts did not stop it, because it
+    # was never a prompt problem.
+    #
+    # Skipped when the budget is gone: this is worth a few calls, not an
+    # overrun, and `unread_references` reports what is left either way.
+    if not exhausted:
+        weights = _reference_weights(sections)
+        wanted = sorted(weights, key=lambda s: (-weights[s], s))[:MAX_COMPLETION_FETCHES]
+        for target in wanted:
+            result, update = await run_tool("get_section", {"section": target}, state)
+            if update.get("retrieved_sections"):
+                sections = _merge_sections(sections, update["retrieved_sections"])
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"The text you gathered leans on Section {target}, so it "
+                            f"has been read for you:" + chr(10) + chr(10) + f"{result}"
+                        ),
+                    }
+                )
 
     return {
         "retrieved_sections": sections,

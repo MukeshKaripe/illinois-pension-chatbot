@@ -234,3 +234,89 @@ async def test_an_outline_alone_does_not_count_as_having_read_the_code(monkeypat
 
     assert "get_section" in calls, "an outline is not enough to answer from"
     assert out["consulted_nothing"] is False
+
+
+async def test_the_evidence_is_completed_before_the_answer_is_written(monkeypatch):
+    """The step the loop dropped, which the pipeline had all along.
+
+    `resolve_recipes` pulls a recipe's cross-referenced sections in explicitly,
+    because "an answer that names Section 11-216 without its text in front of it
+    is citing from memory, which verification rejects outright". The loop
+    gathered evidence that leaned on sections it never read, and then cited them
+    -- 11-216, 11-160.1, 11-124 -- and the guardrail threw each answer away.
+
+    Two prompt-level attempts did not stop it, because it was never a prompt
+    problem: the evidence was incomplete.
+    """
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")])
+    fetched: list[str] = []
+
+    async def fake_run(name, arguments, state):
+        if name == "get_section":
+            fetched.append(arguments["section"])
+            return "text", {"retrieved_sections": [{"section": arguments["section"], "text": "t"}]}
+        return "found", {
+            "retrieved_sections": [
+                {"section": "11-134", "text": "t", "referenced_sections": ["11-216"]}
+            ]
+        }
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    out = await loop_mod.investigate({"question": "q", "messages": []})
+
+    assert fetched == ["11-216"], "the section the evidence leans on is read before answering"
+    assert {s["section"] for s in out["retrieved_sections"]} == {"11-134", "11-216"}
+    assert out["unread_references"] == [], "nothing is left dangling"
+
+
+async def test_completion_prefers_what_the_most_sections_lean_on(monkeypatch):
+    """Bounded, so one section naming a dozen others cannot flood the answer.
+
+    Ranked by how many of the gathered sections depend on each target -- the
+    same weighting Phase 1 gave `_follow_references`, for the same reason.
+    """
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")])
+    fetched: list[str] = []
+
+    async def fake_run(name, arguments, state):
+        if name == "get_section":
+            fetched.append(arguments["section"])
+            return "text", {"retrieved_sections": [{"section": arguments["section"], "text": "t"}]}
+        return "found", {
+            "retrieved_sections": [
+                {"section": "11-130", "text": "t", "referenced_sections": ["11-216", "11-169"]},
+                {"section": "11-134", "text": "t", "referenced_sections": ["11-216", "11-131"]},
+                {"section": "11-133", "text": "t", "referenced_sections": ["11-216"]},
+            ]
+        }
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    out = await loop_mod.investigate({"question": "q", "messages": []})
+
+    assert fetched[0] == "11-216", "three sections lean on it; the others one each"
+    assert len(fetched) <= loop_mod.MAX_COMPLETION_FETCHES
+    assert out["unread_references"] == [] or "11-216" not in out["unread_references"]
+
+
+async def test_completion_does_not_run_when_the_budget_is_gone(monkeypatch):
+    """An exhausted loop has already spent what it had. Completing evidence is
+    worth a few calls, not an overrun."""
+    _script(monkeypatch, [_turn(("get_section", {"section": "11-134"})) for _ in range(60)])
+    fetched: list[str] = []
+
+    async def fake_run(name, arguments, state):
+        fetched.append(arguments.get("section", "?"))
+        return "text", {
+            "retrieved_sections": [
+                {"section": "11-134", "text": "t", "referenced_sections": ["11-216"]}
+            ]
+        }
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    out = await loop_mod.investigate({"question": "q", "messages": []})
+
+    assert out["loop_exhausted"] is True
+    assert out["unread_references"] == ["11-216"], "reported instead, so compose can say so"
