@@ -114,3 +114,70 @@ async def test_a_tool_that_blows_up_does_not_end_the_turn(monkeypatch):
     assert "index on fire" in text
     assert "different approach" in text
     assert update == {}
+
+
+# ── Enrichment, never a filter ────────────────────────────────────
+
+
+async def test_a_hint_rides_beside_the_results_it_did_not_choose(monkeypatch):
+    """"Sections that previously answered questions like this" is a line of
+    text next to the results. The search still ran its own query and still
+    returned what it found."""
+
+    async def fake_recall(question, *, article, tier):
+        return ["11-216", "11-134"]
+
+    monkeypatch.setattr(tools.memory, "recall", fake_recall)
+    async def found(queries, **kwargs):
+        return [_section("11-134")]
+
+    monkeypatch.setattr(tools, "retrieve", found)
+
+    text, update = await tools.run_tool(
+        "search_statute",
+        {"queries": ["early retirement reduction"], "why": "the reduction"},
+        {"question": "can I retire early?", "coverage": {"article": "11"}},
+    )
+    assert "11-216" in text
+    assert "previously answered" in text.lower()
+    assert [s["section"] for s in update["retrieved_sections"]] == ["11-134"], (
+        "the hint changed nothing about what was searched or returned"
+    )
+
+
+async def test_a_hint_cannot_suppress_a_fresh_search(monkeypatch):
+    """The safety property, stated as a test. A section that once got lucky
+    must not be able to entrench itself, so recall never reaches the query."""
+    seen: dict = {}
+
+    async def fake_recall(question, *, article, tier):
+        return ["11-999"]
+
+    async def fake_retrieve(queries, **kwargs):
+        seen["queries"] = list(queries)
+        seen["kwargs"] = kwargs
+        return []
+
+    monkeypatch.setattr(tools.memory, "recall", fake_recall)
+    monkeypatch.setattr(tools, "retrieve", fake_retrieve)
+
+    await tools.run_tool(
+        "search_statute", {"queries": ["widow annuity"], "why": "survivors"}, {}
+    )
+    assert seen["queries"] == ["widow annuity"]
+    assert "11-999" not in str(seen["kwargs"]), "no hint reaches the retrieval call"
+
+
+async def test_no_memory_means_no_line(monkeypatch):
+    async def fake_recall(question, *, article, tier):
+        return []
+
+    monkeypatch.setattr(tools.memory, "recall", fake_recall)
+    async def found(queries, **kwargs):
+        return [_section("11-134")]
+
+    monkeypatch.setattr(tools, "retrieve", found)
+    text, _ = await tools.run_tool(
+        "search_statute", {"queries": ["x"], "why": "y"}, {}
+    )
+    assert "previously answered" not in text.lower()

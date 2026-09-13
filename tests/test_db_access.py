@@ -24,9 +24,19 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "pension_chat"
 # The raw factory sets no identity. It is legitimate only where the tables have
 # no policy to satisfy: `db/session.py` builds the scoped helpers out of it, and
 # the registry holds statutory knowledge shared by every member, not member data.
+#
+# `agent/memory.py` is the same category and the reasoning is worth writing
+# down, because "it has no policy" is the sentence a mistake would also produce.
+# `answer_evidence` stores section numbers against a question with the asker's
+# own particulars stripped out -- no employee id, no account, no figures, and
+# nothing that differs between two members asking the same thing. There is no
+# per-user slice of it to enforce: what it remembers is about the Pension Code,
+# not about a person. `session_id` is kept only so a row can be traced back to
+# the turn that produced it.
 MAY_USE_RAW_FACTORY = {
     Path("db/session.py"),
     Path("agent/registry.py"),
+    Path("agent/memory.py"),
 }
 
 

@@ -143,6 +143,12 @@ class Settings(BaseSettings):
     capture_failures: bool = True
     capture_dir: str = "evals/_captured"
 
+    # Remember which sections verifiably answered a kind of question, and
+    # offer them back as a hint on a later search. Never a filter: a section
+    # that once got lucky must not be able to suppress the search that would
+    # have found a better one.
+    answer_memory_enabled: bool = True
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

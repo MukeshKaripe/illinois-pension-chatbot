@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from pension_chat.agent import corpus
+from pension_chat.agent import corpus, memory
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
     execute_calculations,
@@ -307,8 +307,28 @@ async def _search(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
     )
     rows = [s.to_dict() for s in found]
     body = _render(rows, settings.retrieval_context_token_budget * 4)
+
+    # Enrichment, never a filter. The search above has already run its own
+    # query and returned what it found; this is a line of text beside the
+    # results. A section that once got lucky therefore cannot entrench itself
+    # by suppressing the search that would have found a better one, which is
+    # the failure mode every retrieval cache has.
+    coverage = state.get("coverage") or {}
+    hint = await memory.recall(
+        str(state.get("question") or " ".join(queries)),
+        article=str(coverage.get("article") or "") or None,
+        tier=(state.get("member_facts") or {}).get("tier"),
+    )
+    remembered = (
+        "Sections that previously answered questions like this, and whose "
+        f"answers were verified: {', '.join(hint)}. Read one if it looks "
+        "relevant; it is a hint, not a finding."
+        if hint
+        else ""
+    )
+
     return (
-        f"{_quality(rows)}\n\n{body}".strip(),
+        "\n\n".join(p for p in (_quality(rows), remembered, body) if p).strip(),
         {"retrieved_sections": rows},
     )
 

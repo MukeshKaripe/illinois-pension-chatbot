@@ -50,6 +50,7 @@ from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
 from pension_chat.agent.loop import compose, investigate
+from pension_chat.agent.memory import remember
 from pension_chat.agent.nodes import (
     _available_facts,
     _record_facts_usable,
@@ -540,6 +541,10 @@ async def run_agent_stream(
     # the card goes with them.
     card = None
     if report.passed:
+        # The verifier's pass is the label. Nothing enters the memory on the
+        # strength of the model's own opinion, and a replaced answer teaches
+        # the system nothing -- that one goes to `capture` instead.
+        await remember(state, report)
         card = calculation_card(
             state,
             WorkSheet.from_state(

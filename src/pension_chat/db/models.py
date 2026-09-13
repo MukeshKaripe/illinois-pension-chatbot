@@ -310,6 +310,47 @@ class SessionMessage(Base):
     session: Mapped[Session] = relationship(back_populates="messages")
 
 
+class AnswerEvidence(Base):
+    """Which sections verifiably answered a kind of question before.
+
+    Not a cache and not a belief. A row says only that an answer resting on
+    these sections passed verification, and it is offered back as enrichment on
+    a search result -- never as a filter, so a section that once got lucky
+    cannot entrench itself by suppressing the search that would find a better
+    one.
+
+    Written only on a guardrail pass: the verifier's judgement is the label, so
+    nothing enters on the strength of the model's own opinion.
+
+    `embedding` is JSONB rather than a pgvector column on purpose. The pilot's
+    row count is small enough that cosine in Python over an Article-filtered
+    slice is unmeasurably fast, and it keeps the schema free of an extension
+    the deployment does not otherwise need. Swapping it later is a migration,
+    not a redesign.
+    """
+
+    __tablename__ = "answer_evidence"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    concept: Mapped[str] = mapped_column(Text, nullable=False)
+    # Where the concept phrase came from: the member's question with their own
+    # particulars stripped, a coverage determination, or (later) a canonical
+    # phrase the model emitted. Recorded so that adding one needs no migration.
+    concept_source: Mapped[str] = mapped_column(Text, nullable=False, server_default="question")
+    embedding: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    article: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tier: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    sections: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_answer_evidence_article_tier", "article", "tier"),
+    )
+
+
 class FormulaRegistry(Base):
     """Calculation Knowledge Registry: stores reusable agent-derived recipes
     and promoted/approved capabilities.
