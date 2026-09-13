@@ -1084,6 +1084,34 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
             resolved[name] = value
             taken[name] = value
 
+    # An age the member named is not one fact among several: months before 60,
+    # service and the salary window are all computed *from* it. Splicing the age
+    # in and leaving its dependents at today's values is how a base figure came
+    # to pair age_at_annuity_start 58 with months_before_age_60 44, which is the
+    # reduction for a member of 56 -- a figure whose own inputs disagree.
+    #
+    # Only the facts the record supplied are recomputed. Anything the member
+    # stated stays theirs, which is the precedence `execute_calculations`
+    # already uses for scenario variants.
+    named_age = taken.get("age_at_annuity_start")
+    employee_for_age = state.get("employee_record")
+    if named_age is not None and employee_for_age and not _coverage_elsewhere(state):
+        try:
+            at_age = build_member_facts(
+                employee_for_age,
+                [
+                    (date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+                    for h in (state.get("salary_history") or [])
+                ],
+                assumed_retirement_age=int(named_age),
+            )
+        except (TypeError, ValueError, KeyError):
+            logger.warning("Could not recompute facts at age %r", named_age)
+            at_age = {}
+        for name in declared:
+            if name in from_record and name not in taken and name in at_age:
+                resolved[name] = at_age[name]
+
     # Where the member stated something their record contradicts, the stated
     # value is used and the difference is surfaced in the answer rather than
     # silently resolved either way.
