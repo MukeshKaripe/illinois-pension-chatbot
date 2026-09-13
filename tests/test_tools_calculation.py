@@ -410,7 +410,9 @@ async def test_find_provision_reports_when_nothing_reaches_them(monkeypatch):
     the same as an error."""
     _chain(monkeypatch, recipes={})
     text, _ = await tools.run_tool(
-        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
+        "find_provision",
+        {"benefit": "retirement_annuity"},
+        {"question": "q", "retrieved_sections": [{"section": "2-119"}]},
     )
     assert "retirement_annuity" in text
     assert "could not" in text.lower() or "no provision" in text.lower()
@@ -445,7 +447,44 @@ async def test_no_recipe_at_all_is_reported_as_such(monkeypatch):
     "No provision could be resolved" is a reason, and the member is owed it."""
     _chain(monkeypatch, recipes={}, result={})
     text, _ = await tools.run_tool(
-        "compute_benefit", {"benefit": "retirement_annuity"}, {"question": "q"}
+        "compute_benefit",
+        {"benefit": "retirement_annuity"},
+        {"question": "q", "retrieved_sections": [{"section": "2-119"}]},
     )
     assert "no provision" in text.lower()
     assert "retirement_annuity" in text
+
+
+async def test_a_calculation_tool_called_before_any_reading_says_so(monkeypatch):
+    """F17 and F18, and the same lesson a third time.
+
+    `find_provision` and `compute_benefit` derive from the statute text
+    retrieved *so far*. The model tends to reach for them early, before it has
+    read anything, so `resolve_recipes` runs against an empty corpus, fails
+    with "no statute text was retrieved", and returns nothing -- and the turn
+    ends with a provision named from an outline and no figure.
+
+    The pipeline cannot do this: retrieval always precedes resolve_recipes. The
+    loop chooses the order, so the precondition has to be reported rather than
+    silently failed, which is the tool contract this module opens with.
+    """
+    _chain(monkeypatch, recipes={}, result={})
+    for tool in ("find_provision", "compute_benefit"):
+        text, _ = await tools.run_tool(
+            tool, {"benefit": "retirement_annuity"}, {"question": "q"}
+        )
+        assert "search" in text.lower(), tool
+        assert "not read" in text.lower() or "nothing" in text.lower(), tool
+
+
+async def test_having_read_something_it_reports_the_real_reason(monkeypatch):
+    """The precondition is "nothing has been read", not "no recipe resolved".
+    A member the provision genuinely does not reach must still hear that."""
+    _chain(monkeypatch, recipes={}, result={})
+    text, _ = await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity"},
+        {"question": "q", "retrieved_sections": [{"section": "11-134"}]},
+    )
+    assert "no provision" in text.lower()
+    assert "search" not in text.lower()

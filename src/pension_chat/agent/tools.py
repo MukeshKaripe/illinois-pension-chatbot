@@ -415,6 +415,23 @@ async def _related(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
     )
 
 
+#: Why no provision could be resolved, when the answer is "you have not read
+#: anything yet". Both calculation tools fall back to *deriving* a recipe from
+#: the statute retrieved so far, and the model tends to reach for them early --
+#: so derivation runs against an empty corpus and returns nothing, leaving the
+#: turn with a provision named from an outline and no figure.
+#:
+#: Reported rather than required. A recipe already in the registry needs no
+#: retrieval at all, and refusing to compute until something had been searched
+#: would break every reuse -- which is most turns, and the case the registry
+#: exists for. The precondition belongs to derivation, not to computing.
+_NOTHING_READ = (
+    "You have not read any statute text yet, so there was nothing to derive a "
+    "calculation from and none was already on file. Use search_statute first "
+    "-- for this member's own Article -- and then ask again."
+)
+
+
 def _scenario(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     """The scenario the member named, if any.
 
@@ -442,6 +459,7 @@ def _describe(
     stale: list[str] | None = None,
     revised: dict[str, Any] | None = None,
     benefit: str = "this benefit",
+    read_anything: bool = True,
 ) -> str:
     """What to tell the model, whichever of the three things happened."""
     lines: list[str] = []
@@ -505,6 +523,8 @@ def _describe(
         # input and no block, so the turn ended with neither a figure nor a
         # reason. "No provision could be resolved" is a reason, and it is one
         # the member is owed rather than one to swallow.
+        if not read_anything:
+            return _NOTHING_READ
         return (
             f"No figure for {benefit}. No provision could be resolved for this "
             "member, so there was nothing to compute -- say that you could not "
@@ -652,6 +672,7 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             stale,
             _revised(update),
             benefit,
+            bool(state.get("retrieved_sections")),
         ),
         update,
     )
@@ -923,6 +944,8 @@ async def _find_provision(arguments: dict[str, Any], state: dict) -> tuple[str, 
     update = await resolve_recipes(slice_)  # type: ignore[arg-type]
     recipe = (update.get("recipes") or {}).get(benefit)
     if not recipe:
+        if not (state.get("retrieved_sections") or []):
+            return _NOTHING_READ, update
         return (
             f"No provision for {benefit} could be resolved for this member. Say "
             "what you could not establish rather than naming one from an outline.",
