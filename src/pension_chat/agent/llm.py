@@ -138,6 +138,10 @@ class TokenUsage:
 
 _RETRYABLE = (APIConnectionError, APITimeoutError, RateLimitError)
 
+#: How many times to try *opening* a stream. The same count the
+#: non-streaming path uses by default, for the same transport faults.
+_STREAM_OPEN_ATTEMPTS = 3
+
 # Token accounting is per-request but every node calls the model independently.
 # A context variable threads one accumulator through the whole turn without
 # putting a mutable object into the graph state (LangGraph would drop a key the
@@ -379,7 +383,29 @@ async def stream(
     if max_completion_tokens:
         kwargs["max_completion_tokens"] = max_completion_tokens
 
-    response = await client.chat.completions.create(**kwargs)
+    # Opening the stream is retried; the stream itself is not.
+    #
+    # A pipeline turn was lost to "could not finish writing the answer" on a
+    # different case each run -- F12, then F19 -- which is the transport rather
+    # than the case. The failure is here, in `create()`, before any delta
+    # exists. The rule against retrying streaming is about text the member has
+    # already seen; nothing has been sent when the call to open it fails, so
+    # retrying costs them nothing and saves the whole turn.
+    response = None
+    last_error: Exception | None = None
+    for attempt in range(_STREAM_OPEN_ATTEMPTS):
+        try:
+            response = await client.chat.completions.create(**kwargs)
+            break
+        except _RETRYABLE as exc:
+            last_error = exc
+            logger.warning(
+                "%s could not open the stream (attempt %d): %s", node, attempt + 1, exc
+            )
+            await asyncio.sleep(0.4 * (attempt + 1))
+    if response is None:
+        raise last_error if last_error else RuntimeError(f"{node}: stream failed to open")
+
     async for chunk in response:
         accumulator = _resolve_usage(usage)
         if getattr(chunk, "usage", None) and accumulator is not None:

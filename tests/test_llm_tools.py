@@ -10,7 +10,33 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+from openai import APIConnectionError
+
 from pension_chat.agent import llm
+
+
+async def _no_sleep(_seconds):
+    return None
+
+
+def _chunks(deltas):
+    """An async iterator of stream chunks; a None delta raises mid-stream."""
+
+    class _Stream:
+        def __aiter__(self):
+            return self._gen()
+
+        async def _gen(self):
+            for text in deltas:
+                if text is None:
+                    raise APIConnectionError(request=None)
+                yield SimpleNamespace(
+                    usage=None,
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content=text))],
+                )
+
+    return _Stream()
 
 
 class _Fn:
@@ -179,3 +205,57 @@ def test_a_plain_answer_turn_keeps_its_own_words():
     raw = llm._assistant_message(message)
     assert raw["content"] == "Here is what I found."
     assert "tool_calls" not in raw
+
+
+# ── Opening the stream is retryable; the stream itself is not ─────
+
+
+async def test_opening_the_stream_is_retried(monkeypatch):
+    """A pipeline turn was lost to "could not finish writing the answer" on a
+    different case each run -- F12, then F19 -- so it is the transport, not the
+    case. The failure happens in `create()`, before any delta exists.
+
+    Streaming deliberately is not retried: once a delta has been handed to the
+    caller it is already on the member's screen, and a silent restart would
+    duplicate text. That reasoning is about the *stream*. Nothing has been sent
+    when the call to open it fails, so retrying there costs a member nothing
+    and saves the whole turn.
+    """
+    attempts: list[int] = []
+
+    async def flaky(**kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise APIConnectionError(request=None)
+        return _chunks(["Here ", "it is."])
+
+    monkeypatch.setattr(llm, "get_llm", lambda: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=flaky))
+    ))
+    monkeypatch.setattr(llm.asyncio, "sleep", _no_sleep)
+
+    out = "".join([delta async for delta in llm.stream(node="answer", messages=[])])
+    assert out == "Here it is."
+    assert len(attempts) == 3
+
+
+async def test_a_failure_after_the_first_delta_is_not_retried(monkeypatch):
+    """The member has already seen the opening words. Starting again would
+    repeat them."""
+    attempts: list[int] = []
+
+    async def once(**kwargs):
+        attempts.append(1)
+        return _chunks(["Here ", None])  # None raises mid-stream
+
+    monkeypatch.setattr(llm, "get_llm", lambda: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=once))
+    ))
+    monkeypatch.setattr(llm.asyncio, "sleep", _no_sleep)
+
+    seen = []
+    with pytest.raises(APIConnectionError):
+        async for delta in llm.stream(node="answer", messages=[]):
+            seen.append(delta)
+    assert seen == ["Here "]
+    assert len(attempts) == 1, "no second attempt once text has gone out"
