@@ -55,7 +55,7 @@ class Threshold:
     subsection: str | None
     description: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "fact": self.fact,
             "boundary": self.boundary,
@@ -81,8 +81,8 @@ def _plain(value: Decimal) -> Any:
 
 
 def find_thresholds(
-    spec: dict,
-    facts: dict,
+    spec: dict[str, Any],
+    facts: dict[str, Any],
     *,
     horizon_months: int = _DEFAULT_HORIZON_MONTHS,
 ) -> list[Threshold]:
