@@ -54,3 +54,61 @@ def test_a_record_input_keeps_the_sheets_own_label() -> None:
         question="What would my pension be?",
     )
     assert origins == {"service_years": "stated"}
+
+
+async def test_an_extracted_age_moves_the_facts_derived_from_it(monkeypatch):
+    """L03's base paired age 58 with months_before_age_60 44.
+
+    44 months before 60 is a member of 56. Splicing one fact out of the message
+    while every fact computed from it stays at today's value produces a figure
+    whose own inputs contradict each other -- and that figure sits in
+    `calculation_results`, where the guardrail admits its digits and the card
+    may show them.
+    """
+    from pension_chat.agent.nodes import resolve_inputs
+
+    state = {
+        "question": "I'm thinking of retiring at 58. How much would I get?",
+        "messages": [],
+        "employee_record": {
+            "id": "e1",
+            "article_number": 11,
+            "tier": 1,
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-01-01",
+            "employment_status": "active",
+            "total_service_years": 21.5,
+            "current_annual_salary": 72000.0,
+            "extra_facts": {},
+        },
+        "salary_history": [],
+        "recipes": {
+            "retirement_annuity": {
+                "spec": {
+                    "inputs": [
+                        {"name": "age_at_annuity_start", "type": "number", "required": True},
+                        {"name": "months_before_age_60", "type": "number", "required": True},
+                    ]
+                }
+            }
+        },
+        "member_facts": {
+            "age": 56,
+            "age_at_annuity_start": 56,
+            "months_before_age_60": 44,
+            "service_years": 21.5,
+        },
+    }
+
+    async def fake_complete(**kwargs):
+        return '{"resolved": {"age_at_annuity_start": 58}, "unresolved": []}'
+
+    monkeypatch.setattr("pension_chat.agent.nodes.complete", fake_complete)
+
+    out = await resolve_inputs(state)
+    resolved = out["resolved_inputs"]
+
+    assert str(resolved["age_at_annuity_start"]) == "58"
+    assert str(resolved["months_before_age_60"]) != "44", (
+        "months before 60 must move when the annuity start age does"
+    )

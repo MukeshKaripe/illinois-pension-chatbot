@@ -1084,6 +1084,34 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
             resolved[name] = value
             taken[name] = value
 
+    # An age the member named is not one fact among several: months before 60,
+    # service and the salary window are all computed *from* it. Splicing the age
+    # in and leaving its dependents at today's values is how a base figure came
+    # to pair age_at_annuity_start 58 with months_before_age_60 44, which is the
+    # reduction for a member of 56 -- a figure whose own inputs disagree.
+    #
+    # Only the facts the record supplied are recomputed. Anything the member
+    # stated stays theirs, which is the precedence `execute_calculations`
+    # already uses for scenario variants.
+    named_age = taken.get("age_at_annuity_start")
+    employee_for_age = state.get("employee_record")
+    if named_age is not None and employee_for_age and not _coverage_elsewhere(state):
+        try:
+            at_age = build_member_facts(
+                employee_for_age,
+                [
+                    (date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+                    for h in (state.get("salary_history") or [])
+                ],
+                assumed_retirement_age=int(named_age),
+            )
+        except (TypeError, ValueError, KeyError):
+            logger.warning("Could not recompute facts at age %r", named_age)
+            at_age = {}
+        for name in declared:
+            if name in from_record and name not in taken and name in at_age:
+                resolved[name] = at_age[name]
+
     # Where the member stated something their record contradicts, the stated
     # value is used and the difference is surfaced in the answer rather than
     # silently resolved either way.
@@ -1501,7 +1529,10 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                     )
                     continue
                 scenario_facts = build_member_facts(
-                    employee, salary_history, assumed_retirement_age=int(age)
+                    employee,
+                    salary_history,
+                    assumed_retirement_age=int(age),
+                    salary_growth=_growth_rate(scenario),
                 )
                 # Recomputed facts replace the record-derived values (that is
                 # what varying the retirement age means), but anything the user
@@ -1561,9 +1592,15 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                             "final_average_salary": _money(
                                 scenario_facts.get("final_average_salary")
                             ),
-                            "salary_basis": (
+                            # Read from the facts that produced the figure, not
+                            # written here: a disclosure and the number it
+                            # describes must not be able to drift apart, and a
+                            # member who supplied a growth rate is owed the rule
+                            # that was actually used.
+                            "salary_basis": scenario_facts.get(
+                                "salary_basis",
                                 "carried forward at today's level; future pay "
-                                "rises are not projected"
+                                "rises are not projected",
                             ),
                             "service_basis": (
                                 "assumes continuous employment to that age"
@@ -2235,6 +2272,26 @@ def _comparison_rows(state: PensionAgentState) -> list[dict[str, Any]]:
             return float("inf")
 
     return sorted(rows, key=_when)
+
+
+def _growth_rate(scenario: dict) -> Decimal | None:
+    """The salary growth the member asked for, or None to hold pay flat.
+
+    Accepts either form a model is likely to send: 0.03 or 3. Anything outside
+    a plausible band is dropped rather than guessed at -- a rate is a rule the
+    member supplied, and a misread one invents a salary instead of projecting
+    a known one.
+    """
+    raw = scenario.get("salary_growth")
+    if raw is None:
+        return None
+    try:
+        rate = Decimal(str(raw))
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+    if rate > 1:
+        rate = rate / 100
+    return rate if Decimal("0") <= rate <= Decimal("0.25") else None
 
 
 def _resolve_retirement_age(scenario: dict, facts: dict) -> int | None:

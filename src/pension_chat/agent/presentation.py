@@ -97,8 +97,15 @@ def shape_for(sheet: WorkSheet, state: dict[str, Any]) -> str:
     law, a comparison of dates, and an answer whose question was half outside
     the Pension Code.
     """
-    if scenarios_this_turn(state):
+    scenarios = scenarios_this_turn(state)
+    if len(scenarios) > 1:
         return "comparison"
+    if scenarios:
+        # A single named date is a question about that date, not a survey. The
+        # comparison lede names "the soonest option and the best one", which put
+        # the retire-now figure in front of a member who had asked about 58 --
+        # the first number they read answering a question they never asked.
+        return "projected"
     if state.get("answerable_part"):
         return "partial"
     if _has_figure(state):
@@ -133,6 +140,26 @@ TEMPLATES: dict[str, Template] = {
             "alternatives: which other provisions were weighed and exactly why "
             "each is not the answer. Never write a provision off as inapplicable "
             "when it applies and simply cannot be put to a number."
+        ),
+    ),
+    "projected": Template(
+        shape="projected",
+        # The same parts as a comparison, because one variant beside today's
+        # figure still earns the table and the difference. Only the lede
+        # differs, and that was the whole defect.
+        slots=("STATUS", "lede", "COMPARISON", "what_changes", "ASSUMPTIONS"),
+        guidance=(
+            "lede: the amount at the date they asked about, annual first with "
+            "monthly in brackets, and the date it assumes. One or two "
+            "sentences. Never open with today's figure -- they asked about a "
+            "date, and opening with 'the soonest option shown is ...' puts a "
+            "number in front of them that answers a question they did not ask. "
+            "Today's figure belongs in the table, and the difference belongs in "
+            "what_changes.\n"
+            "what_changes: what waiting gains them, in a sentence or two, then "
+            "one line on what the projection holds constant. Copy "
+            "difference_from_now_annual and difference_from_now_monthly; never "
+            "reach the difference by subtracting two amounts yourself."
         ),
     ),
     "comparison": Template(

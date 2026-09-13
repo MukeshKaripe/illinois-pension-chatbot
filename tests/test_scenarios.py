@@ -263,3 +263,37 @@ def test_a_follow_up_naming_an_age_carries_no_calculation_vocabulary():
     assert extract_scenarios(question) == [
         {"label": "at age 59", "retirement_age": 59}
     ]
+
+
+def test_a_model_offset_survives_corroboration():
+    """The failure L01 measured: "work two more years" names an offset no
+    pattern in this module governs, so the scenario died before it existed.
+
+    `corroborated` guards against scenarios leaking forward from earlier turns.
+    It has to recognise an offset the model found, or the guard eats the fix.
+    """
+    from pension_chat.agent.scenarios import corroborated
+
+    scenario = {"label": "two more years", "retirement_age": None, "years_from_now": 2}
+    assert corroborated(scenario, "if I work two more years, what would my pension be?")
+    # And still refuses one this message does not name at all.
+    assert not corroborated(scenario, "what about my wife?")
+
+
+def test_a_growth_rate_is_read_either_way_and_refused_when_implausible():
+    """Models send "3" as readily as "0.03", and both mean 3%.
+
+    Anything outside a plausible band is dropped rather than guessed at: a rate
+    is a rule the member supplied, and a misread one invents a salary instead
+    of projecting a known one.
+    """
+    from decimal import Decimal
+
+    from pension_chat.agent.nodes import _growth_rate
+
+    assert _growth_rate({"salary_growth": 0.03}) == Decimal("0.03")
+    assert _growth_rate({"salary_growth": 3}) == Decimal("0.03")
+    assert _growth_rate({}) is None
+    assert _growth_rate({"salary_growth": None}) is None
+    assert _growth_rate({"salary_growth": "nonsense"}) is None
+    assert _growth_rate({"salary_growth": 400}) is None
