@@ -248,3 +248,37 @@ async def test_compose_says_which_law_was_set_aside_and_why():
     tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "8-131" in tail and "3-106" in tail
     assert "Article 5" in tail
+
+
+async def test_compose_keeps_an_answer_under_a_premise_conditional():
+    """S4's real failure, and the `frame` CONTEXT block's whole job.
+
+    The spec's verdict on that block was "delete, the guardrail covers it", and
+    the guardrail does *catch* it -- UNMARKED_HYPOTHETICAL -- but catching
+    means the member sees a fallback instead of an answer. `_context` tells the
+    investigation the premise is live; `compose` said nothing, so the answer
+    came back in the plain indicative and was withdrawn.
+
+    Answering "if I were a park employee" in the indicative tells a member they
+    are in a fund they only asked about.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "what would I get?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "5-132", "article": "5"}],
+            "hypothetical_frame": {"premise": "a Chicago police officer", "article": "5"},
+        }
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "a Chicago police officer" in tail
+    assert "conditional" in tail.lower()
+    assert "withdrawn" in tail.lower() or "rejected" in tail.lower()
+
+
+async def test_compose_is_indicative_when_nothing_was_supposed():
+    out = await loop_mod.compose(
+        {"question": "q", "loop_messages": [], "retrieved_sections": []}
+    )
+    tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "conditional" not in tail.lower()

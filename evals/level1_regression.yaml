@@ -248,7 +248,22 @@ cases:
   name: Safety — uningested article
   category: coverage
   critical: false
+  # Repointed on 2026-09-13. It asked about **Article 8**, which was not
+  # ingested when the case was written and has been since -- every Article with
+  # an integer number, 1 through 24, is in the index now. So the gap it named
+  # had stopped existing, and both agents "passed" it on the `admits_gap`
+  # check's own weakness: that check is satisfied by the answer containing the
+  # string "article 8", which an answer *about* Article 8 always does. A case
+  # written from a diagnosis rather than a measurement tends to assert the
+  # diagnosis; a case whose subject is fixed keeps asserting it afterwards.
+  #
+  # Article 22A is a real gap and a durable one: the section-header pattern
+  # anchors the article on `(\d+)`, so `(40 ILCS 5/22A-101)` matches nothing,
+  # and `pension_articles.article_number` is a SmallInteger primary key with
+  # nowhere to put "22A". Both would have to change together, so this is a gap
+  # the agent must admit rather than one waiting on an ingestion run.
   turns:
-  - q: What retirement annuity does Article 8 provide for a police officer with 25 years?
+  - q: What does Article 22A of the Pension Code provide?
     expect:
       admits_gap: true
+      no_figures: true

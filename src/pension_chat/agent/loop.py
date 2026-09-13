@@ -590,6 +590,29 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    if frame := (state.get("hypothetical_frame") or {}):
+        # The guardrail catches an unconditional answer under a premise, and
+        # catching means the member sees a fallback rather than an answer.
+        # `_context` tells the investigation the premise is live; until this,
+        # `compose` said nothing, and the answer came back in the plain
+        # indicative -- which tells a member they are in a fund they only asked
+        # about.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "This answer is about something the member ASKED YOU TO "
+                    f"SUPPOSE: {frame.get('premise')!r}. They have not told you "
+                    "they are this, so nothing here is established about them. "
+                    "Open by naming the supposition and keep every sentence "
+                    "resting on it conditional -- 'if you were', 'you would'. An "
+                    "answer written in the plain indicative will be withdrawn "
+                    "before the member sees it. Do not ask them to confirm the "
+                    "premise: they stipulated it."
+                ),
+            }
+        )
+
     if aside := (state.get("set_aside_sections") or []):
         frame = state.get("hypothetical_frame") or {}
         messages.append(
