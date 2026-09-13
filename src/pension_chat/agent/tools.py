@@ -24,7 +24,14 @@ import logging
 from typing import Any
 
 from pension_chat.agent import corpus
+from pension_chat.agent.nodes import (
+    execute_calculations,
+    resolve_inputs,
+    resolve_recipes,
+    validate_recipes,
+)
 from pension_chat.agent.retrieval import retrieve
+from pension_chat.agent.understanding import BENEFIT_TYPES
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.tools")
@@ -140,7 +147,52 @@ RETRIEVAL_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-TOOL_NAMES = tuple(tool["function"]["name"] for tool in RETRIEVAL_TOOLS)
+CALCULATION_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "compute_benefit",
+            "description": (
+                "Work out a benefit figure for this member. Runs the deterministic "
+                "calculation engine: it finds or derives the controlling provision, "
+                "resolves the inputs from the member's record and from what they "
+                "have told you, checks the provision reaches them, and computes. "
+                "You never do the arithmetic yourself. If an input is missing it "
+                "says which, so you can ask for that one thing rather than a list."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "benefit": {
+                        "type": "string",
+                        "enum": list(BENEFIT_TYPES),
+                        "description": "Which benefit to work out.",
+                    },
+                    "retirement_age": {
+                        "type": "integer",
+                        "description": (
+                            "An age the member named ('at 58'). Omit for a figure as "
+                            "of today."
+                        ),
+                    },
+                    "years_from_now": {
+                        "type": "integer",
+                        "description": (
+                            "An offset the member named ('two more years'). Never "
+                            "convert it to an age yourself -- it is resolved against "
+                            "their real age for you."
+                        ),
+                    },
+                },
+                "required": ["benefit"],
+            },
+        },
+    },
+]
+
+TOOL_NAMES = tuple(
+    tool["function"]["name"] for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS
+)
 
 
 def _render(sections: list[dict[str, Any]], budget: int) -> str:
@@ -246,8 +298,104 @@ async def _related(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
     )
 
 
+def _scenario(arguments: dict[str, Any]) -> list[dict[str, Any]]:
+    """The scenario the member named, if any.
+
+    An offset is carried unresolved on purpose: `_resolve_retirement_age` turns
+    "two more years" into an age against the member's *real* age at execution
+    time, and guessing it here would put a number on a fact this layer does not
+    have.
+    """
+    age = arguments.get("retirement_age")
+    offset = arguments.get("years_from_now")
+    if age is not None:
+        return [{"label": f"at age {int(age)}", "retirement_age": int(age)}]
+    if offset is not None:
+        return [{"label": f"{int(offset)} more years", "years_from_now": int(offset)}]
+    return []
+
+
+def _describe(
+    result: dict[str, Any],
+    missing: list[dict],
+    blocked: Any,
+    errors: list,
+    resolved: dict[str, Any] | None = None,
+) -> str:
+    """What to tell the model, whichever of the three things happened."""
+    lines: list[str] = []
+    for formula_type, entry in (result or {}).items():
+        base = (entry or {}).get("base") or {}
+        if base.get("ok"):
+            lines.append(
+                f"{formula_type}: {base.get('annual_amount')} a year "
+                f"({base.get('monthly_amount')} a month) under Section "
+                f"{entry.get('section')}."
+            )
+            # `_present` fills inputs_used; fall back to what was resolved, so
+            # the model always knows what the figure rests on and can say so.
+            used = base.get("inputs_used") or resolved or {}
+            if used:
+                lines.append(
+                    "  computed on: " + ", ".join(f"{k}={v}" for k, v in used.items())
+                )
+            for variant in entry.get("scenarios") or []:
+                lines.append(
+                    f"  {variant.get('label')}: {variant.get('annual_amount')} a year"
+                )
+    if missing:
+        lines.append(
+            "Could not compute: missing "
+            + "; ".join(str(m.get("ask_for") or m.get("name")) for m in missing)
+            + ". Ask the member for what is actually needed, and nothing else."
+        )
+    if blocked:
+        detail = "; ".join(str(e.get("detail") or e) for e in (errors or []))
+        lines.append(f"Blocked: {blocked}. {detail}".strip())
+    return chr(10).join(lines) or "No figure was produced and no reason was given."
+
+
+async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
+    benefit = str(arguments.get("benefit") or "")
+    if benefit not in BENEFIT_TYPES:
+        return (
+            f"There is no benefit called {benefit!r}. Available: "
+            + ", ".join(BENEFIT_TYPES)
+            + ".",
+            {},
+        )
+
+    # A slice of the turn's state, plus what the model asked for. The four nodes
+    # run in this order because it is a correctness constraint: resolve_inputs
+    # needs the recipe to know which inputs exist, and execute needs the
+    # validator's verdict.
+    slice_: dict[str, Any] = {
+        **state,
+        "requires_calculation": True,
+        "formula_types_needed": [benefit],
+        "scenarios": _scenario(arguments),
+    }
+    update: dict[str, Any] = {}
+    for node in (resolve_recipes, resolve_inputs, validate_recipes, execute_calculations):
+        produced = await node(slice_)  # type: ignore[arg-type]
+        slice_.update(produced)
+        update.update(produced)
+
+    return (
+        _describe(
+            update.get("calculation_result") or {},
+            update.get("missing_inputs") or [],
+            update.get("execution_blocked"),
+            update.get("validation_errors") or [],
+            update.get("resolved_inputs") or {},
+        ),
+        update,
+    )
+
+
 _HANDLERS = {
     "search_statute": _search,
+    "compute_benefit": _compute,
     "get_section": _get_section,
     "outline": _outline,
     "related_sections": _related,

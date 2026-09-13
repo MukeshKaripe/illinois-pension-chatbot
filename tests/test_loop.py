@@ -320,3 +320,33 @@ async def test_completion_does_not_run_when_the_budget_is_gone(monkeypatch):
 
     assert out["loop_exhausted"] is True
     assert out["unread_references"] == ["11-216"], "reported instead, so compose can say so"
+
+
+async def test_a_tool_sees_what_earlier_tools_found(monkeypatch):
+    """compute_benefit derives its recipe from the statute the loop gathered.
+
+    The loop kept its sections in a local and handed `run_tool` the turn's
+    original state, so a calculation ran against an empty corpus and reported
+    'no calculation ran' -- with the sections sitting right there in the loop.
+    """
+    _script(
+        monkeypatch,
+        [
+            _turn(("search_statute", {"queries": ["annuity"]})),
+            _turn(("compute_benefit", {"benefit": "retirement_annuity"})),
+            _turn(content="Here."),
+        ],
+    )
+    saw: list[list] = []
+
+    async def fake_run(name, arguments, state):
+        if name == "compute_benefit":
+            saw.append([s["section"] for s in (state.get("retrieved_sections") or [])])
+            return "figure", {}
+        return "found", {"retrieved_sections": [{"section": "11-134", "text": "t"}]}
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    await loop_mod.investigate({"question": "q", "messages": [], "retrieved_sections": []})
+
+    assert saw == [["11-134"]], "the calculation must see what the search found"

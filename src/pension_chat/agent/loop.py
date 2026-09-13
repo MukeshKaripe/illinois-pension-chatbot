@@ -23,7 +23,7 @@ from typing import Any
 
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM
-from pension_chat.agent.tools import RETRIEVAL_TOOLS, run_tool
+from pension_chat.agent.tools import CALCULATION_TOOLS, RETRIEVAL_TOOLS, run_tool
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.loop")
@@ -37,7 +37,12 @@ BUDGETS: dict[str, int] = {
     "get_section": 10,
     "outline": 4,
     "related_sections": 6,
+    "compute_benefit": 4,
 }
+
+#: Everything the loop may reach for. Retrieval and calculation together,
+#: because a member asking "how much would I get" is asking one question.
+LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS
 
 #: How many cross-referenced sections to read before answering. Bounded so one
 #: section naming a dozen others cannot flood the answer's context.
@@ -57,6 +62,11 @@ Work like a lawyer reading a statute, not like a search box.
   opening sections, not by whichever section a search happened to rank first.
 - A provision usually leans on others. Follow the sections it names. Ask what
   names *it* -- an exception that changes the answer normally lives elsewhere.
+- A figure is never yours to work out. Call compute_benefit: it finds the
+  controlling provision, resolves the inputs from the record and from what the
+  member said, and computes. If it reports a missing input, ask the member for
+  that one thing -- not for a list of things, and never for something their
+  record already holds.
 - Stop when you can answer, not when you are tired. Stop as soon as you can.
 - Not every message is a question about the Code. If it is an aside, small talk
   or plainly somebody else's job, do not research it: stop immediately and say
@@ -99,7 +109,7 @@ def _context(state: dict[str, Any]) -> str:
 def _available(spent: dict[str, int]) -> list[dict[str, Any]]:
     return [
         tool
-        for tool in RETRIEVAL_TOOLS
+        for tool in LOOP_TOOLS
         if spent.get(tool["function"]["name"], 0) < BUDGETS.get(tool["function"]["name"], 0)
     ]
 
@@ -160,6 +170,10 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         {"role": "user", "content": state["question"]},
     ]
     sections: list[dict[str, Any]] = list(state.get("retrieved_sections") or [])
+    # What a tool sees: the turn's state plus everything found so far. Handing
+    # each tool the *original* state meant compute_benefit derived its recipe
+    # from an empty corpus while the sections it needed sat in this loop.
+    working: dict[str, Any] = {**state}
     spent: dict[str, int] = {}
     withdrawn: set[str] = set()
     exhausted = False
@@ -178,7 +192,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         available = _available(spent)
         # A tool that has just gone is explained rather than vanishing, so the
         # model stops trying it and knows what it has left.
-        for tool in RETRIEVAL_TOOLS:
+        for tool in LOOP_TOOLS:
             name = tool["function"]["name"]
             if tool not in available and name not in withdrawn:
                 withdrawn.add(name)
@@ -231,9 +245,11 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         messages.append(turn.raw_message)
         for call in turn.calls:
             spent[call.name] = spent.get(call.name, 0) + 1
-            result, update = await run_tool(call.name, call.arguments, state)
+            result, update = await run_tool(call.name, call.arguments, working)
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
+            working.update(update)
+            working["retrieved_sections"] = sections
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
@@ -254,9 +270,10 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         weights = _reference_weights(sections)
         wanted = sorted(weights, key=lambda s: (-weights[s], s))[:MAX_COMPLETION_FETCHES]
         for target in wanted:
-            result, update = await run_tool("get_section", {"section": target}, state)
+            result, update = await run_tool("get_section", {"section": target}, working)
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
+                working["retrieved_sections"] = sections
                 messages.append(
                     {
                         "role": "system",
@@ -267,7 +284,13 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+    produced = {
+        key: value
+        for key, value in working.items()
+        if key not in state or state.get(key) != value
+    }
     return {
+        **produced,
         "retrieved_sections": sections,
         "loop_messages": messages,
         "loop_exhausted": exhausted,
