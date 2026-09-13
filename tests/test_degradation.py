@@ -149,11 +149,19 @@ def test_a_comparison_takes_the_comparison_shape() -> None:
     # which `turn_record` writes after every successful calculation -- so every
     # turn following a figure was treated as a comparison, legal questions
     # included. See `test_a_later_turn_is_not_a_comparison_just_because_an_earlier_one_was`.
+    #
+    # Two variants, because the count is now the second half of the signal: one
+    # variant is a question about one date and takes the `projected` shape,
+    # whose parts are identical and whose lede does not open with today's
+    # figure. See test_presentation.test_one_scenario_is_not_a_comparison.
     state: dict[str, object] = {
         "calculation_result": {
             "retirement_annuity": {
                 "base": {"ok": True, "annual_amount": "1"},
-                "scenarios": [{"label": "At 60", "retirement_age": 60, "annual_amount": "2"}],
+                "scenarios": [
+                    {"label": "At 58", "retirement_age": 58, "annual_amount": "2"},
+                    {"label": "At 60", "retirement_age": 60, "annual_amount": "3"},
+                ],
             }
         },
         "missing_inputs": [],

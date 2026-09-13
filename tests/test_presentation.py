@@ -262,3 +262,39 @@ def test_a_block_whose_marker_never_arrived_is_still_appended() -> None:
     out = _substitute({"BASIS": "**Legal basis** [40 ILCS 5/11-134]"}, "No marker.")
 
     assert "**Legal basis** [40 ILCS 5/11-134]" in out
+
+
+def test_one_scenario_is_not_a_comparison():
+    """L03's answer opened "The soonest option shown is $32,126.78" -- the
+    retire-now figure -- to a member who asked what they would get at 58.
+
+    The comparison lede is written to name a range, which is right for
+    "compare 58, 60 and 62" and wrong for a single named age: the first number
+    the member reads answers a question they did not ask. Both shapes keep the
+    same parts, because one variant beside today's figure still earns the table
+    and the difference. Only the lede differs.
+    """
+    from pension_chat.agent import presentation
+    from pension_chat.agent.worksheet import WorkSheet
+
+    sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": {}, "assumptions": {}})
+
+    def state(variants):
+        return {
+            "calculation_result": {
+                "retirement_annuity": {"base": {"ok": True, "annual_amount": "1"}, "scenarios": variants}
+            }
+        }
+
+    one = state([{"label": "At 58", "annual_amount": "2"}])
+    two = state([{"label": "At 58", "annual_amount": "2"}, {"label": "At 60", "annual_amount": "3"}])
+
+    assert presentation.shape_for(sheet, one) == "projected"
+    assert presentation.shape_for(sheet, two) == "comparison"
+
+    projected = presentation.TEMPLATES["projected"]
+    assert "COMPARISON" in projected.slots, "one variant still earns the table"
+    assert "Never open with today's figure" in projected.guidance
+    assert "difference_from_now_annual" in projected.guidance, (
+        "the difference is copied, never reached by subtracting two amounts"
+    )
