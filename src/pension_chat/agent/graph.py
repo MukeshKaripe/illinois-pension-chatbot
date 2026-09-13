@@ -48,6 +48,7 @@ from pension_chat.agent.checkpointer import (
 from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
+from pension_chat.agent.loop import compose, investigate
 from pension_chat.agent.nodes import (
     _available_facts,
     _coverage_elsewhere,
@@ -81,6 +82,8 @@ STAGE_LABELS = {
     "validate_recipes": "validating the calculation",
     "execute_calculations": "calculating",
     "prepare_answer": "writing your answer",
+    "investigate": "reading the Pension Code",
+    "compose": "writing your answer",
 }
 
 OUT_OF_SCOPE_MESSAGE = (
@@ -159,6 +162,43 @@ async def decline(state: PensionAgentState) -> dict:
     }
 
 
+def build_loop_graph(checkpointer: Any | None = None):
+    """The agent loop: triage in front, investigation, then the answer.
+
+    Three nodes where the pipeline has eleven, and the two that survive are the
+    two that were never the problem. `triage` still turns a greeting or a deny
+    away for nothing; `guardrails.verify` still runs behind the stream, outside
+    this graph, unchanged.
+
+    Between them there is one mind. `investigate` searches, reads what came
+    back and decides what to do next; `compose` continues that same
+    conversation into the answer rather than handing it to a model that was not
+    there.
+    """
+    workflow = StateGraph(PensionAgentState)
+
+    workflow.add_node("triage", triage)
+    workflow.add_node("decline", decline)
+    workflow.add_node("fetch_employee_record", fetch_employee_record)
+    workflow.add_node("investigate", cast(Any, investigate))
+    workflow.add_node("compose", cast(Any, compose))
+
+    workflow.set_entry_point("triage")
+    workflow.add_conditional_edges(
+        "triage",
+        lambda state: "decline" if not state.get("in_scope", True) else "fetch_employee_record",
+        ["fetch_employee_record", "decline"],
+    )
+    workflow.add_edge("decline", END)
+    # The record first, so the loop's context block has the member in it from
+    # its first iteration rather than discovering them partway through.
+    workflow.add_edge("fetch_employee_record", "investigate")
+    workflow.add_edge("investigate", "compose")
+    workflow.add_edge("compose", END)
+
+    return workflow.compile(checkpointer=checkpointer)
+
+
 def build_graph(checkpointer: Any | None = None):
     """Assemble and compile the StateGraph.
 
@@ -233,6 +273,19 @@ def build_graph(checkpointer: Any | None = None):
 
 
 agent_graph = build_graph(SqlAlchemyCheckpointSaver())
+#: Built beside it rather than instead of it. Both share the checkpointer, so a
+#: conversation keeps its thread whichever agent answered a given turn.
+loop_graph = build_loop_graph(SqlAlchemyCheckpointSaver())
+
+
+def active_graph():
+    """Whichever agent `agent_mode` selects. The pipeline unless told otherwise.
+
+    Read per turn rather than bound at import, so a run can switch modes --
+    which is how `eval_agent.py --mode loop` measures one against the other in
+    the same process.
+    """
+    return loop_graph if get_settings().agent_mode == "loop" else agent_graph
 
 
 async def run_agent(
@@ -307,7 +360,7 @@ async def run_agent_stream(
         # "values" carries the whole blackboard, including what earlier turns
         # left on it; "updates" says which node just finished, for the stage
         # labels. Taking both avoids a second read to recover the full state.
-        async for mode, payload in agent_graph.astream(
+        async for mode, payload in active_graph().astream(
             turn,
             config,
             stream_mode=["values", "updates"],

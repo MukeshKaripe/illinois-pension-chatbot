@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 from pension_chat.agent.llm import call_with_tools
+from pension_chat.agent.nodes import ANSWER_SYSTEM
 from pension_chat.agent.tools import RETRIEVAL_TOOLS, run_tool
 from pension_chat.config import get_settings
 
@@ -193,3 +194,59 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         "tool_calls_spent": spent,
         "timings": {"investigate": time.perf_counter() - started},
     }
+
+
+COMPOSE_INSTRUCTION = """Now write the member's answer, from what you just found.
+
+You are the same assistant who did that research. Everything you read is above;
+work from it and from nothing else. Write the answer itself -- no preamble about
+having searched, and no account of how you went about it."""
+
+
+async def compose(state: dict[str, Any]) -> dict[str, Any]:
+    """Turn the investigation into the answer, in the same conversation.
+
+    Deliberately not a fresh call. Handing a model that never saw the statute a
+    pile of text and asking it to narrate is exactly the split this phase
+    exists to remove: the model that read the section is the model that writes
+    the sentence about it.
+
+    What is appended is the *style* half of the pipeline's answer prompt --
+    voice, citation discipline, the closing line. Not its stance blocks: those
+    told a generation model what position to take because it could not reason
+    to one, and this model has just spent the whole investigation reasoning.
+    """
+    messages = list(state.get("loop_messages") or [])
+    messages.append({"role": "system", "content": ANSWER_SYSTEM})
+
+    unread = state.get("unread_references") or []
+    if unread:
+        # Computed, not judged. Naming the provisions the evidence leans on but
+        # never opened is checkable; "do you feel you have enough?" is not.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "The text you gathered relies on sections you could not read: "
+                    f"{', '.join(unread)}. Do not state a conclusion that turns on "
+                    "them. Say plainly what you could not establish."
+                ),
+            }
+        )
+
+    messages.append({"role": "system", "content": COMPOSE_INSTRUCTION})
+
+    # The same shape `prepare_answer` publishes. The guardrail checks the
+    # answer's own citations against what was retrieved, but the `done` event
+    # and the evidence drawer read *this* list -- so without it the loop's
+    # answer cited two sections and the member could open neither.
+    citations = [
+        {
+            "id": s["section"],
+            "section": s["section"],
+            "title": s.get("title", ""),
+            "citation": s.get("citation") or f"40 ILCS 5/{s['section']}",
+        }
+        for s in (state.get("retrieved_sections") or [])
+    ]
+    return {"answer_messages": messages, "answer_blocks": {}, "citations": citations}

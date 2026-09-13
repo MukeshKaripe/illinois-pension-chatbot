@@ -129,6 +129,13 @@ class Settings(BaseSettings):
 
     reasoning_effort_understand: str = "none"
 
+    # Which agent answers a turn. "pipeline" is the fixed graph every eval and
+    # test measures; "loop" is the tool-calling agent. The pipeline stays the
+    # default until the cutover criteria in docs/superpowers/baselines are met,
+    # so that the comparison between them is made on evidence rather than on
+    # whichever happened to be wired in.
+    agent_mode: str = "pipeline"
+
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.

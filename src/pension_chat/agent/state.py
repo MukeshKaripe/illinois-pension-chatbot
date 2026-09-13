@@ -41,6 +41,14 @@ def merge_lists(a: list | None, b: list | None) -> list:
 class PensionAgentState(TypedDict, total=False):
     """The central state for the LangGraph agent."""
 
+    # ── The agent loop (agent_mode == "loop") ─────────────────────
+    # Scratch for one turn: the investigation's own message history, which
+    # `compose` continues into the answer, and what it could not reach.
+    loop_messages: list
+    loop_exhausted: bool
+    unread_references: list
+    tool_calls_spent: dict
+
     # ── Durable: carried across turns by the checkpointer ─────────
     # Everything else on this blackboard is scratch for one turn and is cleared
     # by `turn_input()`. What survives is what the conversation has actually
@@ -318,6 +326,10 @@ def initial_state(
         "clarification": None,
         "in_scope": True,
         "out_of_scope_reason": "",
+        "loop_messages": [],
+        "loop_exhausted": False,
+        "unread_references": [],
+        "tool_calls_spent": {},
         "override_signal": {},
         "requires_calculation": False,
         "formula_types_needed": [],
