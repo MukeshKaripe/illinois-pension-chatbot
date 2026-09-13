@@ -205,3 +205,24 @@ failure. In the order their evidence justifies:
    instrument while its answer is correct.
 
 1 and 2 alone address R03, G16, G19, G15 and L05. They are the next phase.
+
+---
+
+## Phase 3c: the five gaps, and parity
+
+Built after the 3b measurement, gated on re-running `routing` before anything
+else: `642f47a` (the four state-visibility fixes, routing 3/7 -> 7/7) and
+`7bd7f3f` (the null-content 400).
+
+**The loop now matches the pipeline at 18/20, category for category**, passes
+L08 and L09 where the pipeline does not, and withdraws fewer answers (1/47
+against 2/47). `baselines/README.md`, "Phase 3c: parity".
+
+Of the five gaps 3b named: two were misdiagnosed (a corrected value *does*
+reach the engine; the results-overwriting gap did not exist), and the three
+real ones plus a fifth found on the way were all one thing -- the pipeline
+routes on conversational state structurally, and the loop's model has to be
+shown what the pipeline's edges and templates read directly.
+
+Still open, and neither is structural: **L04** on both agents, and **G17**
+turn 1 on the loop, which is a retrieval-selection miss.

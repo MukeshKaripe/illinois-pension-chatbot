@@ -218,3 +218,54 @@ citations the verifier accepted and the provision the figure was worked from.
 L06 was checked before assuming the same applied, and it does not — L06 is a
 genuine failure, of a different kind than the key was written for. The rule
 that keeps paying: read the report before reclassifying the case.
+
+
+## Phase 3c: parity, 2026-09-13
+
+`2026-09-13-phase3c-loop-*.json`, against the same day's pipeline run.
+
+| category | 3b loop | **3c loop** | pipeline | tokens/turn |
+|---|---|---|---|---|
+| routing | 3/7 | **7/7** | 7/7 | 21.2k vs 11.7k |
+| conversational | 2/2 | **2/2** | 2/2 | 25.6k vs 11.7k |
+| no_ask | 1/1 | **1/1** | 1/1 | 9.4k vs 12.4k |
+| goal_completion | 1/3 | **2/3** | 2/3 | 13.5k vs 14.3k |
+| state | 3/7 | **6/7** | 6/7 | 11.4k vs 12.5k |
+| **total** | 10/20 | **18/20** | 18/20 | |
+
+Beside the tally: **L08 and L09 pass on the loop and are gaps on the
+pipeline**, and hard guardrail failures run 1/47 against the pipeline's 2/47 --
+the loop withdraws fewer answers, not more.
+
+What still fails, on both: **L04**, a correction to a named scenario. **G17**
+turn 1 is the loop's own, and real: "which provision applies to me, do not
+calculate anything yet" cites 11-127 and 11-130 rather than 11-134, and turn 3
+gets it right. A retrieval-selection miss, not a structural gap.
+
+### The one lesson worth carrying out of 3c
+
+Four of the five gaps 3b left were the same thing in four coats. **The pipeline
+consumes conversational state structurally** -- `_needs_calculation` reads
+`stale_figures` on an edge, `prepare_answer` renders the ASSUMPTIONS slot from
+a template, and no model is involved in either. The loop made the model the
+router and showed it none of that. A router that cannot see the state cannot
+route: R03 spent its whole second turn asking who the member was, because
+nothing in front of it said a figure was standing.
+
+That predicts where the next ones are, and it is a short list: anything else
+the pipeline reads on an edge or renders into a slot. `shape_for`,
+`_comparison_rows` and the THRESHOLDS slot are all in that category and none of
+them runs on the loop path.
+
+### Two things called wrong, and how they were caught
+
+- **"A corrected value cannot reach the engine"** was wrong. It reaches it;
+  `resolve_inputs` reads it out of the conversation and recomputes. Only the
+  bookkeeping that supersedes the earlier figure was missing. Caught by running
+  R03 alone with `tool_calls_spent` recorded, rather than by reasoning about
+  the suite report.
+- **"G16 and L01 are infrastructure"** was wrong, twice over, across two runs.
+  Dumping the request showed a 400: an assistant turn that only called tools
+  carried no `content` key, which the tool-offering call accepts and the
+  answer-writing call rejects. It cost two cases their entire first turn and a
+  third its follow-ups. A failure seen twice is not thereby transient.
