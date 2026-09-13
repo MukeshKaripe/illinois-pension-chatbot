@@ -1,0 +1,2063 @@
+{
+  "mode": "pipeline",
+  "cases": [
+    {
+      "id": "G31",
+      "name": "A description that points somewhere other than the record",
+      "critical": true,
+      "turns": [
+        {
+          "question": "i am a park employee, how is my pension calculated?",
+          "answer": "Your pension calculation depends first on whether your record places you in Article 11 or Article 12. Calling yourself a park employee does not settle that coverage question.\n\n- Article 12 covers a person who works for a board of park commissioners or its board, subject to the exceptions in Section 12-118. [40 ILCS 5/12-118]\n- Your record places you in Article 11, but your Article 11 salary and service figures are not available here, so no pension amount can be calculated.\n- Which employer pays your salary: the City of Chicago or a board of park commissioners or park district? I'm going by your record, which places you in Article 11 \u2014 tell me if that's not right.",
+          "error": null,
+          "ttft": 27.761654199974146,
+          "total": 31.343130499997642,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-118",
+            "11-133.2",
+            "11-133.1",
+            "12-134",
+            "11-149",
+            "12-130",
+            "11-134",
+            "11-155"
+          ],
+          "articles": [
+            "11",
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board, except certain short-service positions and certain employees transferred from a city or district under the Exchange of Functions Act of 1957.",
+                "settled_by": "which employer pays them",
+                "rank": 0
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "elsewhere"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee",
+            "act": "asserted",
+            "kind": "coverage"
+          },
+          "clarification": {
+            "about": "coverage",
+            "described_as": "park employee",
+            "options": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board, except certain short-service positions and certain employees transferred from a city or district under the Exchange of Functions Act of 1957."
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "asked_turn": 1,
+            "settled_by": "which employer pays them"
+          },
+          "clarifications_asked": 1,
+          "candidate_articles": [
+            "12",
+            "11"
+          ],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 11983,
+            "completion_tokens": 373,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 12356,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 777,
+                "completion": 137,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2929,
+                "completion": 85,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8277,
+                "completion": 151,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 8.339999476447701e-05,
+            "fetch_employee_record": 2.1649063999939244,
+            "understand_turn": 3.329260600003181,
+            "assess_coverage": 4.220137099997373,
+            "retrieve_policy": 8.44635990000097,
+            "resolve_recipes": 1.600012183189392e-06,
+            "prepare_answer": 0.00016219998360611498,
+            "time_to_first_token": 27.76052609999897,
+            "total": 31.343018799991114
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 4,
+          "expect": {
+            "act": "asserted",
+            "asks": true,
+            "no_figures": true,
+            "coverage_basis": "record",
+            "cites": [
+              "12-101|12-118"
+            ]
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "status": "active",
+      "employee": "default",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "G32",
+      "name": "The member answers, and it sticks",
+      "critical": true,
+      "turns": [
+        {
+          "question": "i am a park employee, how is my pension calculated?",
+          "answer": "Your pension calculation depends on which Article covers you. Calling yourself a park employee does not settle that.\n\n- **Article 12** covers a person employed by a board of park commissioners or by the board, subject to the Code\u2019s employee definition. [40 ILCS 5/12-118]\n- **Article 11** is the Article shown on your record. Its calculation cannot be used here because the salary and service figures available for you are not the figures for that Article.\n- Please answer this one question: **Which employer pays your wages \u2014 a board of park commissioners or a city employer?**\n\nI\u2019m going by your record, which places you in Article 11 \u2014 tell me if that\u2019s not right.",
+          "error": null,
+          "ttft": 12.213730399991618,
+          "total": 15.09025219999603,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-118",
+            "11-134",
+            "12-133.2",
+            "12-133",
+            "11-133.3",
+            "11-134.1",
+            "11-134.3"
+          ],
+          "articles": [
+            "11",
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board",
+                "settled_by": "which employer pays them",
+                "rank": 0
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "elsewhere"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee",
+            "act": "asserted",
+            "kind": "coverage"
+          },
+          "clarification": {
+            "about": "coverage",
+            "described_as": "park employee",
+            "options": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board"
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "asked_turn": 1,
+            "settled_by": "which employer pays them"
+          },
+          "clarifications_asked": 1,
+          "candidate_articles": [
+            "12",
+            "11"
+          ],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 12668,
+            "completion_tokens": 372,
+            "reasoning_tokens": 0,
+            "cached_tokens": 2926,
+            "total_tokens": 13040,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 777,
+                "completion": 163,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2929,
+                "completion": 60,
+                "reasoning": 0,
+                "cached": 2926,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8962,
+                "completion": 149,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 7.37000082153827e-05,
+            "fetch_employee_record": 1.122885699995095,
+            "understand_turn": 2.7927729999937583,
+            "assess_coverage": 2.138307099987287,
+            "retrieve_policy": 2.8428561000037007,
+            "resolve_recipes": 1.600012183189392e-06,
+            "prepare_answer": 0.00014170000213198364,
+            "time_to_first_token": 12.212722299998859,
+            "total": 15.090173899981892
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 4,
+          "expect": {
+            "asks": true,
+            "no_figures": true
+          },
+          "index": 0,
+          "problems": []
+        },
+        {
+          "question": "i am an employee of a board of park commissioners, how is my pension calculated?",
+          "answer": "Under Article 12, the fixed-benefit formula applies if you withdraw on or after December 31, 2003, and meet the Code\u2019s age and service requirements: age 50 or over with at least 10 years of service, or age 60 or over with at least 4 years of service. [40 ILCS 5/12-133(a)]\n\nThe annuity is based on 2.40% for each year of service, using your highest average annual salary for any 4 consecutive years within the last 10 years before withdrawal. Service of less than a full year is prorated. If you retire before age 60, the annuity is reduced by 1/4 of 1% for each month or fraction of a month before age 60, unless you are age 50 or over with at least 30 years of service. The annuity is capped at 80% of that average annual salary. [40 ILCS 5/12-133(a)]\n\nI\u2019m going by your confirmation that Article 12 applies; your record currently shows Article 11. Your salary, service, averages, age at withdrawal, and retirement date on file are administered under Article 11 and are not the right basis for an Article 12 figure. The fund must correct your record first. After that, the fund would need your age at withdrawal, credited service, highest average salary for the applicable 4 consecutive years, and date of birth to determine the Article 12 amount. The earlier fixed-benefit rates apply only to withdrawals before December 31, 2003, and the accumulation-based provisions apply only to employees in service before July 1, 1971. [40 ILCS 5/12-133(a)-(b); 40 ILCS 5/12-130]\n\nThe Code does not determine the record correction; the fund owns that recordkeeping decision.",
+          "error": null,
+          "ttft": 15.01658039999893,
+          "total": 18.10358900000574,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-130",
+              "12-133"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": true,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-130",
+            "12-134",
+            "12-133.2",
+            "12-135.1",
+            "12-133",
+            "12-133.7",
+            "12-135",
+            "12-125"
+          ],
+          "articles": [
+            "12"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "12_retirement_annuity_12-133_ae3efb16",
+              "section": "12-133",
+              "subsection": "(a)",
+              "status": "agent_derived",
+              "applicability": "Employees who withdraw on or after December 31, 2003, at age 50 or over with at least 10 years of service, or at age 60 or over with at least 4 years of service.",
+              "applicability_status": "partially_verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "12-133",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "The earlier fixed-benefit rates apply only to withdrawals before December 31, 2003."
+                },
+                {
+                  "section": "12-133",
+                  "subsection": "(b)",
+                  "status": "not_applicable",
+                  "reason": "The accumulation-based provision applies only to an employee in service before July 1, 1971."
+                },
+                {
+                  "section": "12-130",
+                  "subsection": null,
+                  "status": "not_applicable",
+                  "reason": "The accumulation-based retirement amount applies only to an employee who entered service before July 1, 1971."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [
+            "age",
+            "service_years",
+            "final_average_salary",
+            "months_before_age_60"
+          ],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "article": "12",
+            "basis": "member_confirmed",
+            "conflict": false,
+            "confirmed_by": "described the employer",
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board"
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "turn": 2,
+            "described_as": "park employee"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 1,
+          "candidate_articles": [
+            "12"
+          ],
+          "can_execute": false,
+          "execution_blocked": "missing_inputs",
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 9239,
+            "completion_tokens": 730,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 9969,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 948,
+                "completion": 304,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "resolve_inputs": {
+                "prompt": 516,
+                "completion": 36,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 7775,
+                "completion": 390,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.029999349266291e-05,
+            "fetch_employee_record": 0.00012919999426230788,
+            "understand_turn": 3.3679406000010204,
+            "assess_coverage": 0.0004041000211145729,
+            "retrieve_policy": 3.1170195000013337,
+            "resolve_recipes": 0.9075207999849226,
+            "resolve_inputs": 1.1786035999830347,
+            "validate_recipes": 0.00023159998818300664,
+            "execute_calculations": 4.00003045797348e-07,
+            "prepare_answer": 0.00020340000628493726,
+            "time_to_first_token": 15.01540400000522,
+            "total": 18.103511100023752
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 5,
+          "expect": {
+            "coverage_basis": "member_confirmed",
+            "coverage_article": "12",
+            "asks": false,
+            "no_figures": true
+          },
+          "index": 1,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "status": "active",
+      "employee": "default",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "G33",
+      "name": "Asking about an Article is not answering about one",
+      "turns": [
+        {
+          "question": "i am a park employee, how is my pension calculated?",
+          "answer": "Your pension calculation depends first on whether you work for a board of park commissioners. Your description as a \u201cpark employee\u201d does not settle which Article applies.\n\n- Article 12 covers a person \u201cin the service of a board of park commissioners\u201d or an employee of that board. [40 ILCS 5/12-118]\n- Article 11 is the Article shown on your record, but the coverage test for Article 11 is not in the text before me.\n- If Article 12 applies, the Code\u2019s calculation provisions include service rules, retirement formulas, early-retirement reductions, and maximum limits. The amount cannot be calculated here because your salary and service figures are not available under the applicable Article.\n\nDoes your employer have the legal status of a board of park commissioners \u2014 **yes or no**?\n\nI\u2019m going by your record, which places you in Article 11 \u2014 tell me if that\u2019s not right.",
+          "error": null,
+          "ttft": 11.770941100025084,
+          "total": 14.84658500002115,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-118",
+            "12-101",
+            "11-134",
+            "12-134",
+            "12-133.3",
+            "11-215",
+            "11-216"
+          ],
+          "articles": [
+            "11",
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board",
+                "settled_by": "whether the park employee works for a board of park commissioners",
+                "rank": 0
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "elsewhere"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee",
+            "act": "asserted",
+            "kind": "coverage"
+          },
+          "clarification": {
+            "about": "coverage",
+            "described_as": "park employee",
+            "options": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board"
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "asked_turn": 1,
+            "settled_by": "whether the park employee works for a board of park commissioners"
+          },
+          "clarifications_asked": 1,
+          "candidate_articles": [
+            "12",
+            "11"
+          ],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 12190,
+            "completion_tokens": 425,
+            "reasoning_tokens": 0,
+            "cached_tokens": 2926,
+            "total_tokens": 12615,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 777,
+                "completion": 168,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2929,
+                "completion": 67,
+                "reasoning": 0,
+                "cached": 2926,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8484,
+                "completion": 190,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 4.680000711232424e-05,
+            "fetch_employee_record": 1.1235506999946665,
+            "understand_turn": 2.9795950000116136,
+            "assess_coverage": 2.2359754999924917,
+            "retrieve_policy": 1.823903100012103,
+            "resolve_recipes": 1.200009137392044e-06,
+            "prepare_answer": 0.00013070000568404794,
+            "time_to_first_token": 11.770356599998195,
+            "total": 14.846497899998212
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 4,
+          "expect": {
+            "asks": true
+          },
+          "index": 0,
+          "problems": []
+        },
+        {
+          "question": "i thought park employee's came under article 12, is it correct, if not what type of employees come under article 12?",
+          "answer": "Not necessarily. Article 12 covers employees of a board of park commissioners and employees of the retirement board, subject to the Code\u2019s conditions. [40 ILCS 5/12-101] Your record shows that your own pension is administered under a different Article; tell me if that is not right.\n\n- Article 12 defines an employee as a person serving a board of park commissioners or an employee of that board. [40 ILCS 5/12-118]\n- The fund also covers employees of the retirement board that administers the fund. [40 ILCS 5/12-101]\n- A person generally must complete 6 months of continuous service before participating, with an exception beginning July 1, 1991, for certain positions requiring service for 6 months or more in a calendar year. [40 ILCS 5/12-101]\n- Positions requiring less than 90 hours during a monthly period, or beginning July 1, 1991, less than 6 months during a calendar year, are generally excluded unless the person is already a fund member. [40 ILCS 5/12-118]",
+          "error": null,
+          "ttft": 10.192343700007768,
+          "total": 13.232439899991732,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-101",
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-118",
+            "12-156",
+            "12-120",
+            "12-101",
+            "12-157",
+            "12-154"
+          ],
+          "articles": [
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board",
+                "settled_by": "whether the park employee works for a board of park commissioners",
+                "rank": 0
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "elsewhere"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 1,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 5178,
+            "completion_tokens": 454,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 5632,
+            "calls": 2,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 1009,
+                "completion": 218,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 4169,
+                "completion": 236,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 9.049999061971903e-05,
+            "fetch_employee_record": 9.439999121241271e-05,
+            "understand_turn": 2.8542192000022624,
+            "retrieve_policy": 2.5697530999896117,
+            "resolve_recipes": 1.6999838408082724e-06,
+            "prepare_answer": 0.0001162000116892159,
+            "time_to_first_token": 10.191460600006394,
+            "total": 13.232369500008645
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "coverage_basis": "record",
+            "cites": [
+              "12-101|12-118"
+            ],
+            "no_figures": true
+          },
+          "index": 1,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "critical": false,
+      "status": "active",
+      "employee": "default",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "G34",
+      "name": "Quoting the assistant's own words back at it",
+      "turns": [
+        {
+          "question": "i am a park employee, how is my pension calculated?",
+          "answer": "Your pension calculation depends first on which Article covers you. Your record places you under Article 11, but your description as a park employee does not settle that. Tell me which employer pays your wages: **a board of park commissioners or park district, or a city or other employer?**\n\n- Article 12 covers a person serving a board of park commissioners or employed by that board, subject to its exceptions. [40 ILCS 5/12-118]\n- Article 11 is the coverage shown on your record, but the applicable Article 11 coverage test is not in the Code text available here.\n- Once the correct Article is established, the calculation would also require the salary and service figures used by that Article. The figures associated with your current record are not the right basis for an Article 12 calculation.\n\nI'm going by your record, which places you in Article 11 \u2014 tell me if that's not right.",
+          "error": null,
+          "ttft": 12.05527909999364,
+          "total": 15.141580099996645,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-118",
+            "11-134",
+            "12-133",
+            "12-133.2",
+            "11-170",
+            "1-103.1",
+            "1-160"
+          ],
+          "articles": [
+            "1",
+            "11",
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board, except certain short-service positions and certain employees transferred from a city or district under the Exchange of Functions Act of 1957",
+                "settled_by": "which employer pays them",
+                "rank": 0
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "elsewhere"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee",
+            "act": "asserted",
+            "kind": "coverage"
+          },
+          "clarification": {
+            "about": "coverage",
+            "described_as": "park employee",
+            "options": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board, except certain short-service positions and certain employees transferred from a city or district under the Exchange of Functions Act of 1957"
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "asked_turn": 1,
+            "settled_by": "which employer pays them"
+          },
+          "clarifications_asked": 1,
+          "candidate_articles": [
+            "12",
+            "11"
+          ],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 12158,
+            "completion_tokens": 410,
+            "reasoning_tokens": 0,
+            "cached_tokens": 2926,
+            "total_tokens": 12568,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 777,
+                "completion": 136,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2929,
+                "completion": 85,
+                "reasoning": 0,
+                "cached": 2926,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8452,
+                "completion": 189,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 4.839999019168317e-05,
+            "fetch_employee_record": 1.1208957000053488,
+            "understand_turn": 2.5936129999754485,
+            "assess_coverage": 2.8845274999912363,
+            "retrieve_policy": 1.8624731999880169,
+            "resolve_recipes": 1.200009137392044e-06,
+            "prepare_answer": 0.0001244999875780195,
+            "time_to_first_token": 12.0546267000027,
+            "total": 15.141479599988088
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 4,
+          "expect": {
+            "asks": true
+          },
+          "index": 0,
+          "problems": []
+        },
+        {
+          "question": "so when i said i was a park employee why did you say this \"As a park employee covered by Article 11, your pension is calculated under Section 11-134(a)?\"",
+          "answer": "I should not have tied your job description to Article 11 coverage. \u201cPark employee\u201d does not, by itself, establish that Article 11 governs your pension. Your record shows Article 11, and that is the basis for saying Article 11 applies\u2014not the fact that you described yourself as a park employee. I\u2019m going by your record, which places you in Article 11 \u2014 tell me if that\u2019s not right.\n\n- Article 12 covers a person serving a board of park commissioners or employed by that board, subject to the exceptions in Section 12-118. [40 ILCS 5/12-118]\n- The Code text available here does not provide the Article 11 coverage test.\n- If Article 11 is the correct Article, Section 11-134 provides the pension formulas and minimum-annuity rules, including the applicable service and salary requirements. [40 ILCS 5/11-134]\n- Your salary and service figures are not available on the proper Article 11 basis here, so no pension amount can be stated.",
+          "error": null,
+          "ttft": 12.00009190000128,
+          "total": 15.075173199991696,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-134",
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "11-134",
+            "12-118",
+            "11-143",
+            "11-169",
+            "11-222",
+            "11-215",
+            "11-216"
+          ],
+          "articles": [
+            "11",
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board",
+                "settled_by": "which employer pays them",
+                "rank": 0
+              }
+            ],
+            "turn": 2,
+            "described_as": "park employee",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "elsewhere"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee",
+            "act": "asserted",
+            "kind": "coverage"
+          },
+          "clarification": {
+            "about": "coverage",
+            "described_as": "park employee",
+            "options": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board"
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "asked_turn": 2,
+            "settled_by": "which employer pays them"
+          },
+          "clarifications_asked": 2,
+          "candidate_articles": [
+            "12",
+            "11"
+          ],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 12809,
+            "completion_tokens": 506,
+            "reasoning_tokens": 0,
+            "cached_tokens": 2926,
+            "total_tokens": 13315,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 1030,
+                "completion": 229,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2929,
+                "completion": 60,
+                "reasoning": 0,
+                "cached": 2926,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8850,
+                "completion": 217,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 0.00010610002209432423,
+            "fetch_employee_record": 9.469999349676073e-05,
+            "understand_turn": 2.9368478000105824,
+            "assess_coverage": 2.4954169999982696,
+            "retrieve_policy": 1.6334288999787532,
+            "resolve_recipes": 9.00006853044033e-07,
+            "prepare_answer": 0.00013050000416114926,
+            "time_to_first_token": 11.999325999990106,
+            "total": 15.07509850000497
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 4,
+          "expect": {
+            "coverage_basis": "record",
+            "coverage_article": "11",
+            "no_figures": true
+          },
+          "index": 1,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "critical": false,
+      "status": "active",
+      "employee": "default",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "G35",
+      "name": "A description that agrees with the record",
+      "critical": true,
+      "employee": "article-12-standard",
+      "turns": [
+        {
+          "question": "i am a park employee, how is my pension calculated?",
+          "answer": "**Calculated, with assumptions**\n\nYour record places you in Article 12, which covers employees of a board of park commissioners, and your park-employee description matches that coverage. At age 58 with 25.0 years of service and a final average salary of $66,269.00, your estimated annual pension is $37,475.12 ($3,122.93 monthly), assuming you withdraw from service on 2026-09-13.\n\n**How that is worked out**\n\n| Step | Amount |\n|---|---:|\n| Age | 58 |\n| Years of service | 25 |\n| Highest average salary (best 4 years) | $66,269.00 |\n| Months before age 60 | 23 |\n| Withdrawal date | 2026-09-13 |\n| Post 2003 accrual rate | 2.40% |\n| Maximum annuity percentage | 80.00% |\n| Early retirement reduction base | 1 |\n| Early retirement monthly reduction rate | 0.25% |\n| Unreduced annuity | $39,761.40 |\n| Early retirement reduction | $0.06 |\n| Early retirement reduction factor | 0.94 |\n| Reduced annuity | $37,475.12 |\n| Statutory maximum annuity | $53,015.20 |\n| Annual annuity | $37,475.12 |\n| **Annual pension** | **$37,475.12** |\n| **Monthly pension** | **$3,122.93** |\n\nSection 12-133(a) applies because you are age 50 or over with at least 10 years of service and withdraw on or after December 31, 2003. It provides 2.40% for each year of service, subject to a reduction of 1/4 of 1% for each month or fraction of a month before age 60; the annuity cannot exceed 80% of the highest average annual salary for 4 consecutive years within the last 10 years of service. [40 ILCS 5/12-133]\n\n**What I assumed**\n\n- the date you stop working, taken as today\n\n<<<alternatives>>>\n\nThe earlier fixed-benefit rates in Section 12-133(a) do not apply because they are limited to withdrawals before December 31, 2003. The accumulation-based provision in Section 12-133(b) does not apply because it is limited to an employee in service before July 1, 1971. Section 12-130 also does not apply because its accumulation-based retirement amount is limited to an employee who entered service before July 1, 1971.\n\nThis is an estimate \u2014 your retirement fund makes the binding determination.",
+          "error": null,
+          "ttft": 13.456978300004266,
+          "total": 16.816445100004785,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-133",
+              "12-130"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": true,
+          "tool_calls_spent": {},
+          "resolved_inputs": {
+            "age": 58,
+            "service_years": 25.0,
+            "final_average_salary": 66269.0,
+            "months_before_age_60": 23,
+            "withdrawal_date": "2026-09-13"
+          },
+          "sections": [
+            "12-101",
+            "12-118",
+            "7-109",
+            "12-133.3",
+            "12-133.2",
+            "12-133",
+            "3-109",
+            "3-109.1",
+            "12-130"
+          ],
+          "articles": [
+            "12",
+            "3",
+            "7"
+          ],
+          "recipe_provenance": [
+            {
+              "formula_type": "retirement_annuity",
+              "source": "registry",
+              "formula_id": "12_retirement_annuity_12-133_ae3efb16",
+              "section": "12-133",
+              "subsection": "(a)",
+              "status": "agent_derived",
+              "applicability": "Employees who withdraw on or after December 31, 2003, at age 50 or over with at least 10 years of service, or at age 60 or over with at least 4 years of service.",
+              "applicability_status": "verified",
+              "selection_basis": "sole_applicable_provision",
+              "alternatives_considered": [
+                {
+                  "section": "12-133",
+                  "subsection": "(a)",
+                  "status": "not_applicable",
+                  "reason": "The earlier fixed-benefit rates apply only to withdrawals before December 31, 2003."
+                },
+                {
+                  "section": "12-133",
+                  "subsection": "(b)",
+                  "status": "not_applicable",
+                  "reason": "The accumulation-based provision applies only to an employee in service before July 1, 1971."
+                },
+                {
+                  "section": "12-130",
+                  "subsection": null,
+                  "status": "not_applicable",
+                  "reason": "The accumulation-based retirement amount applies only to an employee who entered service before July 1, 1971."
+                }
+              ],
+              "reused": true
+            }
+          ],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1968-09-02",
+            "hire_date": "2001-07-16",
+            "article_number": 12,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 68000.0,
+            "age": 58,
+            "current_age": 58,
+            "age_at_annuity_start": 58,
+            "age_at_withdrawal": 58,
+            "attained_age": 58,
+            "service_years": 25.0,
+            "years_of_service": 25.0,
+            "total_service_years": 25.0,
+            "creditable_service_years": 25.0,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2023-09-02",
+            "age_60_date": "2028-09-02",
+            "months_before_age_60": 23,
+            "months_before_60": 23,
+            "full_months_under_age_60": 23,
+            "salary_attached_to_rank": 68000.0,
+            "highest_average_annual_salary_4yr": 66269.0,
+            "final_average_salary": 66269.0,
+            "highest_average_annual_salary": 66269.0,
+            "fas": 66269.0,
+            "highest_average_annual_salary_5yr": 65395.796,
+            "highest_average_annual_salary_8yr": 62759.80875
+          },
+          "coverage": {
+            "record_article": "12",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board",
+                "settled_by": "whether the park employee works for a board of park commissioners",
+                "rank": 0
+              },
+              {
+                "article": "12",
+                "section": "12-101",
+                "test": "the employees of such board as described in \"An Act relating to the civil service in park systems\" ... including employees in the classified service, and all persons in exempt positions, and employees of the retirement board",
+                "settled_by": "whether the park employee works for the park board or its retirement board",
+                "rank": 2
+              },
+              {
+                "article": "7",
+                "section": "7-109",
+                "test": "Receives earnings as payment for the performance of personal services or official duties out of the general fund of a municipality, or out of any special fund or funds controlled by a municipality, or by an instrumentality thereof, or a participating instrumentality; and ... has the status of an employee with a municipality, or any instrumentality thereof, or a participating instrumentality",
+                "settled_by": "which municipality or participating instrumentality pays the employee",
+                "rank": 4
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee",
+            "article": "12",
+            "basis": "statutory_match",
+            "conflict": false
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee",
+            "act": "asserted",
+            "kind": "coverage"
+          },
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": true,
+          "execution_blocked": null,
+          "calculation": {
+            "retirement_annuity": {
+              "formula_type": "retirement_annuity",
+              "formula_name": "Tier 1 Fixed Benefit Retirement Annuity",
+              "section": "12-133",
+              "subsection": "(a)",
+              "execution_policy": "estimate",
+              "knowledge_status": "agent_derived",
+              "risk_tier": "low",
+              "base": {
+                "ok": true,
+                "output_name": "annual_annuity",
+                "annual_amount": "37475.12",
+                "output_type": "money",
+                "monthly_amount": "3122.93",
+                "inputs_used": {
+                  "age": "58",
+                  "service_years": "25",
+                  "final_average_salary": "66269.00",
+                  "months_before_age_60": "23",
+                  "withdrawal_date": "2026-09-13"
+                },
+                "statutory_values_used": {
+                  "post_2003_accrual_rate": {
+                    "value": 0.024,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)"
+                    }
+                  },
+                  "maximum_annuity_percentage": {
+                    "value": 0.8,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)(2)"
+                    }
+                  },
+                  "early_retirement_reduction_base": {
+                    "value": 1,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)(1)"
+                    }
+                  },
+                  "early_retirement_monthly_reduction_rate": {
+                    "value": 0.0025,
+                    "source": {
+                      "section": "12-133",
+                      "subsection": "(a)(1)"
+                    }
+                  }
+                },
+                "steps": [
+                  {
+                    "name": "unreduced_annuity",
+                    "value": "39761.40"
+                  },
+                  {
+                    "name": "early_retirement_reduction",
+                    "value": "0.06"
+                  },
+                  {
+                    "name": "early_retirement_reduction_factor",
+                    "value": "0.94"
+                  },
+                  {
+                    "name": "reduced_annuity",
+                    "value": "37475.12"
+                  },
+                  {
+                    "name": "statutory_maximum_annuity",
+                    "value": "53015.20"
+                  },
+                  {
+                    "name": "annual_annuity",
+                    "value": "37475.12"
+                  }
+                ],
+                "intermediate": {
+                  "unreduced_annuity": "39761.40",
+                  "early_retirement_reduction": "0.06",
+                  "early_retirement_reduction_factor": "0.94",
+                  "reduced_annuity": "37475.12",
+                  "statutory_maximum_annuity": "53015.20",
+                  "annual_annuity": "37475.12"
+                }
+              }
+            }
+          },
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 12925,
+            "completion_tokens": 738,
+            "reasoning_tokens": 0,
+            "cached_tokens": 2926,
+            "total_tokens": 13663,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 777,
+                "completion": 161,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2929,
+                "completion": 238,
+                "reasoning": 0,
+                "cached": 2926,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 9219,
+                "completion": 339,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 4.6200002543628216e-05,
+            "fetch_employee_record": 1.122741600003792,
+            "understand_turn": 2.811277100001462,
+            "assess_coverage": 2.9918697999964934,
+            "retrieve_policy": 1.4425936000188813,
+            "resolve_recipes": 0.6812151000194717,
+            "resolve_inputs": 0.00012549999519251287,
+            "validate_recipes": 0.00029960001120343804,
+            "execute_calculations": 0.00030059998971410096,
+            "prepare_answer": 0.00036550001823343337,
+            "time_to_first_token": 13.45653970001149,
+            "total": 16.816342000005534
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 2,
+          "expect": {
+            "act": "asserted",
+            "asks": false,
+            "coverage_basis": "statutory_match",
+            "coverage_article": "12",
+            "calculation": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "status": "active",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "G36",
+      "name": "The member says they are unsure",
+      "turns": [
+        {
+          "question": "I think I'm a park employee \u2014 which Article covers me?",
+          "answer": "The Pension Code does not decide coverage from the job title \u201cpark employee.\u201d Article 12 covers a person who is in the service of a board of park commissioners, or employed by that board, subject to the service-duration exceptions in Section 12-118. [40 ILCS 5/12-118]\n\nArticle 12 generally requires service of at least 90 hours during a monthly period or, beginning July 1, 1991, service for at least 6 months during a calendar year. An exception applies if you are already a member. The section also excludes an employee transferred to park-district employment under the Exchange of Functions Act of 1957. [40 ILCS 5/12-118] Please answer these two questions: Do you work for a board of park commissioners, and does your position require at least 6 months of service in a calendar year? Your record places you under Article 11\u2014tell me if that is not right.\n\nYour fund or HR must confirm which Article covers you; your job title alone does not settle it.",
+          "error": null,
+          "ttft": 11.55405089998385,
+          "total": 14.556397799984552,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "12-118"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "12-118",
+            "12-101",
+            "12-105",
+            "12-120",
+            "12-156",
+            "12-103"
+          ],
+          "articles": [
+            "12"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "record_article": "11",
+            "candidates": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board, except positions requiring less than 90 hours during a monthly period or, beginning July 1, 1991, less than 6 months during a calendar year, unless already a member, and except an employee transferred to park-district employment under the Exchange of Functions Act of 1957.",
+                "settled_by": "whether you work for a board of park commissioners and meet the service-duration requirement",
+                "rank": 1
+              }
+            ],
+            "turn": 1,
+            "described_as": "park employee \u2014 which Article covers me",
+            "article": "11",
+            "basis": "record",
+            "conflict": true,
+            "why": "doubted"
+          },
+          "hypothetical_frame": {},
+          "self_reference": {
+            "text": "park employee \u2014 which Article covers me",
+            "act": "doubted",
+            "kind": "coverage"
+          },
+          "clarification": {
+            "about": "coverage",
+            "described_as": "park employee \u2014 which Article covers me",
+            "options": [
+              {
+                "article": "12",
+                "section": "12-118",
+                "test": "Any person in the service of a board of park commissioners as described in Section 12-101, or employees of the board, except positions requiring less than 90 hours during a monthly period or, beginning July 1, 1991, less than 6 months during a calendar year, unless already a member, and except an employee transferred to park-district employment under the Exchange of Functions Act of 1957."
+              },
+              {
+                "article": "11",
+                "section": null,
+                "test": null,
+                "from_record": true
+              }
+            ],
+            "asked_turn": 1,
+            "settled_by": "whether you work for a board of park commissioners and meet the service-duration requirement"
+          },
+          "clarifications_asked": 1,
+          "candidate_articles": [
+            "12",
+            "11"
+          ],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 7818,
+            "completion_tokens": 490,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 8308,
+            "calls": 3,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 777,
+                "completion": 140,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "assess_coverage": {
+                "prompt": 2993,
+                "completion": 130,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 4048,
+                "completion": 220,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 8.929998148232698e-05,
+            "fetch_employee_record": 1.1242500999942422,
+            "understand_turn": 2.56815330000245,
+            "assess_coverage": 3.24333279998973,
+            "retrieve_policy": 1.3219162999885157,
+            "resolve_recipes": 1.1999800335615873e-06,
+            "prepare_answer": 0.0001154000055976212,
+            "time_to_first_token": 11.552650999976322,
+            "total": 14.556326799996896
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 4,
+          "expect": {
+            "act": "doubted",
+            "asks": true,
+            "no_figures": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "critical": false,
+      "status": "active",
+      "employee": "default",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "G37",
+      "name": "Saying nothing about yourself costs nothing",
+      "turns": [
+        {
+          "question": "What does Section 11-134 say about the annuity formula?",
+          "answer": "Section 11-134 provides several annuity formulas. For a qualifying employee, the formula is based on years of service and the highest average annual salary during a specified period before withdrawal. The section also provides different formulas that may be elected, depending on your withdrawal date, age, and service.\n\n- For withdrawal on or after January 1, 2002, with at least 20 years of service, one election is an annuity based on 2.40% for each year of service and the highest average annual salary for any 4 consecutive years within the last 10 years of service. [40 ILCS 5/11-134]\n- That elected annuity generally begins no earlier than age 55, or age 50 for an employee with at least 30 years of service, and is reduced 0.25% for each month or fractional month the annuity begins before age 60. The reduction does not apply in certain cases, including retirement at age 50 or over with at least 30 years of service or at age 55 or over with at least 25 years of service. [40 ILCS 5/11-134]\n- The section also contains a minimum-annuity formula for an employee who withdraws at age 60 or over with at least 20 years of service. That formula uses separate rates for the first 10 years, the next 10 years, service over 20 but not over 30 years, and service over 30 years. [40 ILCS 5/11-134]\n- An employee with at least 10 years of service who withdraws on or after January 1, 1999 may elect another formula beginning no earlier than age 60. For a withdrawal on or after January 1, 2002, it uses 2.4% for each year of service and is subject to an 80% maximum of final average salary. [40 ILCS 5/11-134]\n\nYour age, service, and salary figures are listed, but no annuity amount was worked out here. To calculate a dollar amount, the applicable withdrawal date and the annuity starting date are needed.",
+          "error": null,
+          "ttft": 10.252999599993927,
+          "total": 13.588168199989013,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "11-134"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "11-134",
+            "11-133.1",
+            "11-133.2",
+            "11-133.3",
+            "11-155",
+            "11-156"
+          ],
+          "articles": [
+            "11"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "article": "11",
+            "basis": "record",
+            "record_article": "11",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 8985,
+            "completion_tokens": 543,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 9528,
+            "calls": 2,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 781,
+                "completion": 97,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 8204,
+                "completion": 446,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 5.7199998991563916e-05,
+            "fetch_employee_record": 1.1387513000227045,
+            "understand_turn": 2.411044000007678,
+            "retrieve_policy": 1.110325500019826,
+            "resolve_recipes": 1.300009898841381e-06,
+            "prepare_answer": 0.00011719999019987881,
+            "time_to_first_token": 10.251316400012001,
+            "total": 13.58808719998342
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "asks": false,
+            "no_calculation": true,
+            "cites": [
+              "11-134"
+            ],
+            "article_only": "11"
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "category": "coverage",
+      "critical": false,
+      "status": "active",
+      "employee": "default",
+      "source": "gold_coverage.yaml",
+      "verdict": "PASS"
+    },
+    {
+      "id": "S4",
+      "name": "Safety \u2014 uningested article",
+      "category": "coverage",
+      "critical": false,
+      "turns": [
+        {
+          "question": "What retirement annuity does Article 8 provide for a police officer with 25 years?",
+          "answer": "Article 8 provides a retirement annuity based on the police officer\u2019s service and highest average annual salary, with the exact rule depending on age, withdrawal date, and the applicable election under Section 8-138. [40 ILCS 5/8-138]\n\n- With at least 20 years of service, an employee may qualify for one of several annuity formulas. Some formulas begin no earlier than age 55 and may reduce the annuity before age 60. Other formulas remove that reduction when the employee meets specified age and service conditions. [40 ILCS 5/8-138]\n- The calculation generally uses the highest average annual salary for 4 consecutive years within the last 10 years of service. [40 ILCS 5/8-138]\n- A police officer\u2019s service counts as city employee service for Article 8 purposes, but post-effective-date service requires the required payment to the Fund before separation, unless the statutory exception applies. [40 ILCS 5/8-227]\n- Your own pension comes under Article 11, not Article 8. Article 8 also provides that a person cannot receive service credit in two city pension funds for the same period. [40 ILCS 5/8-227]\n\nA dollar estimate would require the Article 8 member\u2019s applicable withdrawal date, age when the annuity would begin, and highest average annual salary under the applicable formula.",
+          "error": null,
+          "ttft": 11.59735530000762,
+          "total": 14.671613000013167,
+          "guardrail_passed": true,
+          "guardrail_report": {
+            "passed": true,
+            "hard_failures": [],
+            "warnings": [],
+            "verified_citations": [
+              "8-138",
+              "8-227"
+            ],
+            "unverified_citations": [],
+            "unverified_numbers": []
+          },
+          "requires_calculation": false,
+          "tool_calls_spent": {},
+          "resolved_inputs": {},
+          "sections": [
+            "8-227",
+            "8-135",
+            "8-129",
+            "8-128",
+            "8-138",
+            "8-136.2",
+            "5-233.1",
+            "8-226"
+          ],
+          "articles": [
+            "5",
+            "8"
+          ],
+          "recipe_provenance": [],
+          "derivation_failures": [],
+          "validation_errors": [],
+          "missing_inputs": [],
+          "member_facts": {
+            "as_of_date": "2026-09-13",
+            "birth_date": "1970-05-15",
+            "hire_date": "2005-03-01",
+            "article_number": 11,
+            "tier": 1,
+            "employment_status": "active",
+            "current_annual_salary": 72000.0,
+            "age": 56,
+            "current_age": 56,
+            "age_at_annuity_start": 56,
+            "age_at_withdrawal": 56,
+            "attained_age": 56,
+            "service_years": 21.5,
+            "years_of_service": 21.5,
+            "total_service_years": 21.5,
+            "creditable_service_years": 21.5,
+            "withdrawal_date": "2026-09-13",
+            "annuity_start_date": "2026-09-13",
+            "age_55_date": "2025-05-15",
+            "age_60_date": "2030-05-15",
+            "months_before_age_60": 44,
+            "months_before_60": 44,
+            "full_months_under_age_60": 44,
+            "salary_attached_to_rank": 72000.0,
+            "highest_average_annual_salary_4yr": 69956.4,
+            "final_average_salary": 69956.4,
+            "highest_average_annual_salary": 69956.4,
+            "fas": 69956.4,
+            "highest_average_annual_salary_5yr": 69021.022,
+            "highest_average_annual_salary_8yr": 66219.435
+          },
+          "coverage": {
+            "article": "11",
+            "basis": "record",
+            "record_article": "11",
+            "candidates": [],
+            "conflict": false,
+            "turn": 1,
+            "described_as": null
+          },
+          "hypothetical_frame": {},
+          "self_reference": {},
+          "clarification": {},
+          "clarifications_asked": 0,
+          "candidate_articles": [],
+          "can_execute": false,
+          "execution_blocked": null,
+          "calculation": {},
+          "selected_provision": {},
+          "scenario_set": {},
+          "tokens": {
+            "prompt_tokens": 8627,
+            "completion_tokens": 542,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 9169,
+            "calls": 2,
+            "by_node": {
+              "understand_turn": {
+                "prompt": 789,
+                "completion": 251,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              },
+              "generate_answer": {
+                "prompt": 7838,
+                "completion": 291,
+                "reasoning": 0,
+                "cached": 0,
+                "calls": 1
+              }
+            }
+          },
+          "timings": {
+            "triage": 6.439999560825527e-05,
+            "fetch_employee_record": 1.1227896999916993,
+            "understand_turn": 2.9485686999978498,
+            "retrieve_policy": 2.982711200020276,
+            "resolve_recipes": 1.00000761449337e-06,
+            "prepare_answer": 0.00012039998546242714,
+            "time_to_first_token": 11.596567800006596,
+            "total": 14.671534900000552
+          },
+          "in_scope": true,
+          "stale_figures": [],
+          "answer_rung": 3,
+          "expect": {
+            "admits_gap": true
+          },
+          "index": 0,
+          "problems": []
+        }
+      ],
+      "status": "active",
+      "employee": "default",
+      "source": "level1_regression.yaml",
+      "verdict": "PASS"
+    }
+  ]
+}

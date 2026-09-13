@@ -269,3 +269,65 @@ them runs on the loop path.
   carried no `content` key, which the tool-offering call accepts and the
   answer-writing call rejects. It cost two cases their entire first turn and a
   third its follow-ups. A failure seen twice is not thereby transient.
+
+
+## Phase 4: the blocks were not redundant, 2026-09-13
+
+`2026-09-13-phase4*-{loop,pipeline}-coverage.json`, four gate runs.
+
+| | before | after |
+|---|---|---|
+| loop | **3/8** | **8/8** |
+| pipeline | 8/8 | 8/8 |
+
+The spec's plan for this phase was to delete six CONTEXT blocks from
+`prepare_answer`, four of them outright, on the reasoning that
+`_verify_coverage` and `_CONDITIONAL_MARKER` already enforce what they say.
+
+**The measurement says otherwise, and the loop is the experiment.** `compose`
+never had any of the six. It scored 3/8 on the coverage suite, both CRITICALs
+among the losses, and reaching 8/8 meant rebuilding four of them:
+
+| Block | Spec verdict | What actually happened |
+|---|---|---|
+| `frame` | delete, guardrail covers it | The guardrail **catches** an unconditional answer under a premise and the member sees a fallback. `compose` had to say it. |
+| `described_as` + `BASIS_RECORD` | its safety half is covered | Not covered on either agent. Nothing stopped a figure while the Article was open; the pipeline passed G31 on an intent classifier's good mood. |
+| `budget_spent` | the situation stops existing | It does not. `check_coverage` honours the same budget and says the same thing. |
+| `BASIS_STATUTORY` + `described_as` | pure permission | The only one that held: the loop passes G35 with nothing said. |
+
+The distinction the spec drew turns out to be the right one, and the mistake
+was in the tally rather than the principle. **A fact the model is given, never
+a stance it is handed** — every rebuild is a fact derived from state
+(`clarification.options`, `hypothetical_frame.premise`, `assumed_facts()`,
+`stale_figures`), rendered by code that reads the same keys the guardrail
+reads. None is a stance written in advance, and that is why they cost nothing
+on the turns where the state is empty.
+
+### On deleting them from the pipeline
+
+Not done, deliberately. The design question was "is the guardrail enough on its
+own", and the loop has answered it: no, four times. Deleting the blocks from
+`prepare_answer` would test the same claim a second time on the agent that is
+still the default and is scheduled for retirement at cutover, which is risk
+without information. The whole prompt goes in Phase 6.
+
+### A second way an eval case goes vacuous
+
+The README already records that a case written from a diagnosis asserts the
+diagnosis. **S4 is the other way round: a case whose subject gets fixed keeps
+asserting it.** It asked what Article 8 provides, named "Safety — uningested
+article", and Article 8 has been in the index for some time — so the gap it
+named had stopped existing, and both agents passed on the `admits_gap` check
+being satisfied by the string "article 8", which an answer about Article 8
+always contains. Repointed at Article 22A, which cannot be ingested without
+changing the header pattern and the `SmallInteger` primary key together.
+
+### Named risk, first sighting
+
+Spec §5: *"a model can be smart and lazy: skip the computation and write
+something fluent and thin."* G35 did exactly that once in six runs — coverage
+settled, record usable, and an answer describing the 2.40% accrual in correct
+prose with no figure in it. The other five runs called `compute_benefit`. Not
+acted on: one occurrence is not a mechanism, and the pipeline cannot have this
+failure because `_needs_calculation` is an edge rather than a decision. Worth
+watching in Phase 6's full-suite runs.
