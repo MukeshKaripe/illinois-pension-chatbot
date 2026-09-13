@@ -24,7 +24,7 @@ import logging
 from typing import Any
 
 from pension_chat.agent import corpus
-from pension_chat.agent.retrieval import fetch_sections, retrieve
+from pension_chat.agent.retrieval import retrieve
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.tools")
