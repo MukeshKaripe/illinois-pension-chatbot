@@ -163,3 +163,34 @@ def test_fund_specific_facts_reach_the_engine_under_every_name() -> None:
     assert facts["covered_by_social_security"] is True
     # §3-111's basis is the salary itself, under the statute's own name.
     assert facts["salary_attached_to_rank"] == facts["current_annual_salary"] == 70000.0
+
+
+def test_a_growth_rate_raises_the_projected_salary():
+    """Flat is the honest default and stays the default.
+
+    But a member who tells you their raises is supplying a known rule, not
+    asking you to invent one -- and "assume I get a 3% raise each year" came
+    back with the same figure and a sentence saying it changed nothing.
+    """
+    flat = build_member_facts(EMPLOYEE, HISTORY, today=TODAY, assumed_retirement_age=60)
+    grown = build_member_facts(
+        EMPLOYEE,
+        HISTORY,
+        today=TODAY,
+        assumed_retirement_age=60,
+        salary_growth=Decimal("0.03"),
+    )
+
+    assert Decimal(str(grown["final_average_salary"])) > Decimal(
+        str(flat["final_average_salary"])
+    )
+    assert "3" in str(grown["salary_basis"]), "the rule used must be disclosed"
+
+
+def test_no_growth_rate_is_the_flat_projection_unchanged():
+    a = build_member_facts(EMPLOYEE, HISTORY, today=TODAY, assumed_retirement_age=60)
+    b = build_member_facts(
+        EMPLOYEE, HISTORY, today=TODAY, assumed_retirement_age=60, salary_growth=None
+    )
+    assert a == b
+    assert "not projected" in str(a["salary_basis"])

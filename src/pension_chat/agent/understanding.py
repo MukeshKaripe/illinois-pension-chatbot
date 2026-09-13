@@ -60,7 +60,7 @@ Return JSON only:
  "recompute": true|false,
  "revised_facts": {"<fact name>": <value>},
  "scenarios": [{"label": "...", "retirement_age": <int|null>,
-   "years_from_now": <int|null>, "basis": "..."}],
+   "years_from_now": <int|null>, "salary_growth": <number|null>, "basis": "..."}],
  "unresolved": [{"what": "...", "why": "..."}],
  "answerable_part": "<if part of the message is outside the Pension Code, the part that is inside it>",
  "answers_open_question": true|false,
@@ -88,6 +88,10 @@ Rules:
   told the member's current age, and the offset is resolved against it for you
   later. "If I work two more years" is a scenario; so is "what if I stay on a
   while longer", if you can put a number on it.
+- salary_growth carries a pay rise the member told you to assume ("assume I get
+  a 3% raise each year" -> 0.03). Leave it null unless they said one: pay held
+  at today's level is the honest default, and a rate nobody stated is invented
+  rather than projected.
 - You decide which benefit is in play. You never decide which Article covers the
   member; that is settled elsewhere and you must not report it."""
 

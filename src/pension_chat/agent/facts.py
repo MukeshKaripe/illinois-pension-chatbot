@@ -105,12 +105,19 @@ def highest_average_salary(
     return best
 
 
+def _rate_label(rate: Decimal | float | str) -> str:
+    """A growth rate as a member would say it: 0.03 -> "3%"."""
+    percent = (Decimal(str(rate)) * 100).normalize()
+    return f"{percent:f}%"
+
+
 def build_member_facts(
     employee: dict[str, Any] | None,
     salary_history: list[tuple[date, Decimal]] | None = None,
     *,
     today: date | None = None,
     assumed_retirement_age: int | None = None,
+    salary_growth: Decimal | None = None,
 ) -> dict[str, Any]:
     """Compute every member fact a recipe might reference.
 
@@ -121,6 +128,11 @@ def build_member_facts(
         assumed_retirement_age: When set, facts are computed as of the date the
             member reaches that age instead of today — this is what powers
             "what changes when I reach 60" scenarios.
+        salary_growth: Annual rate to carry salary forward by when projecting,
+            as a decimal (0.03 for 3%). ``None`` holds salary flat, which is
+            the honest default: a rate the member has not stated is invented,
+            not projected. Only salary moves; service and age are arithmetic on
+            dates and owe nothing to pay.
 
     Returns:
         A flat dict of facts. Keys are aliased liberally so that a derived
@@ -195,10 +207,34 @@ def build_member_facts(
         for alias in aliases_of(name):
             facts[alias] = value
 
-    if salary_history:
+    # Salary carried forward to the projection date, when the member supplied a
+    # rule for it. Every row is compounded by the years between its own date
+    # and `as_of`, so the 4-consecutive-year window is taken over projected pay
+    # rather than over today's. The disclosure is set beside the number, not by
+    # whoever renders it, so the two cannot drift apart.
+    projected_history = salary_history
+    if salary_history and salary_growth and as_of > today:
+        rate = Decimal("1") + Decimal(str(salary_growth))
+        projected_history = [
+            (
+                row_date,
+                Decimal(str(amount))
+                * (rate ** (Decimal(str((as_of - row_date).days)) / Decimal("365.25"))),
+            )
+            for row_date, amount in salary_history
+        ]
+        facts["salary_basis"] = (
+            f"carried forward at {_rate_label(salary_growth)} a year, as you said"
+        )
+    elif assumed_retirement_age is not None:
+        facts["salary_basis"] = (
+            "carried forward at today's level; future pay rises are not projected"
+        )
+
+    if projected_history:
         for consecutive in (4, 5, 8):
             average = highest_average_salary(
-                salary_history, consecutive, window_years=10, as_of=as_of
+                projected_history, consecutive, window_years=10, as_of=as_of
             )
             if average is None:
                 continue

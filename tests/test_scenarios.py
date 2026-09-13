@@ -278,3 +278,22 @@ def test_a_model_offset_survives_corroboration():
     assert corroborated(scenario, "if I work two more years, what would my pension be?")
     # And still refuses one this message does not name at all.
     assert not corroborated(scenario, "what about my wife?")
+
+
+def test_a_growth_rate_is_read_either_way_and_refused_when_implausible():
+    """Models send "3" as readily as "0.03", and both mean 3%.
+
+    Anything outside a plausible band is dropped rather than guessed at: a rate
+    is a rule the member supplied, and a misread one invents a salary instead
+    of projecting a known one.
+    """
+    from decimal import Decimal
+
+    from pension_chat.agent.nodes import _growth_rate
+
+    assert _growth_rate({"salary_growth": 0.03}) == Decimal("0.03")
+    assert _growth_rate({"salary_growth": 3}) == Decimal("0.03")
+    assert _growth_rate({}) is None
+    assert _growth_rate({"salary_growth": None}) is None
+    assert _growth_rate({"salary_growth": "nonsense"}) is None
+    assert _growth_rate({"salary_growth": 400}) is None
