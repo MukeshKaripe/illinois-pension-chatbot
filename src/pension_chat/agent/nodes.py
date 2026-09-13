@@ -224,8 +224,41 @@ def _stand_ins_allowed(state: PensionAgentState) -> bool:
     return bool(state.get("stand_in_facts")) and _coverage_elsewhere(state)
 
 
+def _coverage_unresolved(state: PensionAgentState) -> bool:
+    """Is the routing question still open?
+
+    `conflict: True` means exactly that, and the two ways out both clear it:
+    `bind_reply` settles it when the member answers, and `assess_coverage`
+    clears it explicitly when the clarification budget is spent and the turn
+    proceeds on the record saying what it assumed.
+    """
+    return bool((state.get("coverage") or {}).get("conflict"))
+
+
 def _record_facts_usable(state: PensionAgentState) -> bool:
-    """Whether this turn may compute on the member's record at all."""
+    """Whether this turn may compute on the member's record at all.
+
+    Two ways it may not, and the second was missing on both agents until the
+    Phase 4 measurement went looking for it.
+
+    The record is filed under **another** Article -- a premise the member
+    supposed, or an Article they confirmed against their file -- so its salary
+    and service are administered by a fund this turn is not reading. Unless they
+    asked for them as stand-ins.
+
+    Or **which Article governs is still an open question**. The rule is the one
+    already written down: a figure is computable exactly when no input is
+    borrowed from a record filed under another Article, and while the Article is
+    unsettled every input is potentially borrowed. Nothing enforced it: a
+    `record` basis is not "elsewhere", so an unresolved conflict stopped no
+    calculation. The pipeline passed G31 only because `understand_turn` happened
+    to read "how is my pension calculated?" as wanting no figure, and the loop
+    quoted the member's own Article 11 annuity at somebody asking which fund
+    they were in -- the park-employee failure this layer exists to prevent,
+    arriving by a route nobody had closed.
+    """
+    if _coverage_unresolved(state):
+        return False
     return not _coverage_elsewhere(state) or _stand_ins_allowed(state)
 
 
