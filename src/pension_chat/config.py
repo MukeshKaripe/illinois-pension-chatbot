@@ -129,12 +129,13 @@ class Settings(BaseSettings):
 
     reasoning_effort_understand: str = "none"
 
-    # Which agent answers a turn. "pipeline" is the fixed graph every eval and
-    # test measures; "loop" is the tool-calling agent. The pipeline stays the
-    # default until the cutover criteria in docs/superpowers/baselines are met,
-    # so that the comparison between them is made on evidence rather than on
-    # whichever happened to be wired in.
-    agent_mode: str = "pipeline"
+    # Which agent answers a turn. Kept as a setting after cutover only so a
+    # deployment can be pinned; there is one agent now, and "pipeline" no longer
+    # names anything. The criteria in docs/superpowers/baselines were met on
+    # 2026-09-14: 89/92 against the pipeline's 85/92, no category regressing by
+    # more than one case, fund_smoke 18/18, zero hard guardrail failures on
+    # either, and G24, L08 and L09 passing where the pipeline could not.
+    agent_mode: str = "loop"
 
     # A rejected answer is a labelled example of the thing verification exists
     # to prevent, and it used to survive only as long as a log line. Written to

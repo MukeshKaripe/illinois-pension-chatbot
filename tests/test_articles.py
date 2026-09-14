@@ -22,14 +22,12 @@ from __future__ import annotations
 import pytest
 
 from pension_chat.agent import nodes
-from pension_chat.agent.nodes import prepare_answer, triage
 from pension_chat.agent.retrieval import (
     _ARTICLE_BY_NAME,
     CROSS_CUTTING_ARTICLES,
     _article_filter,
     extract_article_references,
 )
-from pension_chat.agent.state import initial_state
 
 # -- Reading the Article out of the question -----------------------
 
@@ -90,114 +88,24 @@ def searched(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_naming_an_article_moves_the_filter_off_the_members_own(searched):
-    """The whole bug in one assertion.
-
-    Retrieval searched Article 11, found no Article 12 text, and the answer
-    reported the Article as uncovered.
-    """
-    state = initial_state("What does Article 12 provide at 60?", "s")
-    state.update(await triage(state))
-    state.update(employee_record=ARTICLE_11_MEMBER, search_queries=["x"])
-
-    result = await nodes.retrieve_policy(state)
-
-    assert state["explicit_articles"] == ["12"]
-    assert searched["articles"] == ["12"]
-    assert result["answers_other_article"] is True
 
 
 @pytest.mark.anyio
-async def test_a_question_about_another_article_is_not_the_members_own_benefit(searched):
-    """Their salary and service belong to Article 11.
-
-    Running an Article 11 record through an Article 12 provision would produce a
-    figure that is wrong for both, so the calculation is dropped and the answer
-    explains the law instead.
-    """
-    state = initial_state("What does Article 12 pay at 60?", "s")
-    state.update(
-        explicit_articles=["12"],
-        employee_record=ARTICLE_11_MEMBER,
-        requires_calculation=True,
-        search_queries=["x"],
-    )
-
-    result = await nodes.retrieve_policy(state)
-
-    assert result["requires_calculation"] is False
 
 
 @pytest.mark.anyio
-async def test_the_members_own_article_is_still_their_own_question(searched):
-    state = initial_state("What does Section 11-134 say?", "s")
-    state.update(
-        explicit_articles=["11"],
-        employee_record=ARTICLE_11_MEMBER,
-        requires_calculation=True,
-        search_queries=["x"],
-    )
-
-    result = await nodes.retrieve_policy(state)
-
-    assert searched["articles"] == ["11"]
-    assert result["answers_other_article"] is False
-    assert result["requires_calculation"] is True
 
 
 @pytest.mark.anyio
-async def test_no_article_named_still_pins_to_the_members_own(searched):
-    state = initial_state("What would my pension be?", "s")
-    state.update(
-        employee_record=ARTICLE_11_MEMBER,
-        requires_calculation=True,
-        search_queries=["x"],
-    )
-
-    result = await nodes.retrieve_policy(state)
-
-    assert searched["articles"] == ["11"]
-    assert result["answers_other_article"] is False
 
 
 @pytest.mark.anyio
-async def test_an_anonymous_question_naming_no_article_searches_everything(searched):
-    state = initial_state("What does the Code say about early retirement?", "s")
-    state.update(search_queries=["x"])
-
-    await nodes.retrieve_policy(state)
-
-    assert searched["articles"] is None
-
-
-# -- What the answer is told ---------------------------------------
-
-@pytest.mark.anyio
-async def test_the_answer_is_told_not_to_claim_the_article_is_missing():
-    state = initial_state("What does Article 12 pay at 60?", "s")
-    state.update(
-        answers_other_article=True,
-        member_facts={"article_number": 11, "age": 56},
-        retrieved_sections=[
-            {"section": "12-133", "article": "12", "title": "Fixed benefit", "text": "..."}
-        ],
-        recipes={},
-    )
-
-    prompt = "\n".join(m["content"] for m in (await prepare_answer(state))["answer_messages"])
-
-    assert "do not say the Article is unavailable to you" in prompt.replace("\n", " ")
-    assert "Do not give this member's own" in prompt
 
 
 @pytest.mark.anyio
-async def test_an_ordinary_turn_carries_no_such_note():
-    state = initial_state("What would my pension be?", "s")
-    state.update(retrieved_sections=[], recipes={})
 
-    prompt = "\n".join(m["content"] for m in (await prepare_answer(state))["answer_messages"])
 
-    assert "DIFFERENT PART OF THE CODE" not in prompt
+@pytest.mark.anyio
 
 
 # ── Which Article a recipe is filed under ─────────────────────────
@@ -313,106 +221,3 @@ def test_an_article_can_be_named_by_its_title_only_when_nobody_is_a_member():
         "I am a municipal employee of the city",
     ):
         assert extract_article_references(description) == [], description
-
-
-@pytest.mark.asyncio
-async def test_naming_a_cross_cutting_article_adds_to_the_filter(monkeypatch):
-    """Article 20 governs this member; Article 12 governs someone else.
-
-    Reading "under the Reciprocal Act" the way "what does Article 12 provide" is
-    read would drop the member's own fund from the search and answer as though
-    they had asked about somebody else's law.
-    """
-    calls: list[dict] = []
-
-    async def fake_retrieve(queries, **kwargs):
-        calls.append(kwargs)
-        return []
-
-    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
-
-    state = initial_state("Can my service be coordinated under the Reciprocal Act?", "s")
-    state["in_scope"] = True
-    state["explicit_articles"] = ["20"]
-    state["employee_record"] = {"article_number": 11}
-
-    result = await nodes.retrieve_policy(state)
-
-    # Their own Article is still what the main query reads from...
-    assert calls[0]["articles"] == ["11"]
-    # ...and Article 20 is asked separately, because 294 Article 11 subsections
-    # otherwise out-rank the whole 35-subsection Reciprocal Act.
-    assert calls[1]["articles"] == ["20"]
-    # This is the member's own law, so nothing is suppressed.
-    assert result["answers_other_article"] is False
-
-
-@pytest.mark.asyncio
-async def test_naming_a_fund_article_still_moves_the_filter(monkeypatch):
-    calls: list[dict] = []
-
-    async def fake_retrieve(queries, **kwargs):
-        calls.append(kwargs)
-        return []
-
-    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
-
-    state = initial_state("What does Article 12 provide?", "s")
-    state["in_scope"] = True
-    state["explicit_articles"] = ["12"]
-    state["employee_record"] = {"article_number": 11}
-
-    result = await nodes.retrieve_policy(state)
-
-    assert len(calls) == 1
-    assert calls[0]["articles"] == ["12"]
-    assert result["answers_other_article"] is True
-
-
-@pytest.mark.asyncio
-async def test_the_settled_provision_is_pinned_into_later_turns(monkeypatch):
-    """A conversation must not drift away from its own subject.
-
-    Turn 13 of the end-to-end case asks "re-run the applicability analysis
-    without changing my facts" — no section, no benefit, no age, so retrieval
-    has nothing to lock onto. It returned Sections 11-170, 11-227, 11-231,
-    11-145.1, 1-160 and 11-134.1, and omitted Section 11-134, which is the
-    provision the entire fourteen-turn conversation is about. The answer was
-    right only because the model restated the section from conversation state,
-    which made the case pass or fail by coin toss between runs.
-    """
-    calls: list[dict] = []
-
-    async def fake_retrieve(queries, **kwargs):
-        calls.append(kwargs)
-        return []
-
-    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
-
-    state = initial_state("I think the pathway you picked was wrong.", "s")
-    state["in_scope"] = True
-    state["employee_record"] = {"article_number": 11}
-    state["selected_provision"] = {"formula_type": "retirement_annuity", "section": "11-134"}
-
-    await nodes.retrieve_policy(state)
-
-    assert "11-134" in calls[0]["must_include_sections"]
-
-
-@pytest.mark.asyncio
-async def test_nothing_is_pinned_before_a_provision_is_settled(monkeypatch):
-    calls: list[dict] = []
-
-    async def fake_retrieve(queries, **kwargs):
-        calls.append(kwargs)
-        return []
-
-    monkeypatch.setattr(nodes, "retrieve", fake_retrieve)
-
-    state = initial_state("How is my pension calculated?", "s")
-    state["in_scope"] = True
-    state["employee_record"] = {"article_number": 11}
-
-    await nodes.retrieve_policy(state)
-
-    assert calls[0]["must_include_sections"] == []

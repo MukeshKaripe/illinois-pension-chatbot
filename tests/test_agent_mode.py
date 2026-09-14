@@ -12,8 +12,13 @@ from pension_chat.agent.nodes import ANSWER_SYSTEM
 from pension_chat.config import Settings
 
 
-def test_pipeline_is_the_default():
-    assert Settings().agent_mode == "pipeline"
+def test_the_loop_is_the_default():
+    """Cut over on 2026-09-14, on the criteria in docs/superpowers/baselines and
+    not on a preference: 89/92 against the pipeline's 85/92, two categories
+    regressing by exactly one case, `fund_smoke` 18/18, zero hard guardrail
+    failures on either agent, and G24, L08 and L09 passing where the pipeline
+    has never been able to."""
+    assert Settings().agent_mode == "loop"
 
 
 async def test_compose_continues_the_loops_history_rather_than_restarting():

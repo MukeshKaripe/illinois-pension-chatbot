@@ -186,44 +186,15 @@ def test_a_value_the_system_assumed_is_still_assumed_on_the_next_turn() -> None:
 
 # ── Routing on a correction ───────────────────────────────────────
 
-def test_a_stale_figure_routes_to_the_calculation_branch_on_its_own() -> None:
-    """A correction asks for a recalculation without asking for one.
-
-    This is the combination that matters and the one no other unit test covers:
-    the member used no calculation vocabulary, so `requires_calculation` is False
-    and `formula_types_needed` is empty -- and the branch must still run, because
-    a figure they had already been given rests on the value they just revised.
-    Conversation B turn 3 ("actually sorry it's more like 23 years") was answered
-    with "I would need the pension calculation using 23 years of service"
-    precisely because this routed to `prepare_answer`.
-
-    Its only other coverage is a live eval, which cannot run without the index.
-    """
-    from pension_chat.agent.graph import _needs_calculation
-
-    assert _needs_calculation(
-        {"stale_figures": ["now"], "requires_calculation": False, "formula_types_needed": []}
-    ) == "resolve_inputs"
-
-
-def test_a_turn_with_neither_a_request_nor_a_stale_figure_writes_prose() -> None:
-    from pension_chat.agent.graph import _needs_calculation
-
-    assert _needs_calculation(
-        {"stale_figures": [], "requires_calculation": False, "formula_types_needed": []}
-    ) == "prepare_answer"
-
-
-def test_asking_for_a_figure_still_routes_to_the_calculation_branch() -> None:
-    from pension_chat.agent.graph import _needs_calculation
-
-    assert _needs_calculation(
-        {
-            "stale_figures": [],
-            "requires_calculation": True,
-            "formula_types_needed": ["retirement_annuity"],
-        }
-    ) == "resolve_inputs"
+# `_needs_calculation` went with the pipeline at cutover. It was an edge: a
+# stale figure routed the turn back through the calculation branch without the
+# member having to ask again. The loop has no edges — `_context` puts the
+# standing figure and what it rests on in front of the model every turn, and a
+# message contradicting one of those values is read as the correction it is.
+#
+# That is a model decision where this was a routing rule, so the coverage is a
+# live eval rather than a unit test: R03 (CRITICAL), G16, G18 and L04 all pass
+# on the loop and are the cases this rule was written for.
 
 
 # ── Which assumptions an answer owes the member a sentence about ───

@@ -28,10 +28,8 @@ from pension_chat.agent.nodes import (
     ANSWER_SYSTEM,
     _dedupe_missing_inputs,
     _format_calculation,
-    prepare_answer,
 )
 from pension_chat.agent.presentation import template_for
-from pension_chat.agent.state import initial_state
 
 # Words that describe how the answer was assembled rather than what is true of
 # the member's pension. None of them belong in text a member reads.
@@ -102,74 +100,6 @@ def test_an_authoritative_recipe_is_not_labelled_an_estimate():
     rendered = json.loads(_format_calculation(promoted))["retirement_annuity"]
 
     assert rendered["is_estimate"] is False
-
-
-@pytest.mark.anyio
-async def test_no_machinery_vocabulary_reaches_the_answering_model():
-    state = initial_state("What would my pension be?", "s")
-    state.update(
-        calculation_result=CALCULATION,
-        member_facts={"age": 56, "service_years": 21.5},
-        recipe_provenance=[
-            {
-                "formula_type": "retirement_annuity",
-                "source": "registry",
-                "formula_id": "11_retirement_annuity_11-134_b059faa8",
-                "status": "agent_derived",
-                "section": "11-134",
-                "reused": True,
-                "alternatives_considered": ["11-130(1) — no executable conversion"],
-            }
-        ],
-        recipes={"retirement_annuity": {"applicability_check": {"status": "verified"}}},
-        retrieved_sections=[{"section": "11-134", "title": "Minimum annuities", "text": "..."}],
-    )
-
-    prompt = _prompt_text(await prepare_answer(state))
-    leaks = sorted({m.group(0).lower() for m in MACHINERY.finditer(prompt)})
-
-    assert leaks == [], f"machinery vocabulary in the answer prompt: {leaks}"
-
-
-@pytest.mark.anyio
-async def test_the_identifier_is_withheld_but_reuse_can_still_be_answered():
-    """The member chose: provenance on request, never volunteered.
-
-    So the fact of reuse stays available to the model — test question 10 asks
-    for it outright — while the row identifier, which means nothing to anyone
-    outside the registry, does not.
-    """
-    state = initial_state("Did you reuse the earlier calculation?", "s")
-    state.update(
-        recipe_provenance=[
-            {
-                "formula_type": "retirement_annuity",
-                "formula_id": "11_retirement_annuity_11-134_b059faa8",
-                "reused": True,
-                "section": "11-134",
-            }
-        ],
-        recipes={},
-        retrieved_sections=[],
-    )
-
-    prompt = _prompt_text(await prepare_answer(state))
-
-    assert "b059faa8" not in prompt
-    assert "worked_out_fresh_this_time" in prompt
-
-
-@pytest.mark.anyio
-async def test_an_internal_block_reason_is_never_offered_as_wording():
-    state = initial_state("What would my pension be?", "s")
-    state.update(execution_blocked="execution_policy_no_execute", retrieved_sections=[])
-
-    prompt = _prompt_text(await prepare_answer(state))
-
-    # The reason is still there for the model to reason from, explicitly marked
-    # as something to translate rather than repeat.
-    assert "execution_policy_no_execute" in prompt
-    assert "Do not repeat that phrase" in prompt
 
 
 # ── The house style itself ────────────────────────────────────────

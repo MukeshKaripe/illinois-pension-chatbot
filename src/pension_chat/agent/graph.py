@@ -56,18 +56,10 @@ from pension_chat.agent.nodes import (
     _record_facts_usable,
     _stand_ins_allowed,
     _stated_in,
-    assess_coverage,
-    execute_calculations,
     fetch_employee_record,
-    prepare_answer,
-    resolve_inputs,
-    resolve_recipes,
-    retrieve_policy,
     triage,
-    validate_recipes,
 )
 from pension_chat.agent.state import CLEAR, PensionAgentState, initial_state, turn_input
-from pension_chat.agent.understanding import understand_turn
 from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.config import get_settings
 
@@ -101,51 +93,6 @@ GREETING_MESSAGE = (
     "which retirement provisions apply to you, what a particular Section says, "
     "or roughly what your pension would come to. What would you like to know?"
 )
-
-
-def _needs_calculation(state: PensionAgentState) -> str:
-    """Run the calculation branch for a figure that is wanted or has gone stale.
-
-    Staleness is the half that does not depend on the words used. A member who
-    writes "actually it's more like 23 years" has asked for a recalculation
-    without asking for one, and the figure they are correcting is what says so.
-    """
-    if state.get("stale_figures"):
-        return "resolve_inputs"
-    if state.get("requires_calculation") and state.get("formula_types_needed"):
-        return "resolve_inputs"
-    return "prepare_answer"
-
-
-def _in_scope(state: PensionAgentState) -> str | list[str]:
-    """Fan out to both independent nodes, or short-circuit to the decline path.
-
-    Returning a list dispatches to several nodes at once; LangGraph runs them
-    concurrently and joins them at the edge that lists both as sources.
-    """
-    if not state.get("in_scope", True):
-        return "decline"
-    return ["understand_turn", "fetch_employee_record"]
-
-
-async def gate_scope(state: PensionAgentState) -> dict[str, Any]:
-    """Join the concurrent pair, so the scope verdict can be read once more.
-
-    Deterministic and free -- it exists only to give the edge below a source
-    node. ``triage`` decides scope before either branch runs, which is right for
-    the deny pattern but leaves the model's own verdict with nowhere to go:
-    ``understand_turn`` runs *after* that decision, so its ``in_scope: false``
-    declined nothing and the turn was answered anyway. Reading the key again
-    here is what makes the model's judgement mean something.
-    """
-    return {}
-
-
-def _still_in_scope(state: PensionAgentState) -> str:
-    """Whether anything the planning branch learned takes the turn out of scope."""
-    if not state.get("in_scope", True):
-        return "decline"
-    return "assess_coverage"
 
 
 async def decline(state: PensionAgentState) -> dict:
@@ -202,93 +149,18 @@ def build_loop_graph(checkpointer: Any | None = None):
     return workflow.compile(checkpointer=checkpointer)
 
 
-def build_graph(checkpointer: Any | None = None):
-    """Assemble and compile the StateGraph.
-
-    Without a checkpointer the graph is stateless and every turn starts from a
-    blank blackboard, which is what tests want. The application passes one, so a
-    conversation is a thread and a follow-up resumes from what the previous turn
-    established.
-    """
-    workflow = StateGraph(PensionAgentState)
-
-    workflow.add_node("triage", triage)
-    # `understand_turn` reads/returns `dict[str, Any]` rather than
-    # `PensionAgentState` (Task 7's module is exercised with plain dicts in
-    # unit tests, with no network); the two are structurally compatible at
-    # runtime, so the mismatch is only in the static type LangGraph infers.
-    workflow.add_node("understand_turn", cast(Any, understand_turn))
-    workflow.add_node("decline", decline)
-    workflow.add_node("fetch_employee_record", fetch_employee_record)
-    workflow.add_node("assess_coverage", assess_coverage)
-    workflow.add_node("retrieve_policy", retrieve_policy)
-    workflow.add_node("resolve_recipes", resolve_recipes)
-    workflow.add_node("resolve_inputs", resolve_inputs)
-    workflow.add_node("validate_recipes", validate_recipes)
-    workflow.add_node("execute_calculations", execute_calculations)
-    workflow.add_node("gate_scope", gate_scope)
-    workflow.add_node("prepare_answer", prepare_answer)
-
-    workflow.set_entry_point("triage")
-    workflow.add_conditional_edges(
-        "triage",
-        _in_scope,
-        ["understand_turn", "fetch_employee_record", "decline"],
-    )
-    workflow.add_edge("decline", END)
-
-    # Understanding the turn and fetching the record are independent — the
-    # first reads only the conversation, and the record read needs no plan. Both
-    # are ~2s against remote services, so running them concurrently takes one of
-    # them off the critical path entirely. Retrieval waits for both: it needs the
-    # queries from one and the member's Article number from the other.
-    #
-    # It is also why `extract_scenarios` still exists: understanding cannot see
-    # the record from here, so it cannot turn "wait 2 more years" into an age.
-    workflow.add_edge(["understand_turn", "fetch_employee_record"], "gate_scope")
-    # The scope verdict is read once more here. `triage` decides it before
-    # either branch runs, which suits the deny pattern but leaves the model's
-    # own verdict inert -- `understand_turn` runs after that decision, so its
-    # `in_scope: false` used to decline nothing at all.
-    workflow.add_conditional_edges(
-        "gate_scope",
-        _still_in_scope,
-        {"decline": "decline", "assess_coverage": "assess_coverage"},
-    )
-    # Coverage decides which Article this turn reads from, so it has to settle
-    # before retrieval filters on one. It joins after the record fetch because
-    # it needs something to disagree with, and it returns immediately on any
-    # turn where the member said nothing about who they are -- which is nearly
-    # all of them.
-    workflow.add_edge("assess_coverage", "retrieve_policy")
-    workflow.add_edge("retrieve_policy", "resolve_recipes")
-    workflow.add_conditional_edges(
-        "resolve_recipes",
-        _needs_calculation,
-        {"resolve_inputs": "resolve_inputs", "prepare_answer": "prepare_answer"},
-    )
-    workflow.add_edge("resolve_inputs", "validate_recipes")
-    workflow.add_edge("validate_recipes", "execute_calculations")
-    workflow.add_edge("execute_calculations", "prepare_answer")
-    workflow.add_edge("prepare_answer", END)
-
-    return workflow.compile(checkpointer=checkpointer)
-
-
-agent_graph = build_graph(SqlAlchemyCheckpointSaver())
-#: Built beside it rather than instead of it. Both share the checkpointer, so a
-#: conversation keeps its thread whichever agent answered a given turn.
 loop_graph = build_loop_graph(SqlAlchemyCheckpointSaver())
 
 
 def active_graph():
-    """Whichever agent `agent_mode` selects. The pipeline unless told otherwise.
+    """The agent that answers a turn.
 
-    Read per turn rather than bound at import, so a run can switch modes --
-    which is how `eval_agent.py --mode loop` measures one against the other in
-    the same process.
+    One graph since the cutover on 2026-09-14. The indirection stays because
+    every caller already goes through it and because a second agent, if one is
+    ever built to be measured against this one, needs somewhere to be switched
+    in -- which is what this function was for the first time.
     """
-    return loop_graph if get_settings().agent_mode == "loop" else agent_graph
+    return loop_graph
 
 
 async def run_agent(
@@ -726,7 +598,7 @@ async def _record_turn(config: dict, state: dict) -> dict[str, Any]:
     if not update:
         return {}
     try:
-        await agent_graph.aupdate_state(config, update)
+        await active_graph().aupdate_state(config, update)
     except Exception:
         # The member has their answer; losing the thread's memory of it is worth
         # a warning, not a failed turn.
@@ -765,7 +637,7 @@ async def scenarios_of(
 ) -> list[dict[str, Any]]:
     """The chip's scenarios for one conversation, read from its checkpoint."""
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
-    snapshot = await agent_graph.aget_state(config)
+    snapshot = await active_graph().aget_state(config)
     return active_scenarios((snapshot.values or {}).get("scenario_set") or {})
 
 
@@ -783,7 +655,7 @@ async def forget_scenarios(
     always stays: it is what "put them all in one table" builds on.
     """
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
-    snapshot = await agent_graph.aget_state(config)
+    snapshot = await active_graph().aget_state(config)
     current = (snapshot.values or {}).get("scenario_set") or {}
     if not current:
         return []
@@ -796,9 +668,9 @@ async def forget_scenarios(
             for name, entry in current.items()
             if name != label and not name.startswith(f"{label}{_SUPERSEDED}")
         }
-    await agent_graph.aupdate_state(config, {"scenario_set": CLEAR})
+    await active_graph().aupdate_state(config, {"scenario_set": CLEAR})
     if keep:
-        await agent_graph.aupdate_state(config, {"scenario_set": keep})
+        await active_graph().aupdate_state(config, {"scenario_set": keep})
     return active_scenarios(keep)
 
 

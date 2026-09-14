@@ -33,23 +33,20 @@ cases:
   - id: L08
     name: A figure under a premise the member supposed
     employee: article-11-standard
-    status: expected_fail
-    gap: >
-      Still a gap on the pipeline, which is the default. Measured on
-      2026-09-13: the frame was created -- premise "Chicago police officer with
-      my salary and service" -- but with article: None, because nothing
-      resolved the description to a fund, so retrieval stayed on Article 11 and
-      returned the member's own law to a question about somebody else's.
-      Re-measured on the same day after Phase 3b: the pipeline now reaches
-      Article 3 -- police *outside* Chicago -- works the figure from it, and
-      then starves every input, so it cites the wrong fund and computes
-      nothing.
-
-      The loop passes it. check_coverage resolves the supposition to Article 5
-      on Section 5-111, compute_benefit works $37,601.57 from Section 5-132(e),
-      and the member's own salary and service stand in because they asked for
-      them. Flipping this to `active` belongs with the cutover (Phase 6), not
-      before: the status describes the default agent.
+    # Promoted at cutover (2026-09-14), on two full-suite observations. The
+    # gap was the pipeline's twice over: it first built the frame with
+    # `article: None`, so retrieval never left Article 11 and handed the member
+    # their own law for somebody else's question; after Phase 3b it reached
+    # Article 3 -- police *outside* Chicago -- worked the figure from it and
+    # then starved every input, citing the wrong fund and computing nothing.
+    #
+    # The loop resolves the supposition to Article 5 on Section 5-111 and works
+    # $37,601.57 from Section 5-132(e). The member's own salary and service
+    # stand in **because they asked for them** -- `_invited_stand_ins` checks
+    # the invitation is really in their words, and this question is where that
+    # check earns its keep: "with my salary and service" is an invitation, and
+    # G38's "how would my pension be calculated?" is not.
+    status: active
     turns:
       - q: if I were a Chicago police officer with my salary and service, what would I get?
         expect:
@@ -73,16 +70,14 @@ cases:
   - id: L09
     name: A question that needs no member and no calculation
     employee: article-11-standard
-    status: expected_fail
-    gap: >
-      Measured against the pipeline on 2026-09-13. It correctly plans no
-      calculation and quotes no figure, but retrieval returned 11-178, 11-149,
-      11-160.1, 11-221.1, 11-170.1 and 11-169 -- none of the sections that say
-      what Article 11 is. Hybrid search over "what is Article 11?" has nothing
-      to match on in 11-101 "Creation of fund", so the most basic question about
-      an Article cannot reach the Article's own opening sections. This is the
-      case the Phase 1 outline tool was built for: list the headings, see
-      11-101, read it. Needs the loop to be able to call it (Phase 3).
+    # Promoted at cutover (2026-09-14), on two full-suite observations. The
+    # gap was the pipeline's and it was structural: hybrid search over "what is
+    # Article 11?" has nothing to match in 11-101 "Creation of fund", so the
+    # most basic question about an Article could not reach the Article's own
+    # opening sections. This is the case `outline` was built for — list the
+    # headings, see 11-101, read it — and only an agent that chooses its next
+    # call can use it.
+    status: active
     turns:
       - q: what is Article 11?
         expect:

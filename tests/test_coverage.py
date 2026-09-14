@@ -22,6 +22,7 @@ from pension_chat.agent import coverage as cov
 from pension_chat.agent import retrieval
 from pension_chat.agent.guardrails import verify_answer
 
+
 async def _resolved(value):
     """A coroutine returning `value`, for monkeypatching an async helper."""
     return value
@@ -672,17 +673,22 @@ def test_a_quotation_does_not_launder_an_assertion():
 
 
 async def _prompt_text(state):
-    """The context the answer prompt would carry for this state."""
-    from pension_chat.agent.nodes import prepare_answer
+    """What this turn puts in front of the model about the member.
+
+    `prepare_answer` went with the pipeline at cutover; `loop._context` renders
+    the same thing now, re-rendered on every iteration of the investigation.
+    These two tests were repointed rather than deleted, and doing that found two
+    live defects in the loop: it handed the model the member's own age and
+    service under a supposition, and it labelled the *supposed* Article as the
+    one "their record places them in".
+    """
+    from pension_chat.agent.loop import _context
     from pension_chat.agent.state import initial_state
 
     full = initial_state("what would my pension be?", "s1", "e1")
     full.update(state)
-    result = await prepare_answer(full)
-    # The static system prompt is skipped: its worked example happens to use
-    # $69,956.40 too, and asserting over it would pass or fail for the wrong
-    # reason. What matters is the per-turn context.
-    return "\n".join(m["content"] for m in result["answer_messages"][1:])
+    return _context(full)
+
 
 
 _FACTS = {
@@ -718,8 +724,13 @@ async def test_a_supposition_does_not_get_the_members_real_salary():
             "hypothetical_frame": {"premise": "park employee", "article": "12"},
         }
     )
-    assert "69956" not in prompt.replace(",", "")
-    assert "NOT AVAILABLE TO THIS ANSWER" in prompt
+    assert "21.5" not in prompt, "their service is administered by the fund on their record"
+    assert "age=56" not in prompt
+    assert "not available" in prompt.lower()
+    # And the premise must not be described as what their file says. It is the
+    # opposite: the file says Article 11 and Article 12 is the supposition.
+    assert "record places them in Article 12" not in prompt
+    assert "Article 11" in prompt
 
 
 @pytest.mark.asyncio
@@ -735,7 +746,8 @@ async def test_the_members_figures_are_there_when_the_article_is_their_own():
             },
         }
     )
-    assert "69956" in prompt.replace(",", "")
+    assert "21.5" in prompt, "starving always would satisfy the rule above"
+    assert "age=56" in prompt
 
 
 @pytest.mark.parametrize(

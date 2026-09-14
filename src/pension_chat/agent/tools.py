@@ -27,13 +27,13 @@ from typing import Any
 from pension_chat.agent import corpus, memory
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
+    BENEFIT_TYPES,
     execute_calculations,
     resolve_inputs,
     resolve_recipes,
     validate_recipes,
 )
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
-from pension_chat.agent.understanding import BENEFIT_TYPES
 from pension_chat.agent.worksheet import SOURCE_STAND_IN, SOURCE_STATED, WorkSheet
 from pension_chat.config import get_settings
 

@@ -24,7 +24,7 @@ from typing import Any
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.blocks import render_assumptions, render_thresholds
 from pension_chat.agent.llm import call_with_tools
-from pension_chat.agent.nodes import ANSWER_SYSTEM, _record_coverage
+from pension_chat.agent.nodes import ANSWER_SYSTEM, _available_facts, _record_coverage
 from pension_chat.agent.presentation import select_rung
 from pension_chat.agent.retrieval import (
     CROSS_CUTTING_ARTICLES,
@@ -113,7 +113,16 @@ def _context(state: dict[str, Any]) -> str:
     mid-conversation has to take effect immediately rather than compete with a
     stale message further up.
     """
-    facts = state.get("member_facts") or {}
+    # `_available_facts`, not `member_facts`: the same rule the calculation
+    # engine, the applicability predicates and the verifier all read. Under an
+    # Article the member's record is not filed under, their salary and service
+    # are administered by another fund -- so they are not merely unhelpful here,
+    # they are the wrong basis, and a model handed them reaches for them. That
+    # is the bug the first hypothetical answer shipped with: the Article 12
+    # formula set out correctly and then run on an Article 11 salary. The
+    # pipeline starved this prompt through `prepare_answer`; the loop was
+    # rendering `member_facts` raw.
+    facts = _available_facts(state)
     lines = []
     if facts:
         known = ", ".join(
@@ -128,14 +137,34 @@ def _context(state: dict[str, Any]) -> str:
             }
         )
         lines.append(f"What is on file for this member: {known or 'nothing usable'}")
+    elif state.get("member_facts"):
+        # There is a record; this turn may not use it. Saying so is the
+        # difference between "we know nothing about you" and "your own figures
+        # belong to another fund", and only the second is true.
+        lines.append(
+            "This member has a record, but it is filed under an Article this "
+            "turn is not reading, so their own salary and service are not "
+            "available to this answer. Ask for any value you need."
+        )
     else:
         lines.append("No member record is available; answer from the Code alone.")
     coverage = state.get("coverage") or {}
     if coverage.get("article"):
-        lines.append(
-            f"Their record places them in Article {coverage['article']} "
-            f"(basis: {coverage.get('basis', 'record')})."
-        )
+        # Whose claim this is, said correctly. Under a supposition the file says
+        # one Article and the member supposed another, and calling the supposed
+        # one "their record" tells the model the opposite of what happened.
+        on_file = coverage.get("record_article")
+        if on_file and str(on_file) != str(coverage["article"]):
+            lines.append(
+                f"Their record places them in Article {on_file}. This turn is "
+                f"reading Article {coverage['article']} "
+                f"(basis: {coverage.get('basis', 'record')})."
+            )
+        else:
+            lines.append(
+                f"Their record places them in Article {coverage['article']} "
+                f"(basis: {coverage.get('basis', 'record')})."
+            )
     # What has already been said to this member, with what it rests on. The
     # pipeline never had to tell a model this -- `_needs_calculation` routes on
     # `stale_figures` before any model sees the turn -- but the loop's model is

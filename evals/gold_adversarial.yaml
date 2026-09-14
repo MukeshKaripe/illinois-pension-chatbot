@@ -43,14 +43,13 @@ cases:
 
   - id: G24
     name: Which salary definition applies
-    status: expected_fail
-    gap: >-
-      Retrieval does not surface Section 11-116 for this question, so the answer
-      says the Code provides no list of included and excluded compensation. The
-      member's own phrasing ranks 11-116 second on its own; the planner's two
-      statute-vocabulary rewrites outvote it under rank fusion and it falls
-      outside the top six. Fixable by weighting the member's wording above the
-      rewrites, or by retrieving definitions separately from provisions.
+    # Promoted at cutover (2026-09-14), on two full-suite observations rather
+    # than one. The gap it recorded was the pipeline's: the planner's two
+    # statute-vocabulary rewrites outvoted the member's own phrasing under rank
+    # fusion, and 11-116 fell outside the top six. There is no planner now —
+    # the loop searches in its own words, reads what comes back, and searches
+    # again, which is the whole reason iterative retrieval was worth building.
+    status: active
     turns:
       - q: >-
           Which salary definition applies to my benefit calculation, and what

@@ -122,10 +122,11 @@ class PensionAgentState(TypedDict, total=False):
     # Result of scanning the question for "apply my formula, skip the Code"
     override_signal: dict
 
-    # ── Plan (from understand_turn) ───────────────────────────────
+    # ── What this turn is computing ───────────────────────────────
+    # Set by `compute_benefit` rather than planned up front: the loop decides
+    # it is calculating by calling the tool, which is the same act.
     requires_calculation: bool
     formula_types_needed: list[str]
-    search_queries: list[str]
     # Sections the user named outright — pinned into retrieval
     explicit_sections: list[str]
     explicit_articles: list[str]
@@ -168,9 +169,6 @@ class PensionAgentState(TypedDict, total=False):
     clarification: dict | None
 
     retrieved_sections: list[dict]
-    # The question named an Article that is not the member's own, so it is
-    # asking what the law provides rather than what this member will be paid
-    answers_other_article: bool
 
     # formula_type -> {spec, source, status, policy, source_sections, ...}
     recipes: Annotated[dict[str, dict], merge_dicts]
@@ -206,11 +204,11 @@ class PensionAgentState(TypedDict, total=False):
     answer_messages: list[dict]
     final_answer: str | None
     citations: list[dict]
-    # The rung and shape prepare_answer selected, and the slots it rendered
-    # itself (see presentation.py, blocks.py) -- per-turn, like calculation_result.
+    # The rung the evidence supports, and the blocks rendered by code rather
+    # than written by the model (see blocks.py) -- per-turn, like
+    # calculation_result.
     answer_blocks: dict[str, str]
     answer_rung: int
-    answer_shape: str
     tool_calls: list[dict]
     guardrail_passed: bool
     guardrail_report: dict
@@ -339,7 +337,6 @@ def initial_state(
         "override_signal": {},
         "requires_calculation": False,
         "formula_types_needed": [],
-        "search_queries": [],
         "explicit_sections": [],
         "explicit_articles": [],
         "scenarios": [],
@@ -352,7 +349,6 @@ def initial_state(
         "salary_history": [],
         "member_facts": {},
         "retrieved_sections": [],
-        "answers_other_article": False,
         "recipes": {},
         "recipe_provenance": [],
         "derivation_failures": [],
@@ -372,7 +368,6 @@ def initial_state(
         "citations": [],
         "answer_blocks": {},
         "answer_rung": 0,
-        "answer_shape": "",
         "tool_calls": [],
         "guardrail_passed": True,
         "guardrail_report": {},

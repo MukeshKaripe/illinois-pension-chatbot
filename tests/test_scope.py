@@ -180,19 +180,14 @@ def test_an_empty_message_is_not_treated_as_a_greeting():
     assert verdict.reason != "greeting"
 # ── The model's own scope verdict ──────────────────────────────────
 
-def test_the_planning_branch_can_still_take_a_turn_out_of_scope() -> None:
-    """`understand_turn`'s verdict has to reach a decision, not just a state key.
-
-    `triage` settles scope before either branch runs, which is right for the
-    deterministic deny pattern but leaves the model's judgement inert: it runs
-    *after* that decision, so `in_scope: false` declined nothing and the turn was
-    answered anyway. The eval asserted the state key and passed while the
-    behaviour was wrong, which is why this is pinned here instead.
-    """
-    from pension_chat.agent.graph import _still_in_scope
-
-    assert _still_in_scope({"in_scope": False}) == "decline"
-    assert _still_in_scope({"in_scope": True}) == "assess_coverage"
-    # Absent means nobody objected — the deterministic gate already passed it.
-    assert _still_in_scope({}) == "assess_coverage"
+# `_still_in_scope` went with the pipeline at cutover. It re-read the model's
+# own scope verdict on an edge, because `understand_turn` ran *after* `triage`
+# had already decided and its `in_scope: false` declined nothing.
+#
+# There is no second verdict to re-read now: `triage` is still the
+# deterministic gate in front of the loop, and a turn it passes reaches a model
+# that can decline in its own words. Worth naming the risk this test was pinned
+# against — an eval asserting a state key passed while the behaviour was wrong —
+# so the replacement is behavioural: S1, S2, S5, S6, S7, S8 and S9 all pass on
+# the loop and they check the answer, not the key.
 
