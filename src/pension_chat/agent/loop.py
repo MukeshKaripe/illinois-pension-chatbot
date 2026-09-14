@@ -30,7 +30,6 @@ from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
     COVERAGE_TOOLS,
-    PROVISION_TOOLS,
     RETRIEVAL_TOOLS,
     run_tool,
 )
@@ -51,14 +50,13 @@ BUDGETS: dict[str, int] = {
     "related_sections": 6,
     "compute_benefit": 4,
     "check_coverage": 3,
-    "find_provision": 3,
 }
 
 #: Everything the loop may reach for. Retrieval, calculation and coverage
 #: together, because a member asking "how much would I get" is asking one
 #: question -- and "if I were a Chicago police officer, what would I get?" is
 #: still one question, with all three in it.
-LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS + PROVISION_TOOLS
+LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
 
 #: How many cross-referenced sections to read before answering. Bounded so one
 #: section naming a dozen others cannot flood the answer's context.
@@ -88,12 +86,6 @@ Work like a lawyer reading a statute, not like a search box.
   -- their service, their salary, their age -- has told you nothing about their
   employer, and answering that with check_coverage spends the turn and leaves
   the figure they corrected standing.
-- Which provision governs is not a heading you pick. An outline tells you what
-  sections are called; find_provision tells you the one the engine would
-  actually use, and why that one rather than its neighbours. Use it whenever
-  the member asks which rule applies, why you chose it, or what their options
-  are -- and especially when they have said not to calculate yet, because it
-  computes nothing. What you name from it is what a later figure will rest on.
 - A figure is never yours to work out. Call compute_benefit: it finds the
   controlling provision, resolves the inputs from the record and from what the
   member said, and computes. If it reports a missing input, ask the member for

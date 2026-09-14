@@ -207,7 +207,28 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-PROVISION_TOOLS: list[dict[str, Any]] = [
+#: **Withdrawn from the loop on 2026-09-14, and kept here as the record of why.**
+#:
+#: Added the same day to fix G17 -- one case, where the loop read an outline,
+#: picked a provision by its heading, and then computed from a different one.
+#: It did fix that. The full suite, run for the first time on the loop
+#: afterwards, found it had caused or contributed to eight failures including
+#: five CRITICAL ones, and it was called on eight of the nine.
+#:
+#: Two harms, and neither yielded to prose. It hands the model a section number
+#: **with no text**, and the model cites it -- UNVERIFIED_CITATION on 12-131,
+#: from a turn that called nothing else. The result already said "this names the
+#: provision, it does not put its text in front of you"; that is a warning, not
+#: a mechanism. And it *satisfies*: answering "which provision" feels like the
+#: hard part, so turns stopped there without computing. A hand-off sentence
+#: ("if the member asked what they would GET, call compute_benefit now") did not
+#: stop that either.
+#:
+#: The lesson is about the shape, not the wording: a tool that can be called
+#: **instead of reading** will be. If this comes back it belongs inside
+#: `search_statute`'s result -- provision and text together, where naming one
+#: cannot be an alternative to having read it.
+_WITHDRAWN_PROVISION_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -288,7 +309,7 @@ COVERAGE_TOOLS: list[dict[str, Any]] = [
 
 TOOL_NAMES = tuple(
     tool["function"]["name"]
-    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS + PROVISION_TOOLS
+    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
 )
 
 
@@ -980,7 +1001,6 @@ _HANDLERS = {
     "search_statute": _search,
     "check_coverage": _check_coverage,
     "compute_benefit": _compute,
-    "find_provision": _find_provision,
     "get_section": _get_section,
     "outline": _outline,
     "related_sections": _related,

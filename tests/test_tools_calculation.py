@@ -360,86 +360,6 @@ async def test_scenarios_within_one_turn_do_not_supersede_each_other(monkeypatch
     assert update["stale_figures"] == []
 
 
-# ── Which provision governs, without computing ────────────────────
-
-
-async def test_find_provision_names_the_controlling_section(monkeypatch):
-    """G17 turn 1: "Which retirement provision applies to me? Do not calculate
-    anything yet."
-
-    The loop had no way to ask that. It read Article 11's outline, picked four
-    sections by heading, and named 11-130 -- then computed from 11-134 two turns
-    later, so "the provision you selected earlier" was not the one it used. The
-    pipeline never has this problem because `resolve_recipes` answers exactly
-    this question; the loop simply could not reach it without also computing,
-    which the member had just asked it not to do.
-    """
-    _chain(monkeypatch)
-    text, update = await tools.run_tool(
-        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
-    )
-    assert "11-134" in text
-    assert "recipes" in update, "resolved, so a later turn uses the same one"
-    assert "calculation_result" not in update, "and nothing was computed"
-
-
-async def test_find_provision_says_why_this_one(monkeypatch):
-    """G17 turn 2 is "Why did you choose that one over the alternatives?" --
-    and the reasoning is already persisted, in `applicability`."""
-    _chain(
-        monkeypatch,
-        recipes={
-            "retirement_annuity": {
-                "section": "11-134",
-                "selection_basis": "earliest_applicable",
-                "alternatives_considered": [
-                    {"section": "11-130", "why_not": "reaches age 55 to 60 only"}
-                ],
-            }
-        },
-    )
-    text, _ = await tools.run_tool(
-        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
-    )
-    assert "11-130" in text
-    assert "reaches age 55 to 60 only" in text
-
-
-async def test_find_provision_reports_when_nothing_reaches_them(monkeypatch):
-    """"No provision reaches you" is an answer a member needs, and it is not
-    the same as an error."""
-    _chain(monkeypatch, recipes={})
-    text, _ = await tools.run_tool(
-        "find_provision",
-        {"benefit": "retirement_annuity"},
-        {"question": "q", "retrieved_sections": [{"section": "2-119"}]},
-    )
-    assert "retirement_annuity" in text
-    assert "could not" in text.lower() or "no provision" in text.lower()
-
-
-async def test_find_provision_rejects_an_unknown_benefit():
-    text, update = await tools.run_tool("find_provision", {"benefit": "lottery_win"}, {})
-    assert "lottery_win" in text
-    assert update == {}
-
-
-async def test_find_provision_hands_off_when_a_figure_is_what_was_wanted(monkeypatch):
-    """A regression this tool introduced on the day it landed.
-
-    F13 and F19 asked "roughly what would my pension be if I retired at the end
-    of this year?". The loop called find_provision, got the governing section,
-    reported it, and stopped -- no figure, and no reason given for there not
-    being one. A tool that answers a narrower question than the one asked has
-    to say so, or it becomes a way of not answering.
-    """
-    _chain(monkeypatch)
-    text, _ = await tools.run_tool(
-        "find_provision", {"benefit": "retirement_annuity"}, {"question": "q"}
-    )
-    assert "compute_benefit" in text
-    assert "figure" in text.lower()
-
 
 async def test_no_recipe_at_all_is_reported_as_such(monkeypatch):
     """F02 and F18: compute_benefit ran, produced nothing, and named no missing
@@ -455,7 +375,7 @@ async def test_no_recipe_at_all_is_reported_as_such(monkeypatch):
     assert "retirement_annuity" in text
 
 
-async def test_a_calculation_tool_called_before_any_reading_says_so(monkeypatch):
+async def test_computing_before_any_reading_says_so(monkeypatch):
     """F17 and F18, and the same lesson a third time.
 
     `find_provision` and `compute_benefit` derive from the statute text
@@ -469,12 +389,11 @@ async def test_a_calculation_tool_called_before_any_reading_says_so(monkeypatch)
     silently failed, which is the tool contract this module opens with.
     """
     _chain(monkeypatch, recipes={}, result={})
-    for tool in ("find_provision", "compute_benefit"):
-        text, _ = await tools.run_tool(
-            tool, {"benefit": "retirement_annuity"}, {"question": "q"}
-        )
-        assert "search" in text.lower(), tool
-        assert "not read" in text.lower() or "nothing" in text.lower(), tool
+    text, _ = await tools.run_tool(
+        "compute_benefit", {"benefit": "retirement_annuity"}, {"question": "q"}
+    )
+    assert "search" in text.lower()
+    assert "not read" in text.lower() or "nothing" in text.lower()
 
 
 async def test_having_read_something_it_reports_the_real_reason(monkeypatch):

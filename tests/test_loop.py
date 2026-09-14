@@ -645,3 +645,29 @@ async def test_an_anonymous_member_gets_no_invented_article(monkeypatch):
     out = await loop_mod.investigate({"question": "what is a refund?", "turn_index": 0})
     assert out["coverage"]["article"] is None
     assert out["coverage"]["basis"] == "unresolved"
+
+
+def test_no_tool_can_be_called_instead_of_reading():
+    """The lesson `find_provision` cost, kept as a guard.
+
+    It was added to fix one case and withdrawn the same day: the full suite,
+    run on the loop for the first time afterwards, found it had caused or
+    contributed to eight failures including five CRITICAL ones. It handed the
+    model a section number **with no text**, and the model cited it -- and it
+    *satisfied*, so turns stopped at "which provision" without computing.
+
+    Neither harm yielded to prose. The shape was the problem: a tool that can
+    be called instead of reading will be. Every tool the loop is offered must
+    either put statute text in front of it, compute through the engine, or
+    settle coverage -- none of which can stand in for having read the law.
+    """
+    offered = {t["function"]["name"] for t in loop_mod.LOOP_TOOLS}
+    assert offered == {
+        "search_statute",
+        "get_section",
+        "outline",
+        "related_sections",
+        "compute_benefit",
+        "check_coverage",
+    }
+    assert "find_provision" not in offered
