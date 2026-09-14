@@ -494,3 +494,113 @@ filter was the half that got missed. A slice of the whole Code landed in the
 citable set and the model spent it on hedges. **A gap reported with another
 fund's section number on it is still another fund's law in an answer about this
 member.**
+
+
+## After the fixes: 2026-09-14c, the loop passes the pipeline
+
+`2026-09-14c-full-loop.json`, against the same day's pipeline column. The
+pipeline was **not** re-run, and did not need to be: re-scoring its recorded
+answers under the corrected keys leaves it at 85/92 unchanged, because every
+case the keys touched either passed both ways or failed both ways on it.
+
+```
+loop      89/92 scored   4,111,304 tokens   TTFT median 21.89s   0 hard guardrail failures
+pipeline  85/92 scored   3,582,506 tokens   TTFT median 12.20s   0 hard guardrail failures
+```
+
+| category | loop | pipeline | | category | loop | pipeline |
+|---|---|---|---|---|---|---|
+| adversarial | 6/6 | 6/6 | | goal_completion | **3/3** | 2/3 |
+| applicability | 3/3 | 3/3 | | hypothetical | 4/4 | 4/4 |
+| article_routing | 1/1 | 1/1 | | no_ask | 1/1 | 1/1 |
+| calculation | 5/5 | 5/5 | | other_benefits | 3/3 | 3/3 |
+| capabilities | *2/3* | 3/3 | | reasoning | **7/7** | 5/7 |
+| conversational | 2/2 | 2/2 | | retrieval | 2/2 | 2/2 |
+| coverage | 8/8 | 8/8 | | routing | **7/7** | 5/7 |
+| cross_reference | 1/1 | 1/1 | | scope | 7/7 | 7/7 |
+| end_to_end | *2/3* | 3/3 | | state | **6/7** | 5/7 |
+| error_handling | 1/1 | 1/1 | | fund_smoke | 18/18 | 18/18 |
+
+Against the five criteria: **2, 3, 4 and 5 pass.** Two categories regress by
+exactly one case, which the criterion allows; overall rate is above the
+pipeline's; `fund_smoke` resolves every fund to its own Article; G24, L08 and
+L09 pass on the loop and remain gaps on the pipeline; hard guardrail failures
+are zero on both. Criterion 1 failed on G30 and is addressed below.
+
+### One defect, eight coats
+
+Every genuine failure this phase found — eleven in the first run, three in this
+one — is the same thing:
+
+> **The pipeline consumed conversational state structurally, on graph edges and
+> in template slots. The loop made the model the router and showed it none of
+> that.**
+
+| symptom | the pipeline | the loop, before |
+|---|---|---|
+| could not leave a supposition (G41) | releases the frame on an edge | no edge exists |
+| asked "which employer pays you?" unprompted (16, G30) | fast-exits when nobody described themselves | no gate |
+| borrowed the record under a premise (G38, G39) | decides in `_stand_ins_allowed` from state | trusted a paragraph of tool schema |
+| answered from another fund's law (G30, F02) | retrieval is article-filtered, and the filter *is* the determination | the fallback search was not |
+| named a provision its figure did not come from (L13) | renders it into a slot | rendered nothing |
+| lost §11-134 on a challenged turn (G30) | pins the settled section into the query | nothing |
+| never mentioned the age-60 cliff (L11) | renders the THRESHOLDS slot | rendered nothing |
+| dropped the settled provision when challenged (G30, again) | the slot is in the answer prompt | the pin was in the tool history |
+
+The diagnosis earned its keep by predicting: the Phase 3c note listed
+`shape_for`, `_comparison_rows` and the THRESHOLDS slot as the remaining
+members of this family, and L11 is the THRESHOLDS slot arriving on schedule.
+
+**It is not an argument for a different architecture.** The loop wins the three
+categories that turn on being able to change your mind mid-turn — `routing`,
+`state`, `reasoning` — and passes four cases the pipeline cannot do at all.
+What was missing was never the shape; it was the deterministic scaffolding the
+graph carried for free, which has to be ported one piece at a time because each
+piece only becomes visible when a case exercises it.
+
+### Two corrections this run forced
+
+**A fix whose stated cause was wrong.** G30 passed standalone and failed in the
+suite, and I read that as the budget gate on the pin — skipped when the loop ran
+out of calls. The report says otherwise: Section 11-134 was in that turn's own
+retrieved sections, the pin had run, and the answer cited 11-110, 11-125 and
+11-221 anyway. **Being available to cite is not being named.** Reading the
+provision is necessary and not sufficient; the block has to be where the answer
+is written, not in the middle of the tool history above it. Both halves kept,
+and the comment asserting the disproved cause corrected rather than left
+standing — a wrong reason in a comment outlives the run that produced it.
+
+**A promotion that did not happen.** G40 XPASSed on 2026-09-14 and did not on
+2026-09-14c. Requiring two observations before flipping an `expected_fail` to
+`active` cost a run and caught a case that would have started failing the suite
+the week after. G24, L08 and L09 XPASSed both times and are promoted.
+
+### A fourth way an eval case goes vacuous, or the second one again
+
+L11 asserts `mentions: ["44 months", "age 60"]` and had been **passing on the
+words "before age 60" in a sentence about the reduction** — never once having
+told a member when they reach the boundary or what reaching it is worth. That is
+S4's mechanism exactly (which passed on the string "article 8" in an answer
+about Article 8), so it is not a new species: **a `mentions` list is satisfied
+by incidental prose, and a case whose subject is a behaviour cannot be checked
+by a substring of the answer.** Where the behaviour produces a *structure* —
+a citation, a computed figure, a provision — check the structure instead. That
+is what `answers_from_article` and `cites_outside` do, and what the L11
+expectation still does not.
+
+### Still open
+
+**G17 turn 1**, and it is a known gap rather than a regression: "which
+retirement provision applies to me? Do not calculate anything yet." The loop
+browsed the outline, fetched seven sections by their headings, and never reached
+§11-134 — Phase 3c recorded this exact turn as a retrieval-selection miss, on
+the Article where §11-130 "Annuities — Present employees and future entrants"
+reads like the better match than §11-134 "Amount of annuity".
+
+The pipeline cannot have it, because `resolve_recipes` runs structurally on
+every turn and names the provision without computing. The loop reaches that code
+only through `compute_benefit`, which is what the member just forbade. The shape
+of the answer is written down in `tools._WITHDRAWN_PROVISION_TOOLS`: **provision
+and text together, inside `search_statute`'s result, where naming one cannot be
+an alternative to having read it.** A separate tool was tried for one day and
+withdrawn because it was called *instead of* reading.
