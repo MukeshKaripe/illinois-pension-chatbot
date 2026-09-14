@@ -161,6 +161,11 @@ async def run_turn(question: str, thread: str, employee_id: str | None) -> dict:
         "execution_blocked": state.get("execution_blocked"),
         "calculation": state.get("calculation_result") or {},
         "selected_provision": state.get("selected_provision") or {},
+        # Which provision the engine resolved without computing (G17). Recorded
+        # because a mechanism whose effect is invisible in the report cannot be
+        # told apart from one that never ran -- this key read `null` on its own
+        # verification run purely because nothing captured it.
+        "engine_provisions": state.get("engine_provisions") or [],
         "scenario_set": state.get("scenario_set") or {},
         "tokens": state.get("token_usage") or {},
         "timings": state.get("timings") or {},

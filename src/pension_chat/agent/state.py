@@ -174,6 +174,11 @@ class PensionAgentState(TypedDict, total=False):
     recipes: Annotated[dict[str, dict], merge_dicts]
     # Human-readable note about where each recipe came from (registry vs derived)
     recipe_provenance: list[dict]
+    # Which provision the engine *would* use for this member, resolved from the
+    # registry without computing — so "which provision applies to me, do not
+    # calculate anything yet" is answered by the same authority the figure will
+    # rest on, rather than by whichever heading read best (G17).
+    engine_provisions: list[dict]
     # A recipe the agent could not derive from the retrieved text
     derivation_failures: list[dict]
 
@@ -351,6 +356,7 @@ def initial_state(
         "retrieved_sections": [],
         "recipes": {},
         "recipe_provenance": [],
+        "engine_provisions": [],
         "derivation_failures": [],
         "resolved_inputs": {},
         "input_sources": {},

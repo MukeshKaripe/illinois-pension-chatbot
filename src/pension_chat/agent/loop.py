@@ -24,8 +24,15 @@ from typing import Any
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.blocks import render_assumptions, render_thresholds
 from pension_chat.agent.llm import call_with_tools
-from pension_chat.agent.nodes import ANSWER_SYSTEM, _available_facts, _record_coverage
+from pension_chat.agent.nodes import (
+    ANSWER_SYSTEM,
+    _available_facts,
+    _coverage_unresolved,
+    _governing_article,
+    _record_coverage,
+)
 from pension_chat.agent.presentation import select_rung
+from pension_chat.agent.registry import recipes_for
 from pension_chat.agent.retrieval import (
     CROSS_CUTTING_ARTICLES,
     extract_article_references,
@@ -407,6 +414,56 @@ def _search_filter(state: dict[str, Any]) -> list[str]:
     return [str(article), *borrowed, *CROSS_CUTTING_ARTICLES]
 
 
+async def _engine_provisions(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Which provisions the engine would use for this member, without computing.
+
+    G17, and it fails in the way that matters most to a member: turn 1 named
+    "Section 11-130" as their retirement provision and turn 3 computed the
+    figure from **Section 11-134**. The agent named one provision and used
+    another.
+
+    `resolve_recipes` is the authority for both, and the loop could only reach
+    it through `compute_benefit` -- which is exactly what "do not calculate
+    anything yet" forbids. So the registry is consulted directly: one query, no
+    model call, the same ranking `lookup_recipe` uses, so the provision named
+    here is the one a later figure rests on rather than a second opinion.
+
+    Three gates, and each is the same rule stated somewhere else in the system.
+
+    **Not when a figure was already worked.** `_worked_from` is the sharper
+    statement then -- it names where this turn's number actually came from --
+    and two blocks naming provisions is how they come to disagree.
+
+    **Not while the Article is an open question.** The rule that starves the
+    figure starves this: until it is settled, every answer about "your
+    provision" is potentially the wrong fund's.
+
+    **Under a premise, the premise's Article.** `_governing_article` already
+    resolves that, and reading Article 12's own provision under an Article 12
+    supposition is the law the question asked about. Nothing is starved by the
+    supposition here, because a provision is text rather than the member's data.
+    """
+    if any(
+        (entry or {}).get("base", {}).get("ok")
+        for entry in (state.get("calculation_result") or {}).values()
+    ):
+        return []
+    if _coverage_unresolved(state):
+        return []
+    coverage = state.get("coverage") or {}
+    if not coverage.get("article") and not state.get("employee_record"):
+        return []
+    article = _governing_article(state)  # type: ignore[arg-type]
+    tier = (state.get("member_facts") or {}).get("tier")
+    try:
+        return await recipes_for(int(article), int(tier) if tier is not None else None)
+    except Exception:
+        # A registry that cannot be read costs the turn a sentence, not the
+        # answer. Every other path to the provision is still open.
+        logger.exception("Could not resolve the engine's provision for Article %s", article)
+        return []
+
+
 def _leave_hypothetical(state: dict[str, Any]) -> dict[str, Any]:
     """Release a supposition the member has stepped out of.
 
@@ -708,6 +765,39 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+    # ── The provision the engine would use, read before it is named ──
+    #
+    # G17. "Which retirement provision applies to me? Do not calculate anything
+    # yet." The loop browsed Article 11's outline, picked by heading, and named
+    # 11-130 -- then computed from 11-134 two turns later, so "the provision you
+    # selected earlier" was not the one it used. The registry knew all along.
+    #
+    # Read here and named in `compose`, because G30 settled that one without the
+    # other is half a fix: available to cite is not named, and named without
+    # having been read is a citation verification refuses.
+    engine_provisions = await _engine_provisions(working)
+    for provision in engine_provisions:
+        target = str(provision.get("section") or "")
+        if not target or any(str(x.get("section")) == target for x in sections):
+            continue
+        result, update = await run_tool("get_section", {"section": target}, working)
+        if update.get("retrieved_sections"):
+            sections = _merge_sections(sections, update["retrieved_sections"])
+            working["retrieved_sections"] = sections
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        f"The calculation engine resolves Section {target} for "
+                        f"this member's {provision.get('formula_type')}, so it has "
+                        "been read for you. If they asked which provision applies, "
+                        "this is the answer -- not the section whose heading reads "
+                        "best." + chr(10) + chr(10) + result
+                    ),
+                }
+            )
+    working["engine_provisions"] = engine_provisions
+
     sections, set_aside = _confined_to_premise(sections, working)
 
     produced = {
@@ -887,6 +977,59 @@ def _settled_provision(state: dict[str, Any]) -> str:
     )
 
 
+def _engine_provision_note(state: dict[str, Any]) -> str:
+    """Name the provision the engine resolves, and why that one.
+
+    G17 turn 1 asks which provision applies; turn 2 asks why that one over the
+    alternatives. Both answers are in the registry -- `selection_basis` and
+    `alternatives_considered`, recorded by the derivation and read back on every
+    reuse -- and the loop had never looked, so it answered turn 2 by explaining
+    why *Article 11* rather than why *this section*.
+
+    Silent when a figure was worked: `_worked_from` is the sharper statement
+    then, and two blocks naming provisions is how they come to disagree.
+    """
+    if _worked_from(state):
+        return ""
+    provisions = state.get("engine_provisions") or []
+    read = {str(s.get("section")) for s in (state.get("retrieved_sections") or [])}
+    lines: list[str] = []
+    for provision in provisions:
+        section = str(provision.get("section") or "")
+        if section not in read:
+            # Named but unread is a citation verification refuses.
+            continue
+        benefit = str(provision.get("formula_type") or "benefit").replace("_", " ")
+        sub = provision.get("subsection")
+        where = f"Section {section}{sub or ''}"
+        line = f"- For a {benefit}, the engine would work it from {where}"
+        basis = str(provision.get("selection_basis") or "")
+        alternatives = [
+            str(a.get("section"))
+            for a in provision.get("alternatives_considered") or []
+            if a.get("section") and str(a.get("section")) != section
+        ]
+        if alternatives:
+            line += (
+                f", chosen over {', '.join(dict.fromkeys(alternatives))}"
+                + (f" on a {basis.replace('_', ' ')} basis" if basis else "")
+            )
+        elif basis:
+            line += f" ({basis.replace('_', ' ')})"
+        lines.append(line + ".")
+    if not lines:
+        return ""
+    return (
+        "The deterministic engine has already resolved which provision governs "
+        "this member, and its text is in front of you:" + chr(10)
+        + chr(10).join(lines) + chr(10)
+        + "If the member asked which provision applies, or why that one rather "
+        "than its neighbours, this is the answer and you may cite it. It is the "
+        "same provision a figure would rest on, so do not name a different one "
+        "here and then compute from this later."
+    )
+
+
 async def compose(state: dict[str, Any]) -> dict[str, Any]:
     """Turn the investigation into the answer, in the same conversation.
 
@@ -1035,6 +1178,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
 
     if settled := _settled_provision(state):
         messages.append({"role": "system", "content": settled})
+
+    if engine := _engine_provision_note(state):
+        messages.append({"role": "system", "content": engine})
 
     if cliff := _cliff_ahead(state):
         messages.append(

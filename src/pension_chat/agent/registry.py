@@ -103,6 +103,27 @@ class RegistryRecipe:
         }
 
 
+def _reuse_rank(row: FormulaRegistry) -> tuple:
+    """Which of several reusable recipes to prefer, in one place.
+
+    A recipe carrying machine-checkable applicability conditions beats an
+    equally-ranked one without them: only the first can be re-tested against the
+    member asking today. This is also how recipes derived before predicates
+    existed get superseded rather than pinned.
+
+    Read by `lookup_recipe` and by `recipes_for`, so the provision named to a
+    member who asked which one applies is the same provision a later figure
+    rests on. Two rankings would have made "the provision you selected earlier"
+    a coin toss.
+    """
+    return (
+        _STATUS_RANK.get(row.knowledge_status, 9),
+        0 if (row.rule_specification or {}).get("applicability_predicates") else 1,
+        -(row.version or 1),
+        -(row.created_at.timestamp() if row.created_at else 0),
+    )
+
+
 async def lookup_recipe(
     formula_type: str,
     article_number: int,
@@ -139,19 +160,65 @@ async def lookup_recipe(
     if not candidates:
         return None
 
-    candidates.sort(
-        key=lambda r: (
-            _STATUS_RANK.get(r.knowledge_status, 9),
-            # A recipe carrying machine-checkable applicability conditions beats
-            # an equally-ranked one without them: only the first can be re-tested
-            # against the member asking today. This is also how recipes derived
-            # before predicates existed get superseded rather than pinned.
-            0 if (r.rule_specification or {}).get("applicability_predicates") else 1,
-            -(r.version or 1),
-            -(r.created_at.timestamp() if r.created_at else 0),
-        )
-    )
+    candidates.sort(key=_reuse_rank)
     return candidates[0]
+
+
+async def recipes_for(article_number: int, tier: int | None) -> list[dict]:
+    """Every provision the engine would use for this member, without computing.
+
+    G17: "Which retirement provision applies to me? Do not calculate anything
+    yet." The registry is the authority for that — it answers with Section
+    11-134(a) for an Article 11 Tier 1 member, chosen over 11-130, 11-131 and
+    11-164 — and the only route to it was `compute_benefit`, which is what the
+    member just forbade. The loop guessed from headings instead and named
+    11-130, then computed from 11-134 two turns later.
+
+    One query and no model call. Returns the same shape `resolve_recipes`
+    reuses, picked by the same ranking, so the provision named here is the one
+    a later figure rests on rather than a second opinion about it.
+    """
+    as_of = date.today()
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(FormulaRegistry).where(
+                FormulaRegistry.article_number == article_number,
+                FormulaRegistry.knowledge_status.in_(_REUSABLE_STATUSES),
+                FormulaRegistry.effective_start_date <= as_of,
+            )
+        )
+        rows = list(result.scalars().all())
+
+    live = [
+        row for row in rows
+        if row.effective_end_date is None or row.effective_end_date >= as_of
+    ]
+    best: list[dict] = []
+    for formula_type in sorted({row.formula_type for row in live}):
+        candidates = [r for r in live if r.formula_type == formula_type]
+        if tier is not None:
+            candidates = [c for c in candidates if c.tier == tier] or [
+                c for c in candidates if c.tier is None
+            ]
+        if not candidates:
+            continue
+        candidates.sort(key=_reuse_rank)
+        recipe = RegistryRecipe(candidates[0])
+        if not recipe.section:
+            # A recipe with nowhere to point cannot answer "which provision".
+            continue
+        best.append(
+            {
+                "formula_type": recipe.formula_type,
+                "formula_name": recipe.formula_name,
+                "section": recipe.section,
+                "subsection": recipe.controlling_subsection,
+                "selection_basis": recipe.selection_basis,
+                "alternatives_considered": recipe.alternatives_considered,
+                "status": recipe.knowledge_status,
+            }
+        )
+    return best
 
 
 async def verify_freshness(
