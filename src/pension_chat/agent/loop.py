@@ -26,7 +26,10 @@ from pension_chat.agent.blocks import render_assumptions
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM, _record_coverage
 from pension_chat.agent.presentation import select_rung
-from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
+from pension_chat.agent.retrieval import (
+    CROSS_CUTTING_ARTICLES,
+    extract_article_references,
+)
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
     COVERAGE_TOOLS,
@@ -318,6 +321,88 @@ def _bind_open_question(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _search_filter(state: dict[str, Any]) -> list[str]:
+    """Which Articles the fallback search reads, and why that is not the whole Code.
+
+    `retrieve_policy` is article-filtered and that filter *is* the
+    determination: a section from another fund can only arrive by the
+    determination being wrong. The fallback below exists because running a
+    search is the one structural thing the loop can skip -- and it was added
+    without the filter, so a turn that only browsed got a slice of the entire
+    Code dropped into its citable set. G30 then named Article 11 correctly and
+    volunteered Section 7-109 to say it could not establish anything from it;
+    F02 cited Section 4-109 to an Article 2 member the same way. A gap reported
+    with another fund's section number on it is still another fund's law in an
+    answer about this member.
+
+    The order is the pipeline's, for the pipeline's reasons. A fund Article the
+    member *named* moves the filter -- "what does Article 4 provide?" is a
+    question about the law, not about them. A premise moves it too, and saves a
+    call: `_confined_to_premise` sets everything else aside afterwards anyway.
+    Then the settled verdict, then the record. Cross-cutting Articles are added
+    rather than substituted, because 1 and 20 govern this member alongside their
+    own fund. Nothing at all means an anonymous member with no fund, where
+    narrowing would invent the determination instead of applying it.
+    """
+    named = [
+        a
+        for a in extract_article_references(state.get("question") or "")
+        if a not in CROSS_CUTTING_ARTICLES
+    ]
+    frame = state.get("hypothetical_frame") or {}
+    coverage = state.get("coverage") or {}
+    employee = state.get("employee_record")
+    article = (
+        (named[0] if named else None)
+        or frame.get("article")
+        or coverage.get("article")
+        or (str(employee["article_number"]) if employee else None)
+    )
+    return [str(article), *CROSS_CUTTING_ARTICLES] if article else []
+
+
+def _leave_hypothetical(state: dict[str, Any]) -> dict[str, Any]:
+    """Release a supposition the member has stepped out of.
+
+    G41, and it is CRITICAL. `check_coverage` creates a `hypothetical_frame`
+    and, until this, nothing anywhere cleared one -- so "Now go back to my
+    actual record. What is my pension really?" was answered as a park employee
+    again, resolving 12-133 against an Article 11 member and reporting every
+    record-derived input missing, because the frame it never left says those
+    facts belong to another fund.
+
+    Deterministic, and the same code the pipeline runs: `assess_coverage`
+    releases the frame on an edge before retrieval, so the loop's only gap was
+    that it has no such edge. It joins the two steps `investigate` already runs
+    before any model sees the turn, for the reason both are there -- a member
+    who has said which conversation they are in must not have to say it twice.
+
+    Two ways out, both the pipeline's. Saying so (`leaves_hypothetical`), or
+    asserting who they actually are: an assertion is a new determination, not a
+    follow-up inside the premise, and leaving the frame up would confine the
+    new one's evidence to the old one's Article.
+    """
+    frame = state.get("hypothetical_frame")
+    if not frame:
+        return {}
+    question = state.get("question") or ""
+    reference = coverage_mod.classify_self_reference(question)
+    leaving = coverage_mod.leaves_hypothetical(question) or (
+        reference is not None and reference.act == coverage_mod.ASSERTED
+    )
+    if not leaving:
+        return {}
+
+    employee = state.get("employee_record")
+    record_article = str(employee["article_number"]) if employee else None
+    logger.info("Member stepped out of the premise %r", frame.get("premise"))
+    return {
+        "hypothetical_frame": None,
+        "coverage": _record_coverage(record_article, int(state.get("turn_index") or 0)),
+        "candidate_articles": [record_article] if record_article else [],
+    }
+
+
 async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """Search, read, reconsider, and stop when there is enough.
 
@@ -332,6 +417,13 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # what we asked last time?
     settled = _bind_open_question(state)
     state = {**state, **settled} if settled else state
+
+    # And have they stepped out of a supposition? Checked after the binding,
+    # because answering an open question is the narrower act and settles the
+    # same key.
+    if left := _leave_hypothetical(state):
+        settled = {**settled, **left}
+        state = {**state, **left}
 
     # And if nothing has established coverage yet, the record establishes it.
     #
@@ -468,7 +560,11 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     if not exhausted and not spent.get("search_statute"):
         result, update = await run_tool(
             "search_statute",
-            {"queries": [state["question"]], "why": "nothing was searched this turn"},
+            {
+                "queries": [state["question"]],
+                "articles": _search_filter(working),
+                "why": "nothing was searched this turn",
+            },
             working,
         )
         if update.get("retrieved_sections"):
@@ -584,6 +680,48 @@ def _borrowed_benefits(state: dict[str, Any]) -> str:
         f"under Article {fund.benefits_from} is theirs, not another fund's -- "
         f"but say why, and cite Section {fund.benefits_from_section} for it. An "
         "Article 9 citation with no bridge reads like somebody else's law."
+    )
+
+
+def _worked_from(state: dict[str, Any]) -> str:
+    """The provision a figure standing in this turn was actually worked from.
+
+    L13, and the "did not cite 11-134" signature behind five failures of the
+    first full-suite run. Section 11-134 is called "Amount of annuity"; 11-130
+    is "Annuities -- Present employees and future entrants", which reads like
+    the better match and is not. The loop read both, computed from the
+    registry's 11-134 recipe, and wrote prose naming 11-130 as the governing
+    provision -- so the figure and the section beside it came from different
+    places, which is the one thing a cited figure may never do.
+
+    `prepare_answer` never had this problem: it renders the provision into the
+    answer out of `recipe_provenance`. The loop has the same key and was
+    showing the model nothing from it.
+
+    Only beside a figure, for the reason `_assumed` is: with nothing computed,
+    nothing rests on a provision, and naming one sends the answer to cite a
+    section it has no use for.
+    """
+    if not any(
+        (entry or {}).get("base", {}).get("ok")
+        for entry in (state.get("calculation_result") or {}).values()
+    ):
+        return ""
+    sections = [
+        str(p["section"])
+        for p in (state.get("recipe_provenance") or [])
+        if p.get("section")
+    ]
+    if not sections:
+        return ""
+    named = ", ".join(f"Section {s}" for s in dict.fromkeys(sections))
+    return (
+        f"The figure you have was worked from {named} -- the deterministic "
+        "engine resolved that provision and computed from its text. An answer "
+        "that gives the figure must name that provision as the one it rests on "
+        "and cite it. Naming a different section beside the same number says "
+        "the figure came from somewhere it did not, and a section whose heading "
+        "reads better is the usual way that happens."
     )
 
 
@@ -729,6 +867,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+
+    if provision := _worked_from(state):
+        messages.append({"role": "system", "content": provision})
 
     if disclosure := _assumed(state):
         # `apply_assumptions` fills a missing value deep inside `resolve_inputs`,

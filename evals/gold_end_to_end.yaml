@@ -20,7 +20,14 @@ cases:
           Using my employee record, determine my governing Article and my current
           pension status. Do not calculate anything yet.
         expect:
-          article_only: "11"
+          # `answers_from_article`, per L08 -- and unlike the other cases moved
+          # with it, this one still fails on the loop, which is why it was worth
+          # moving rather than deleting. The answer names Article 11 correctly
+          # on Section 11-101 and then cites Section 7-109 to say it cannot
+          # establish whether that provision confirms anything. A gap reported
+          # with another fund's section number on it is still another fund's law
+          # in an answer about this member.
+          answers_from_article: "11"
           no_figures: true
 
       - q: Identify every retirement pathway that could potentially apply to me.

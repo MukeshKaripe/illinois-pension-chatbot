@@ -134,4 +134,4 @@ cases:
           asks: false
           no_calculation: true
           cites: ["11-134"]
-          article_only: "11"
+          answers_from_article: "11"

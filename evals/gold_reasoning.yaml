@@ -16,7 +16,12 @@ cases:
     turns:
       - q: Based on my employee record, which Article of the Illinois Pension Code governs my retirement benefits?
         expect:
-          article_only: "11"
+          # `answers_from_article`, per L08. Measured before changing: the loop
+          # answers "Article 11" citing Section 11-101 and nothing else, having
+          # looked at 3, 9, 17, 20 and 1 in the course of ruling them out --
+          # which is how you answer "which Article governs me" rather than a
+          # symptom of getting it wrong.
+          answers_from_article: "11"
           no_figures: true
 
   - id: G02
@@ -31,8 +36,28 @@ cases:
           cites: ["11-134"]
           # Naming Article 12 to warn the member off it is legitimate; reading
           # the member's benefit out of it is the failure this pilot exists to
-          # catch.
-          article_only: "11"
+          # catch. The comment said that from the beginning and the key said the
+          # opposite: `article_only: "11"` forbade the first as well as the
+          # second, so **the expectation forbade what the question asks for**.
+          # A third way an eval case goes vacuous, after the two in
+          # `baselines/README.md`: not a case that asserts its own diagnosis,
+          # nor one whose subject got fixed, but one that disagrees with itself.
+          # The loop named 8-138, 9-101 and 9-134 as the look-alikes -- exactly
+          # what was asked -- and was marked down for it; the pipeline, which
+          # cannot leave Article 11, named none and failed the `cites` half.
+          #
+          # `answers_from_article` is not the replacement either: it also
+          # forbids citing 9-134, and a provision named without its number is
+          # not named. What isolation means *here* is that the member's own
+          # pathway is Article 11's and the others are named as excluded, so
+          # that is what the case now asserts. The figure-side of isolation is
+          # tested wherever a figure exists -- `worked the figure from` -- and
+          # this turn has none.
+          forbids:
+            - "your Article 9"
+            - "your Article 8"
+            - "your Article 12"
+          mentions: ["not apply", "do not apply", "does not apply", "would not apply"]
 
   - id: G03
     name: Eligibility, without calculating

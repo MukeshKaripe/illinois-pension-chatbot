@@ -319,3 +319,54 @@ async def test_compose_says_nothing_of_the_kind_for_an_ordinary_fund():
     )
     tail = "\n".join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "takes its benefits" not in tail.lower()
+
+
+async def test_compose_names_the_provision_the_figure_was_worked_from():
+    """L13, and the "did not cite 11-134" signature behind five failures of the
+    first full-suite run.
+
+    Section 11-134 is called "Amount of annuity"; 11-130 is "Annuities --
+    Present employees and future entrants", which reads like the better match
+    and is not. The loop read both, computed $32,126.78 from the registry's
+    11-134 recipe, and then wrote prose naming 11-130 as the governing
+    provision -- so the figure and the section beside it came from different
+    places, which is the one thing a cited figure may never do.
+
+    `prepare_answer` never had this problem: it renders the provision into the
+    answer from `recipe_provenance`. The loop has the same key and was showing
+    the model nothing from it. A fact derived from state, rendered by code that
+    reads the key the card and the verifier read -- not a stance handed over in
+    advance, and it costs nothing on the turns with no figure.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "how is my pension calculated?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-134", "article": "11"}],
+            "calculation_result": {
+                "retirement_annuity": {"section": "11-134", "base": {"ok": True}}
+            },
+            "recipe_provenance": [
+                {"formula_type": "retirement_annuity", "section": "11-134", "subsection": "(a)"}
+            ],
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "figure you have was worked from Section 11-134" in tail
+
+
+async def test_compose_names_no_provision_when_no_figure_was_worked():
+    """With no figure nothing rests on a provision, and naming one anyway sends
+    the answer to cite a section it has no use for."""
+    out = await loop_mod.compose(
+        {
+            "question": "what is Article 11?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-101", "article": "11"}],
+            "recipe_provenance": [
+                {"formula_type": "retirement_annuity", "section": "11-134"}
+            ],
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "was worked from" not in tail.lower()

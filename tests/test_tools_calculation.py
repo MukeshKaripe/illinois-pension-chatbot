@@ -407,3 +407,83 @@ async def test_having_read_something_it_reports_the_real_reason(monkeypatch):
     )
     assert "no provision" in text.lower()
     assert "search" not in text.lower()
+
+
+# ── The invitation is checked, not taken on trust ──────────────────
+#
+# G38 and G39, both CRITICAL, and the same failure twice. Asked "if I were a
+# park employee, how would my pension be calculated?", the loop set
+# `stand_in_facts` unprompted and quoted $32,126.78 -- the member's Article 11
+# salary and service, run through Article 12's formula, under a premise they
+# had only supposed. The gold suite says what should have happened in as many
+# words: "their salary and service are administered under Article 11 and are
+# not available to an Article 12 provision. Everything becomes a missing
+# input."
+#
+# `_stand_ins_allowed` checks the flag and that coverage is elsewhere. Whether
+# the member *invited* the borrowing was judged from prose by the model, and a
+# schema paragraph saying "ONLY when the member asked" is a warning, not a
+# mechanism -- the same lesson `find_provision` was withdrawn for.
+#
+# So the flag is corroborated the way `scenarios.corroborated` corroborates a
+# scenario: the model still decides what the member meant, and a regex checks
+# that the words are there. It may accuse, supply data, or check provenance --
+# this is the third.
+
+
+def test_an_uninvited_stand_in_is_refused():
+    """The member supposed a job and asked how the pension works. Nothing in
+    that offers their own salary and service to another fund's formula."""
+    assert not tools._invited_stand_ins(
+        {"question": "if I were a park employee, how would my pension be calculated?"}
+    )
+
+
+def test_a_follow_up_inside_the_premise_invites_nothing_either():
+    """G39's second turn. "and what if I had 30 years of service?" names a
+    value the member is supplying, not one they are lending from their file."""
+    assert not tools._invited_stand_ins(
+        {
+            "question": "and what if I had 30 years of service?",
+            "hypothetical_frame": {"premise": "a park employee", "article": "12"},
+        }
+    )
+
+
+def test_the_invitation_in_the_members_own_words_is_honoured():
+    """L08, which the loop passes and the pipeline does not."""
+    assert tools._invited_stand_ins(
+        {
+            "question": (
+                "if I were a Chicago police officer with my salary and service, "
+                "what would I get?"
+            )
+        }
+    )
+
+
+def test_an_invitation_carried_by_the_premise_survives_the_follow_up():
+    """The premise holds across the turns that explore it, and it is the
+    member's own words for the job. An invitation inside it is still theirs on
+    the turn after they gave it -- otherwise exploring a supposition they set up
+    properly costs them the figure on every turn but the first."""
+    assert tools._invited_stand_ins(
+        {
+            "question": "and at 60?",
+            "hypothetical_frame": {
+                "premise": "a Chicago police officer with my salary and service",
+                "article": "5",
+            },
+        }
+    )
+
+
+async def test_the_chain_never_sees_a_stand_in_nobody_asked_for(monkeypatch):
+    seen = _chain(monkeypatch)
+    await tools.run_tool(
+        "compute_benefit",
+        {"benefit": "retirement_annuity", "stand_in_facts": True},
+        {"question": "if I were a park employee, how would my pension be calculated?"},
+    )
+    _, inputs_state = seen[1]
+    assert inputs_state["stand_in_facts"] is False

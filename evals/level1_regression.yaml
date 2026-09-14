@@ -48,7 +48,14 @@ cases:
     expect:
       cites:
       - 11-134
-      article_only: '11'
+      # `answers_from_article` rather than `article_only`, for the reason given
+      # on L08 and L06: the key polices *retrieval*, which on the pipeline is
+      # the same question as what the answer rests on -- the Article filter is
+      # the determination -- and on an agent that decides what to read as it
+      # reads it is not. Measured on the 2026-09-14 full run before changing:
+      # the loop looked at Articles 12, 14, 15 and 16 while ruling them out and
+      # cited 11-134, 11-215 and 11-216 alone. The pipeline passes both keys.
+      answers_from_article: '11'
 - id: '5'
   name: Boundary-condition reasoning
   category: applicability
@@ -57,7 +64,7 @@ cases:
   - q: I am 59 years old with 21.5 years of service. Which retirement provision applies if I retire now,
       and what changes when I reach age 60?
     expect:
-      article_only: '11'
+      answers_from_article: '11'
 - id: '6'
   name: Novel calculation — recipe discovery
   category: calculation
@@ -163,7 +170,13 @@ cases:
   - q: An employee is covered by Article 12. At age 60 with 25 years of service, what retirement provisions
       should the system consider?
     expect:
-      article_only: '12'
+      # `answers_from_article`, per L08. Measured before changing: the loop's
+      # answer rests on 12-128, 12-131, 12-133 and 12-134, and reaches Section
+      # 1-162 to say that if it applies it supersedes them -- which is better
+      # law than the case asked for. Article 1 is cross-cutting and governs
+      # every member of every fund, so `article_only` was wrong here on both
+      # agents; the pipeline simply never happens to retrieve it.
+      answers_from_article: '12'
       cites:
       - 12-133
       no_calculation: true

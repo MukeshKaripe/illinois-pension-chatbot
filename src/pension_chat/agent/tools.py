@@ -21,6 +21,7 @@ from by trying a different one.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from pension_chat.agent import corpus, memory
@@ -649,6 +650,48 @@ def _scenario_moved(
     return moved
 
 
+#: The member offering their own file to another fund's formula, in their own
+#: words. Not a reading of what they meant -- `_invited_stand_ins` checks that
+#: the words are there, and the model still decides whether they were an
+#: invitation. What it names is deliberately narrow: a value the *record*
+#: supplies. "how would my pension be calculated" names the benefit, not an
+#: input, and is the sentence G38 borrowed a whole salary history on.
+_INVITES_STAND_INS = re.compile(
+    r"\b(?:my|our|(?:the\s+)?same)\s+(?:own\s+)?(?:current\s+|actual\s+|real\s+)?"
+    r"(?:salary|salaries|wage|wages|pay|earnings|compensation|"
+    r"service|seniority|years|numbers|figures|record|credits?|contributions?)\b",
+    re.IGNORECASE,
+)
+
+
+def _invited_stand_ins(state: dict[str, Any]) -> bool:
+    """Did the member offer their own salary and service to a supposed job?
+
+    G38 and G39, both CRITICAL. The schema tells the model to set
+    `stand_in_facts` "ONLY when the member ... asked for their own figures to be
+    used under it", and asked how a park employee's pension is calculated it set
+    the flag anyway and quoted the member's own Article 11 annuity under Article
+    12's formula. A paragraph of schema prose is a warning, not a mechanism --
+    the same lesson `find_provision` was withdrawn for on the same day.
+
+    So the flag is corroborated rather than trusted, exactly as
+    `scenarios.corroborated` corroborates a scenario the planner carried
+    forward: the model reads the invitation, and this checks the member
+    actually made it. A regex may accuse, supply data, or check provenance; it
+    may not decide what the member meant, and deciding is still the model's.
+
+    Two places the words may be, and both are the member's own. The message in
+    front of us, and the premise they set up -- which holds across the turns
+    that explore it, so an invitation given when the supposition was built is
+    still theirs on the turn after. Without the second, exploring a premise
+    properly set up costs them the figure on every turn but the first.
+    """
+    words = str(state.get("question") or "")
+    frame = state.get("hypothetical_frame") or {}
+    premise = str(frame.get("premise") or "")
+    return bool(_INVITES_STAND_INS.search(words) or _INVITES_STAND_INS.search(premise))
+
+
 async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
     benefit = str(arguments.get("benefit") or "")
     if benefit not in BENEFIT_TYPES:
@@ -670,8 +713,11 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         "scenarios": _scenario(arguments),
         # Per call, not durable. `_stand_ins_allowed` already refuses it outside
         # a supposition, and the model re-reads the member's invitation on every
-        # computation rather than inheriting one from three turns ago.
-        "stand_in_facts": bool(arguments.get("stand_in_facts")),
+        # computation rather than inheriting one from three turns ago -- and
+        # `_invited_stand_ins` checks the invitation is really in the member's
+        # words before any of their record reaches another fund's formula.
+        "stand_in_facts": bool(arguments.get("stand_in_facts"))
+        and _invited_stand_ins(state),
     }
     update: dict[str, Any] = {}
     for node in (resolve_recipes, resolve_inputs, validate_recipes, execute_calculations):
@@ -796,6 +842,17 @@ def _coverage_text(verdict: dict[str, Any], description: str, evidence: str) -> 
             "Ask them the one thing that separates the two -- usually which employer "
             "pays them -- and answer what you can meanwhile."
         )
+    elif verdict.get("why") == "unprompted":
+        # The description came from the question's subject matter, not from the
+        # member -- so there is nobody to be in conflict with. Say which Article
+        # the law belongs to, and keep it separate from who they are.
+        lines.append(
+            f"Nothing the member said describes them, so this is a question "
+            f"about the law rather than about them. {description!r} is placed by "
+            f"the Code in Article {pointed or 'no Article that was retrieved'}; "
+            f"their own file says Article {record}. Answer what that law provides "
+            "and do not ask them to settle a disagreement they did not raise."
+        )
     elif verdict.get("why") == "budget_spent":
         lines.append(
             "You have already asked this member as many questions as you may. "
@@ -906,6 +963,37 @@ async def _check_coverage(
     # the pipeline of anything -- it writes the keys that make the turn ask, and
     # `check_coverage` writes the same ones.
     settings = get_settings()
+
+    # ── A question is put to the member, so the member must have spoken ──
+    #
+    # Case 16 and G30's twelfth turn, both CRITICAL. "An employee is covered by
+    # Article 12 ... what retirement provisions should the system consider?" is
+    # a question about the law, and "re-run the applicability analysis without
+    # changing my facts" is a question about the analysis. Neither describes the
+    # member; the loop called this tool on both, the verdict disagreed with
+    # their file, and the whole answer came back "Which employer pays you?" --
+    # once as the entire answer to case 16, and once twelve turns into a
+    # conversation whose coverage had been settled throughout.
+    #
+    # `assess_coverage` cannot do this: it fast-exits when
+    # `classify_self_reference` finds no self-description, and neither question
+    # has one. Narrow on purpose -- the model may still call the tool, because
+    # noticing a self-description a regex misses is the loop's own advantage and
+    # the reason coverage is a tool here rather than a stage. What needs the
+    # member to have spoken is the one act that speaks back to them: turning a
+    # disagreement with their file into a question put to them. Which Article
+    # the law belongs to, and the sections the verdict rests on, are facts about
+    # the Code and stand either way.
+    spoke = coverage_mod.classify_self_reference(str(state.get("question") or "")) is not None
+    if verdict.get("conflict") and not spoke:
+        logger.info(
+            "Coverage conflict on a turn where nobody described themselves; "
+            "not asking (described_as=%r)",
+            description,
+        )
+        verdict = {**verdict, "conflict": False, "why": "unprompted"}
+        update["coverage"] = verdict
+
     if verdict.get("conflict"):
         asked = int(state.get("clarifications_asked") or 0)
         if asked >= settings.clarification_budget:

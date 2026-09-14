@@ -385,24 +385,25 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         if not moved:
             problems.append("no variant carried service past the base -- nothing was projected")
 
-    if expect.get("article_only"):
-        stray = [a for a in result["articles"] if a and a != expect["article_only"]]
-        if stray:
-            problems.append(f"retrieved other articles: {stray}")
-
     if want := expect.get("answers_from_article"):
         # What the answer *rests on*, rather than what was looked at.
         #
-        # `article_only` polices retrieval, which on the pipeline is the same
-        # question -- the Article filter is the determination, so a section from
-        # another fund can only have arrived by the determination being wrong.
-        # An agent that decides what to read as it reads has no such filter: it
-        # looks at the neighbouring police fund precisely in order to rule it
-        # out, and Article 1 arrives because a section it relied on cites it.
-        # Looking is not the harm. The harm is one fund's formula answering
-        # another fund's question with a real citation on it, and that shows up
-        # in the citations the verifier accepted and in the provision the figure
-        # was worked from.
+        # This replaced `article_only`, which policed retrieval. On the pipeline
+        # those are the same question -- the Article filter is the
+        # determination, so a section from another fund can only have arrived by
+        # the determination being wrong. An agent that decides what to read as
+        # it reads has no such filter: it looks at the neighbouring police fund
+        # precisely in order to rule it out, and Article 1 arrives because a
+        # section it relied on cites it. Looking is not the harm. The harm is
+        # one fund's formula answering another fund's question with a real
+        # citation on it, and that shows up in the citations the verifier
+        # accepted and in the provision the figure was worked from.
+        #
+        # `article_only` went with the pipeline at cutover rather than being
+        # kept as an option nothing uses. The move was measured case by case
+        # against the 2026-09-14 full run, not applied in bulk: G30 and G02 are
+        # still failures under the sharper key, which is the evidence that it
+        # bites.
         cited = result["guardrail_report"].get("verified_citations") or []
         wrong = sorted({
             c.split("-")[0] for c in cited

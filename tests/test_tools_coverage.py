@@ -41,7 +41,14 @@ _LABORER = RetrievedSection(
     score=1.1,
 )
 
-_MEMBER = {"employee_record": {"article_number": 11}, "turn_index": 2}
+# The member's own words, alongside the record. `check_coverage` adjudicates a
+# description against a file, and a question it raises is a question put to the
+# member -- so what they actually said has to be in the state the tool reads.
+_MEMBER = {
+    "employee_record": {"article_number": 11},
+    "turn_index": 2,
+    "question": "i am a park employee, what is my pension?",
+}
 
 
 def _corpus(monkeypatch, sections, candidates):
@@ -348,3 +355,85 @@ async def test_a_settled_verdict_does_not_block_a_new_description(monkeypatch):
     )
     assert update["coverage"]["basis"] == coverage_mod.BASIS_HYPOTHETICAL
     assert update["hypothetical_frame"]["article"] == "5"
+
+
+# ── A question is put to the member, so the member must have spoken ──
+#
+# Case 16 and G30's twelfth turn, both CRITICAL, and the same defect. "An
+# employee is covered by Article 12. At age 60 with 25 years of service, what
+# retirement provisions should the system consider?" is a question about the
+# law; "I think the pathway you picked was wrong. Re-run the applicability
+# analysis without changing my facts" is a question about the analysis. Neither
+# describes the member. The loop called `check_coverage` on both, the tool
+# adjudicated the description against the member's record, found it disagreed,
+# and answered "Which employer pays you?" -- to case 16 as its whole answer, and
+# to G30 twelve turns into a conversation where coverage had been settled
+# throughout.
+#
+# `assess_coverage` cannot do this: it fast-exits when `classify_self_reference`
+# finds no self-description, and neither of these has one. The loop made the
+# model the router and showed it none of that gate, which is the same shape as
+# every other gap this phase found.
+#
+# The guard is narrow on purpose. It does not stop the model calling the tool,
+# because noticing a self-description a regex misses is the loop's own
+# advantage and the reason coverage is a tool here rather than a stage. It
+# stops the one act that needs the member to have spoken: **turning a
+# disagreement with their file into a question put to them.** Everything else
+# the verdict carries -- which Article the law belongs to, the sections it
+# rests on -- is about the Code and stands either way.
+
+
+async def test_a_conflict_with_nobody_asks_nobody(monkeypatch):
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "an employee covered by Article 12", "act": "asserted"},
+        {
+            **_MEMBER,
+            "question": (
+                "An employee is covered by Article 12. At age 60 with 25 years of "
+                "service, what retirement provisions should the system consider?"
+            ),
+        },
+    )
+    assert "clarification" not in update
+    assert "open_question" not in update
+    assert update["coverage"]["conflict"] is False
+
+
+async def test_a_verdict_nobody_prompted_still_says_where_the_law_lives(monkeypatch):
+    """The determination is not discarded, only its power to ask. Which Article
+    the question's law belongs to is a fact about the Code, and the sections it
+    rests on stay readable so the answer can cite them."""
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    text, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "an employee covered by Article 12", "act": "asserted"},
+        {**_MEMBER, "question": "what does Article 12 provide at age 60?"},
+    )
+    assert "12-101" in update["coverage_sections"]
+    assert "12" in text
+
+
+async def test_the_member_describing_themselves_is_still_asked(monkeypatch):
+    """The guard must not swallow the case the layer exists for."""
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a park employee", "act": "asserted"},
+        {**_MEMBER, "question": "i am a park employee, what is my pension?"},
+    )
+    assert update["clarification"]["about"] == "coverage"
+
+
+async def test_a_member_who_is_unsure_is_still_asked(monkeypatch):
+    """"I think I'm a park employee" is the clearest case in the system for
+    asking, and `classify_self_reference` reads it as doubted."""
+    _corpus(monkeypatch, [_PARK, _LABORER], _PARK_EMPLOYEE)
+    _, update = await tools.run_tool(
+        "check_coverage",
+        {"description": "a park employee", "act": "doubted"},
+        {**_MEMBER, "question": "I think I'm a park employee -- what would I get?"},
+    )
+    assert update["clarification"]["about"] == "coverage"

@@ -723,3 +723,159 @@ async def test_an_exhausted_loop_does_not_search_again(monkeypatch):
     out = await loop_mod.investigate({"question": "q", "turn_index": 0})
     assert out["loop_exhausted"] is True
     assert not any(name == "search_statute" for name, _ in ran)
+
+
+# ── Leaving a supposition ──────────────────────────────────────────
+#
+# G41, and it is CRITICAL. The member supposed a park employee, explored it for
+# a turn, and then said "Now go back to my actual record. What is my pension
+# really?" -- and the loop answered the supposition again, resolving 12-133
+# against an Article 11 member, with every record-derived input starved because
+# the frame it never left says those facts belong to another fund.
+#
+# `assess_coverage` releases the frame on an edge, before retrieval, using
+# `coverage.leaves_hypothetical`. The loop has no such edge: `check_coverage`
+# creates a frame and nothing anywhere clears one. So the release joins the two
+# deterministic steps `investigate` already runs before any model sees the turn
+# -- binding an answered question, and defaulting coverage to the record -- for
+# the same reason both of those are there: a member who has said which
+# conversation they are in must not have to say it twice.
+
+_SUPPOSING: dict = {
+    "question": "",
+    "turn_index": 1,
+    "employee_record": {"article_number": 11},
+    "coverage": {
+        "article": "12",
+        "record_article": "11",
+        "basis": "hypothetical",
+        "turn": 0,
+    },
+    "hypothetical_frame": {
+        "premise": "a park employee",
+        "article": "12",
+        "entered_turn": 0,
+        "last_used_turn": 0,
+    },
+}
+
+
+def test_the_member_can_step_out_of_a_supposition():
+    left = loop_mod._leave_hypothetical(
+        {**_SUPPOSING, "question": "Now go back to my actual record. What is my pension really?"}
+    )
+    assert left["hypothetical_frame"] is None
+    assert left["coverage"]["basis"] == "record"
+    assert left["coverage"]["article"] == "11"
+    assert left["candidate_articles"] == ["11"]
+
+
+def test_asserting_who_they_are_also_leaves_the_supposition():
+    """Supposing a job and then stating one is stepping out of the first.
+
+    The same rule `assess_coverage` applies: an assertion is not a follow-up
+    inside the premise, it is a new determination, and leaving the frame up
+    would confine the new one's evidence to the old one's Article.
+    """
+    left = loop_mod._leave_hypothetical(
+        {**_SUPPOSING, "question": "i am a laborer for the city"}
+    )
+    assert left["hypothetical_frame"] is None
+
+
+def test_a_follow_up_inside_the_premise_does_not_leave_it():
+    """"and what if I had 30 years of service?" carries none of the premise's
+    words and is still a question about being a park employee. The frame holds
+    by default and is left explicitly; guessing that a supposition has been
+    "fully answered" strands the member mid-exploration."""
+    assert loop_mod._leave_hypothetical(
+        {**_SUPPOSING, "question": "and what if I had 30 years of service?"}
+    ) == {}
+
+
+def test_there_is_nothing_to_leave_without_a_premise():
+    assert loop_mod._leave_hypothetical(
+        {"question": "actually, what is my pension really?", "turn_index": 1}
+    ) == {}
+
+
+# ── The forced search reads the member's own law ───────────────────
+#
+# G30 and G01, both CRITICAL, and F02 which passed only because fund_smoke's
+# key does not look. Every one of them spent `{outline: 1, get_section: 1}`, so
+# the fallback search ran -- and it ran *unfiltered*, on the member's own
+# question, which pulled a slice of the whole Code into the citable set. G30's
+# answer then named Article 11 correctly on Section 11-101 and volunteered
+# Section 7-109 to say it could not establish whether that provision confirmed
+# anything; F02 cited Section 4-109 to an Article 2 member the same way. A gap
+# reported with another fund's section number on it is still another fund's law
+# in an answer about this member.
+#
+# `retrieve_policy` is article-filtered -- that filter *is* the determination --
+# and the fallback exists precisely because it is the one structural thing the
+# loop can skip. Skipping the filter with it was the half that got missed.
+
+
+async def test_the_forced_search_is_filtered_to_the_governing_article(monkeypatch):
+    _script(monkeypatch, [_turn(("outline", {"article": "11"})), _turn(content="Found it.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-130"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "determine my governing Article and my current pension status",
+            "turn_index": 0,
+            "employee_record": {"article_number": 11},
+        }
+    )
+    args = next(args for name, args in ran if name == "search_statute")
+    assert args["articles"] == ["11", *loop_mod.CROSS_CUTTING_ARTICLES]
+
+
+async def test_naming_an_article_moves_the_forced_search_to_it(monkeypatch):
+    """L06. "What does Article 4 provide for police officers?" is a question
+    about the law, not about this member, and filtering it to their own fund
+    answers a question nobody asked. The pipeline resolves this the same way and
+    for the same reason: naming a fund Article *moves* the filter."""
+    _script(monkeypatch, [_turn(("outline", {"article": "4"})), _turn(content="Found it.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "4-109"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "what does Article 4 provide for police officers?",
+            "turn_index": 0,
+            "employee_record": {"article_number": 11},
+        }
+    )
+    args = next(args for name, args in ran if name == "search_statute")
+    assert args["articles"] == ["4", *loop_mod.CROSS_CUTTING_ARTICLES]
+
+
+async def test_a_premise_moves_the_forced_search_too(monkeypatch):
+    """Under a supposition the question is about the supposed fund, and
+    `_confined_to_premise` would drop everything else from the evidence
+    afterwards anyway -- so searching the member's own Article spends a call to
+    gather what is about to be set aside."""
+    _script(monkeypatch, [_turn(("outline", {"article": "12"})), _turn(content="Found it.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "12-133"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "and what if I had 30 years of service?",
+            "turn_index": 1,
+            "employee_record": {"article_number": 11},
+            "hypothetical_frame": {"premise": "a park employee", "article": "12"},
+        }
+    )
+    args = next(args for name, args in ran if name == "search_statute")
+    assert args["articles"] == ["12", *loop_mod.CROSS_CUTTING_ARTICLES]
+
+
+async def test_an_anonymous_member_with_no_article_searches_the_whole_code(monkeypatch):
+    """Nothing has said which fund, so narrowing to one would be inventing the
+    determination rather than applying it."""
+    _script(monkeypatch, [_turn(("outline", {"article": "11"})), _turn(content="Found it.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-130"}]})
+
+    await loop_mod.investigate({"question": "how are pensions calculated?", "turn_index": 0})
+    args = next(args for name, args in ran if name == "search_statute")
+    assert not args.get("articles")

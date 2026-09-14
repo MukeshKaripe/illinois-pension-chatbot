@@ -390,3 +390,107 @@ which is the only method that has worked all week.
   schema error. A different cause from the one just fixed.
 - **F05 and F12 on the pipeline**: an undisclosed assumption, and a generation
   call that failed outright.
+
+
+## The cutover run: 2026-09-14, both agents, the whole suite
+
+`2026-09-14-full-{loop,pipeline}.json`. 99 cases, 156 turns each, same code,
+same day, the comparison Phase 6 exists to make.
+
+```
+loop      81/92 scored   9,162,543 tokens   TTFT median 20.08s   0 hard guardrail failures
+pipeline  85/92 scored   3,582,506 tokens   TTFT median 12.20s   0 hard guardrail failures
+```
+
+| category | loop | pipeline | | category | loop | pipeline |
+|---|---|---|---|---|---|---|
+| adversarial | 6/6 | 6/6 | | fund_smoke | 18/18 | 18/18 |
+| applicability | **2/3** | 3/3 | | goal_completion | 2/3 | 2/3 |
+| article_routing | **0/1** | 1/1 | | hypothetical | **1/4** | 4/4 |
+| calculation | **4/5** | 5/5 | | no_ask | 1/1 | 1/1 |
+| capabilities | **2/3** | 3/3 | | other_benefits | 3/3 | 3/3 |
+| conversational | 2/2 | 2/2 | | reasoning | 5/7 | 5/7 |
+| coverage | 8/8 | 8/8 | | retrieval | 2/2 | 2/2 |
+| cross_reference | 1/1 | 1/1 | | routing | **7/7** | 5/7 |
+| end_to_end | **2/3** | 3/3 | | scope | 7/7 | 7/7 |
+| error_handling | 1/1 | 1/1 | | state | **7/7** | 5/7 |
+
+**Decision on the run as it stands: do not cut over.** The loop fails six
+CRITICAL cases to the pipeline's one, and criterion 2 fails outright — the
+`hypothetical` category regresses by three. The loop also wins four
+`expected_fail` cases the pipeline still cannot do (G24, G40, L08, L09) and
+takes `routing` and `state` off it, which is why the answer was to fix rather
+than to abandon.
+
+### What the six CRITICAL failures turned out to be
+
+Two behaviours and one instrument, and the instrument accounted for more cases
+than either behaviour.
+
+**The loop could not leave a supposition (G41).** `check_coverage` creates a
+`hypothetical_frame` and nothing anywhere cleared one. "Now go back to my
+actual record. What is my pension really?" was answered as a park employee
+again — 12-133 resolved against an Article 11 member, every record-derived
+input reported missing, because the frame it never left says those facts belong
+to another fund. `assess_coverage` releases the frame on an edge before
+retrieval using `coverage.leaves_hypothetical`; the loop has no such edge, so
+the release joined the two deterministic steps `investigate` already runs before
+any model sees the turn.
+
+**The loop borrowed the record it was told not to (G38, G39).** Asked "if I
+were a park employee, how would my pension be calculated?" it set
+`compute_benefit`'s `stand_in_facts` unprompted and quoted $32,126.78 — the
+member's own Article 11 salary and service, run through Article 12's formula,
+under a premise they had only supposed. `gold_hypothetical.yaml` had said in as
+many words what should have happened: "everything becomes a missing input".
+
+The schema paragraph says to set the flag *only* when the member offered their
+own figures. That is a warning, not a mechanism — the same lesson
+`find_provision` was withdrawn for on the same day. So the flag is corroborated
+the way `scenarios.corroborated` corroborates a carried-forward scenario: the
+model still decides what the member meant, and a regex checks the words are
+there, in this message or in the premise they set up. **A regex may accuse,
+supply data, or check provenance; that is now the third one that checks
+provenance, and none of the three decides.**
+
+**`article_only` was measuring the pipeline's method, not the loop's answer
+(16, 4, 5, G01, G02, G30).** The key polices *retrieval*. On the pipeline that
+is the same question as what the answer rests on, because the Article filter
+*is* the determination. On an agent that decides what to read as it reads it is
+not: looking at the neighbouring fund is how you rule it out. This had already
+been settled once for L08 and once for L06; the full run showed five more, so
+`article_only` went with the pipeline rather than being kept as an option
+nothing uses.
+
+Moved case by case against the recorded run, never in bulk, and the check still
+bites: **G02 and G30 still fail under the sharper key**, which is the evidence
+the move was not a fudge.
+
+### A third way an eval case goes vacuous
+
+The README already records two — a case written from a diagnosis asserts the
+diagnosis (L01, L03, L08), and a case whose subject gets fixed keeps asserting
+it (S4). **G02 is the third: a case whose expectation forbids what its question
+asks for.** It asks the agent to "name any similar-looking provisions in other
+Articles that must NOT be applied to my case", and then asserted
+`article_only: "11"`. The comment sitting directly above that key said "naming
+Article 12 to warn the member off it is legitimate" — the case had disagreed
+with itself in writing for as long as it had existed. The loop named 8-138,
+9-101 and 9-134, exactly what was asked, and was marked down for it; the
+pipeline, which cannot leave Article 11, named none and failed the other half.
+
+### The one genuine content defect, and where it came from
+
+G30's first turn names Article 11 correctly on Section 11-101 and then cites
+Section 7-109 to say it cannot establish whether that provision confirms
+anything. F02 cites Section 4-109 to an Article 2 member the same way, and
+passes only because `fund_smoke`'s key does not look.
+
+Both turns spent `{outline: 1, get_section: 1}` — no search — so the fallback
+search added the day before ran, and **it ran unfiltered**. `retrieve_policy` is
+article-filtered and that filter is the determination; the fallback was added
+because running a search is the one structural thing the loop can skip, and the
+filter was the half that got missed. A slice of the whole Code landed in the
+citable set and the model spent it on hedges. **A gap reported with another
+fund's section number on it is still another fund's law in an answer about this
+member.**
