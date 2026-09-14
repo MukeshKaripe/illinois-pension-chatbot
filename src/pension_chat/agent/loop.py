@@ -446,6 +446,46 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
 
+    # ── A turn that only browsed has not looked ──────────────────
+    #
+    # `retrieve_policy` always runs a search. That is the one thing the pipeline
+    # does structurally that the loop can skip entirely, and five of ten
+    # full-suite failures were "did not cite 11-134" on turns whose whole spend
+    # was `{outline: 1, get_section: N}`.
+    #
+    # The loop reads an Article's outline, fetches the sections whose *headings*
+    # sound relevant, and answers. Section 11-134 is called "Amount of annuity";
+    # 11-130 is "Annuities - Present employees and future entrants", which reads
+    # like the better match and is not. And there is no way out of that
+    # cul-de-sac by following references: 11-127 through 11-131 cite **nothing**,
+    # so the completion step below has no edge to walk.
+    #
+    # So the search stops being optional. The member's own question is the
+    # query, which is the worst wording available -- but a weak search that
+    # surfaces the operative section beats a confident browse that never sees
+    # it, and whatever comes back joins the citable set rather than replacing
+    # what the model chose.
+    if not exhausted and not spent.get("search_statute"):
+        result, update = await run_tool(
+            "search_statute",
+            {"queries": [state["question"]], "why": "nothing was searched this turn"},
+            working,
+        )
+        if update.get("retrieved_sections"):
+            sections = _merge_sections(sections, update["retrieved_sections"])
+            working["retrieved_sections"] = sections
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "You answered without searching, so the Code was searched for "
+                    "you on the member's own words. An outline gives headings, and "
+                    "the section that governs is often not the one whose heading "
+                    "reads best:" + chr(10) + chr(10) + result
+                ),
+            }
+        )
+
     # ── Complete the evidence before the answer is written ───────
     #
     # The step the loop dropped and the pipeline always had: `resolve_recipes`

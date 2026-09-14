@@ -197,14 +197,18 @@ async def test_a_loop_that_answers_without_reading_anything_is_sent_back(monkeyp
 
 async def test_the_push_back_happens_once_and_then_it_is_let_go(monkeypatch):
     """A model that insists is not argued with -- that would spend the budget
-    on a fight. It is let through, and `compose` says what it did not read."""
+    on a fight. It is let through, and `compose` says what it did not read.
+
+    It is no longer let through *unsearched*, though: a turn that ran no search
+    gets one run for it on the member's own words. Arguing twice is a fight;
+    looking once is the step `retrieve_policy` never made optional."""
     _script(monkeypatch, [_turn(content="I am sure."), _turn(content="Still sure.")])
-    ran = _tools(monkeypatch)  # no update, so nothing is ever read
+    ran = _tools(monkeypatch)  # no update, so nothing is ever found
 
     out = await loop_mod.investigate({"question": "q", "messages": []})
 
-    assert ran == []
-    assert out["consulted_nothing"] is True
+    assert [name for name, _ in ran] == ["search_statute"], "looked once, argued once"
+    assert out["consulted_nothing"] is True, "and still found nothing"
 
 
 async def test_an_outline_alone_does_not_count_as_having_read_the_code(monkeypatch):
@@ -671,3 +675,51 @@ def test_no_tool_can_be_called_instead_of_reading():
         "check_coverage",
     }
     assert "find_provision" not in offered
+
+
+async def test_a_turn_that_only_browsed_still_searches_before_answering(monkeypatch):
+    """Five of ten full-suite failures were "did not cite 11-134", and the
+    spend on each was `{outline: 1, get_section: N}` -- no search at all.
+
+    The loop reads Article 11's outline, fetches the sections whose *headings*
+    sound relevant, and answers. Section 11-134 is called "Amount of annuity";
+    11-130 is "Annuities - Present employees and future entrants", which reads
+    like the better match and is not. And there is no way out of that
+    cul-de-sac: 11-127 through 11-131 cite **nothing**, so
+    `_complete_the_evidence` has no edge to follow.
+
+    `retrieve_policy` always runs a search. That is the one thing the pipeline
+    does structurally that the loop can skip entirely -- so it stops being
+    optional, exactly as completing the evidence did.
+    """
+    _script(monkeypatch, [_turn(("outline", {"article": "11"})), _turn(content="Found it.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-130"}]})
+
+    await loop_mod.investigate(
+        {"question": "which provision sets the amount of my annuity?", "turn_index": 0}
+    )
+    assert any(name == "search_statute" for name, _ in ran), [n for n, _ in ran]
+    query = next(args for name, args in ran if name == "search_statute")["queries"]
+    assert any("annuity" in q.lower() for q in query), query
+
+
+async def test_a_turn_that_searched_is_left_alone(monkeypatch):
+    """One search is enough to have looked. This adds the missing step, not a
+    second opinion on a turn that took it."""
+    _script(
+        monkeypatch,
+        [_turn(("search_statute", {"queries": ["annuity amount"], "why": "x"})),
+         _turn(content="Found it.")],
+    )
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134"}]})
+    await loop_mod.investigate({"question": "how much?", "turn_index": 0})
+    assert sum(1 for name, _ in ran if name == "search_statute") == 1
+
+
+async def test_an_exhausted_loop_does_not_search_again(monkeypatch):
+    """Worth a call, not an overrun -- the same bound completion carries."""
+    _script(monkeypatch, [_turn(("outline", {"article": "11"}))] * 30)
+    ran = _tools(monkeypatch)
+    out = await loop_mod.investigate({"question": "q", "turn_index": 0})
+    assert out["loop_exhausted"] is True
+    assert not any(name == "search_statute" for name, _ in ran)
