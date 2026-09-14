@@ -53,11 +53,16 @@ cases:
           # that is what the case now asserts. The figure-side of isolation is
           # tested wherever a figure exists -- `worked the figure from` -- and
           # this turn has none.
+          # Both halves, because the question has two. The member's own
+          # pathway is Article 11's; the look-alikes are named out of other
+          # Articles, and never attributed to them.
+          cites_outside: "11"
           forbids:
             - "your Article 9"
             - "your Article 8"
             - "your Article 12"
-          mentions: ["not apply", "do not apply", "does not apply", "would not apply"]
+            - "your Article 13"
+            - "your Article 15"
 
   - id: G03
     name: Eligibility, without calculating

@@ -1,0 +1,44 @@
+session_id: cc80ecee-c383-4474-8b4d-a8e3996cb178
+captured_at: '2026-09-14T00:37:47.915167+00:00'
+member:
+  article_number: 11
+  tier: 1
+  employment_status: active
+turns:
+- q: Which salary definition applies to my benefit calculation, and what parts of
+    my compensation are included or excluded before the calculation?
+- q: Which salary definition applies to my benefit calculation, and what parts of
+    my compensation are included or excluded before the calculation?
+rejected_answer: 'I have taken that answer back — sorry.
+
+
+  I found myself relying on a provision I do not have the text of, and I would rather
+  not describe a rule I cannot read to you directly.
+
+
+  Naming the Section you are interested in usually helps — I currently have the text
+  of Articles 1, 8, 9, 11, 12 and 20. For anything binding, your retirement fund is
+  the one to ask.'
+failed:
+- code: UNVERIFIED_CITATION
+  message: The answer cites 40 ILCS 5/11-215, which was not among the sections retrieved
+    for it.
+offenders:
+- 11-215
+sections_read:
+- 11-102
+- 11-116
+- 11-127
+- 11-214
+- 11-217
+- 11-103
+- 11-107
+- 11-124
+coverage:
+  article: '11'
+  basis: record
+  record_article: '11'
+  candidates: []
+  conflict: false
+  turn: 1
+  described_as: null

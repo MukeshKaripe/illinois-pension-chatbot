@@ -907,3 +907,60 @@ async def test_a_fund_that_takes_its_benefits_from_another_searches_both(monkeyp
     )
     args = next(args for name, args in ran if name == "search_statute")
     assert args["articles"] == ["10", "9", *loop_mod.CROSS_CUTTING_ARTICLES]
+
+
+async def test_the_settled_provision_is_read_before_the_answer(monkeypatch):
+    """G30's thirteenth turn, and the pipeline fixed this exact turn by pinning.
+
+    "Re-run the applicability analysis without changing my facts" names no
+    section, no benefit and no age, so retrieval has nothing to lock onto. A
+    long conversation drifts away from its own subject the moment a turn is
+    phrased without statutory vocabulary -- `retrieve_policy`'s own comment
+    names this turn and the six sections it came back with, Section 11-134 not
+    among them.
+
+    The loop is told a figure is standing and what section it rests on, which is
+    not enough: a section it has not *read* this turn is one verification will
+    not let it cite, so the answer talks around the provision the whole
+    conversation is about. Reading it is the fix, and it is the same step
+    `_complete_the_evidence` already performs for a cross-reference the
+    gathered text leans on.
+    """
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Done.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-130"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "I think the pathway you picked was wrong. Re-run the analysis.",
+            "turn_index": 12,
+            "employee_record": {"article_number": 11},
+            "selected_provision": {"formula_type": "retirement_annuity", "section": "11-134"},
+        }
+    )
+    fetched = [args.get("section") for name, args in ran if name == "get_section"]
+    assert "11-134" in fetched, fetched
+
+
+async def test_a_settled_provision_already_read_is_not_fetched_twice(monkeypatch):
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Done.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "and at 60?",
+            "turn_index": 3,
+            "employee_record": {"article_number": 11},
+            "selected_provision": {"formula_type": "retirement_annuity", "section": "11-134"},
+        }
+    )
+    assert [args.get("section") for name, args in ran if name == "get_section"] == []
+
+
+async def test_nothing_settled_means_nothing_pinned(monkeypatch):
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Done.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-130"}]})
+
+    await loop_mod.investigate(
+        {"question": "what is Article 11?", "turn_index": 0, "employee_record": {"article_number": 11}}
+    )
+    assert [args.get("section") for name, args in ran if name == "get_section"] == []

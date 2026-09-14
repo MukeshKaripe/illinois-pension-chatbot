@@ -350,6 +350,33 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
         if phrase.lower() in answer.lower():
             problems.append(f"said {phrase!r}")
 
+    if home := expect.get("cites_outside"):
+        # The other half of isolation, for the question that asks for it.
+        #
+        # G02 asks the agent to "name any similar-looking provisions in other
+        # Articles that must NOT be applied to my case", so an answer that names
+        # none has not answered it -- and that is what `answers_from_article`
+        # would demand, since it reads exactly the same citations. The two keys
+        # are opposites and the question needs both: the member's own pathway
+        # out of their Article, and the look-alikes named out of the others.
+        #
+        # Structural rather than phrasal on purpose. The first attempt asserted
+        # `mentions: ["does not apply", ...]` and the answer said "does not
+        # reach an Article 11 member" three times over -- fitting the list to
+        # the run afterwards is how a case stops testing behaviour and starts
+        # testing wording. What is checkable is whether other Articles were
+        # named at all; that they were named as excluded is `forbids`' job, and
+        # `guardrails._verify_coverage` polices the same claim at runtime.
+        cited = result["guardrail_report"].get("verified_citations") or []
+        outside = sorted({
+            c.split("-")[0] for c in cited
+            if c.split("-")[0] not in {home, *CROSS_CUTTING_ARTICLES}
+        })
+        if not outside:
+            problems.append(
+                f"named no provision outside Article {home} to rule out"
+            )
+
     # At least one, not all: an answer may disclose an assumption in any of
     # several natural phrasings, and demanding a particular one tests the
     # wording rather than the behaviour.

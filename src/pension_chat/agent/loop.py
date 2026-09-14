@@ -629,6 +629,43 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+    # ── The provision this conversation already settled on ───────
+    #
+    # G30's thirteenth turn, and `retrieve_policy` names it in its own comment:
+    # "Re-run the applicability analysis without changing my facts" carries no
+    # section, no benefit and no age, so retrieval has nothing to lock onto and
+    # a long conversation drifts away from its own subject the moment a turn is
+    # phrased without statutory vocabulary. The pipeline pins the settled
+    # section into the query; the loop had nothing equivalent.
+    #
+    # Being told a figure is standing is not enough. `_context` says which
+    # section it rests on, and a section the turn has not *read* is one
+    # verification will not let it cite -- so the answer talks around the
+    # provision the whole conversation is about, and whether the case passes
+    # comes down to whether the model restates it from memory.
+    settled_section = str((state.get("selected_provision") or {}).get("section") or "")
+    if settled_section and not exhausted:
+        if not any(str(s.get("section")) == settled_section for s in sections):
+            result, update = await run_tool(
+                "get_section", {"section": settled_section}, working
+            )
+            if update.get("retrieved_sections"):
+                sections = _merge_sections(sections, update["retrieved_sections"])
+                working["retrieved_sections"] = sections
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"This conversation already settled on Section "
+                            f"{settled_section}, so it has been read for you. Being "
+                            "challenged is not a reason to change the answer: if the "
+                            "determination was right it should survive being "
+                            "questioned, and if it was wrong say which provision "
+                            "replaces it and why." + chr(10) + chr(10) + result
+                        ),
+                    }
+                )
+
     sections, set_aside = _confined_to_premise(sections, working)
 
     produced = {

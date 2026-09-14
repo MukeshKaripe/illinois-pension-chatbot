@@ -1,0 +1,41 @@
+session_id: 9e395820-b33e-452b-b776-dc2dce9081f1
+captured_at: '2026-09-13T19:01:35.069735+00:00'
+member:
+  article_number: 4
+  tier: 1
+  employment_status: active
+turns:
+- q: Roughly what would my pension be if I retired at the end of this year?
+- q: Roughly what would my pension be if I retired at the end of this year?
+rejected_answer: 'I have taken that answer back — sorry.
+
+
+  Something in that answer did not hold up when I checked it back against the Pension
+  Code.
+
+
+  I still have your age (50), your 24.0 years of service and your highest four-year
+  average salary ($92,365.25). For anything binding, your retirement fund is the one
+  to ask.'
+failed:
+- code: ASSUMPTION_NOT_DISCLOSED
+  message: 'The answer states a figure that rests on an assumed value (employment_status:
+    ) without telling the member it was assumed.'
+offenders: []
+sections_read:
+- 4-109
+- 4-109.3
+- 4-108.7
+- 4-108.4
+- 4-108.6
+- 4-134
+- 1-103.1
+- 4-107
+coverage:
+  article: '4'
+  basis: record
+  record_article: '4'
+  candidates: []
+  conflict: false
+  turn: 1
+  described_as: null

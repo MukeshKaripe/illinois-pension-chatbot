@@ -1,0 +1,49 @@
+session_id: d44adfb5-79d1-4a1c-9c60-34dddfd71b0a
+captured_at: '2026-09-14T01:08:47.962719+00:00'
+member:
+  article_number: 11
+  tier: 1
+  employment_status: active
+turns:
+- q: Which sections must be consulted before my retirement benefit can be calculated?
+    Follow every cross-reference until the calculation dependencies are resolved.
+- q: Which sections must be consulted before my retirement benefit can be calculated?
+    Follow every cross-reference until the calculation dependencies are resolved.
+rejected_answer: 'I have taken that answer back — sorry.
+
+
+  I found myself relying on a provision I do not have the text of, and I would rather
+  not describe a rule I cannot read to you directly.
+
+
+  Naming the Section you are interested in usually helps — I currently have the text
+  of Articles 1, 8, 9, 11, 12 and 20. For anything binding, your retirement fund is
+  the one to ask.'
+failed:
+- code: UNVERIFIED_CITATION
+  message: The answer cites 40 ILCS 5/11-170, which was not among the sections retrieved
+    for it.
+offenders:
+- 11-170
+sections_read:
+- 11-127
+- 11-128
+- 11-129
+- 11-130
+- 11-131
+- 11-102
+- 11-114
+- 11-116
+- 11-120
+- 11-122
+- 11-103
+- 11-124
+- 11-170.1
+coverage:
+  article: '11'
+  basis: record
+  record_article: '11'
+  candidates: []
+  conflict: false
+  turn: 1
+  described_as: null

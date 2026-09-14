@@ -1,0 +1,55 @@
+session_id: f5142dd6-8a91-4a7a-9eaf-2333abbc4283
+captured_at: '2026-09-13T20:02:33.829754+00:00'
+member:
+  article_number: 11
+  tier: 1
+  employment_status: active
+turns:
+- q: what would my pension be if I retired at the end of this year?
+- a: 'Your estimated pension at age 56 is **$32,126.78 a year**, or **$2,677.23 a
+    month**, under Section 11-134. [40 ILCS 5/11-134]
+
+
+    **What I assumed:** the date you stop working is today.
+
+
+    Section 11-215 addresses which periods count as service. I could not establish
+    from the sections available whether any special service-credit issue under Section
+    11-221 affects your 21.5 years. [40 ILCS 5/11-215]
+
+
+    I’m going by your record, which places you in Article 11 — tell me if that’s not
+    right.
+
+
+    This is an estimate — your retirement fund makes the binding determination.'
+- q: what about my wife?
+- q: what about my wife?
+rejected_answer: 'I have taken that answer back — sorry.
+
+
+  Something in that answer did not hold up when I checked it back against the Pension
+  Code.
+
+
+  I still have your age (56), your 21.5 years of service and your highest four-year
+  average salary ($69,956.40). For anything binding, your retirement fund is the one
+  to ask.'
+failed:
+- code: ASSUMPTION_NOT_DISCLOSED
+  message: 'The answer states a figure that rests on an assumed value (withdrawal_date:
+    the date you stop working, taken as today) without telling the member it was assumed.'
+- code: ASSUMPTION_NOT_DISCLOSED
+  message: 'The answer states a figure that rests on an assumed value (annuity_start_date:
+    the date your annuity starts, taken as the date you stop working) without telling
+    the member it was assumed.'
+offenders: []
+sections_read: []
+coverage:
+  article: '11'
+  basis: record
+  record_article: '11'
+  candidates: []
+  conflict: false
+  turn: 1
+  described_as: null
