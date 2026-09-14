@@ -588,19 +588,61 @@ a citation, a computed figure, a provision — check the structure instead. That
 is what `answers_from_article` and `cites_outside` do, and what the L11
 expectation still does not.
 
+### G17, closed: ask the engine, do not ask it to compute
+
+"Which retirement provision applies to me? Do not calculate anything yet." The
+loop browsed Article 11's outline, picked by heading, and named **11-130** —
+then computed from **11-134** two turns later. Named one provision and used
+another, which is what the case is called for and the worst of these failures to
+read as a member.
+
+`resolve_recipes` is the authority for both and the only route to it was
+`compute_benefit`, which is what the member had just forbidden. So
+`registry.recipes_for` asks the registry directly: one query, no model call, and
+the same `_reuse_rank` `lookup_recipe` uses — lifted into a shared function,
+because two rankings would make "the provision you selected earlier" a coin toss.
+
+**Not a tool, deliberately.** `find_provision` failed twice over: a section
+number with no text, so the model cited what it had not read; and it
+*satisfied*, so turns stopped there without computing. Its withdrawal note
+prescribed the fix — provision and text together, where naming one cannot be an
+alternative to having read it — and this is that, as a deterministic completion
+step that fetches the text and **runs after the tool loop has ended**, where
+nothing can reach it instead of computing. Read in `investigate`, named in
+`compose`, because G30 settled that either alone is half a fix.
+
+It answered the second turn as well, unexpectedly: `selection_basis` and
+`alternatives_considered` were in the registry all along — §11-134(a) chosen
+over 11-130, 11-131 and 11-164 on a statutory-election basis — and the loop had
+never looked, so it answered "why that one over the alternatives" by explaining
+why *Article 11*.
+
+Measured twice, 3/3 both times, with G03, L09, L11, L12 and L13 green beside it.
+The no-figure turns were the exposure — the pin makes a provision citable on a
+turn that must not quote a figure — and G03 is the sharp one, wanting §11-134
+cited *and* no figure. None took the bait.
+
+**A mechanism whose effect is invisible in the report cannot be told apart from
+one that never ran.** `engine_provisions` read `null` on its own verification
+run because nothing captured the new key, which for a while looked exactly like
+a fix that had not fired. It is captured now.
+
 ### Still open
 
-**G17 turn 1**, and it is a known gap rather than a regression: "which
-retirement provision applies to me? Do not calculate anything yet." The loop
-browsed the outline, fetched seven sections by their headings, and never reached
-§11-134 — Phase 3c recorded this exact turn as a retrieval-selection miss, on
-the Article where §11-130 "Annuities — Present employees and future entrants"
-reads like the better match than §11-134 "Amount of annuity".
+**The smart-and-lazy answer, sighted twice.** Spec §5 named it and the Phase 4
+note above recorded the first occurrence; G35 did it again on 2026-09-14 —
+coverage settled, record usable, `compute_benefit` never called, and an answer
+describing Section 12-133(a)'s 2.40% accrual in correct prose with no figure in
+it. Word for word the same answer as the first sighting. It passes on re-run.
 
-The pipeline cannot have it, because `resolve_recipes` runs structurally on
-every turn and names the provision without computing. The loop reaches that code
-only through `compute_benefit`, which is what the member just forbade. The shape
-of the answer is written down in `tools._WITHDRAWN_PROVISION_TOOLS`: **provision
-and text together, inside `search_statute`'s result, where naming one cannot be
-an alternative to having read it.** A separate tool was tried for one day and
-withdrawn because it was called *instead of* reading.
+The note set the bar at "one occurrence is not a mechanism"; two clears it. It
+is **not** caused by the G17 work — that block is appended after the tool loop
+ends, so it cannot reach a decision made inside it — and the pipeline could not
+have this failure at all, because `_needs_calculation` was an edge rather than a
+decision.
+
+The shape of the answer is probably the loop's existing push-back, the one that
+already refuses to let a turn end having read nothing: one push, then let go.
+The trigger is the hard part, because "did the member want a figure" is the
+model's judgement and not a regex's — which is why this is written down rather
+than bolted on.
