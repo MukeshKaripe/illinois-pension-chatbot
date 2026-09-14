@@ -659,9 +659,9 @@ async def main() -> int:
     parser.add_argument("--quiet", action="store_true", help="omit answer text")
     parser.add_argument(
         "--mode",
-        choices=("pipeline", "loop"),
-        default="pipeline",
-        help="which agent to run the suite against (loop lands in Phase 3)",
+        choices=("loop",),
+        default="loop",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--include-blocked",
@@ -670,12 +670,13 @@ async def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.mode == "loop":
-        # Set before the settings cache is warmed by the first call, so
-        # `graph.active_graph()` picks the loop for every turn in this run.
-        os.environ["AGENT_MODE"] = "loop"
-        get_settings.cache_clear()
-        print("running against the agent loop")
+    # There is one agent since the cutover on 2026-09-14. `--mode loop` is kept
+    # as a no-op so the commands written down in `docs/superpowers/baselines`
+    # still run as recorded; `--mode pipeline` is gone rather than silently
+    # running the loop, because a flag that lies about which agent produced a
+    # number is worse than a flag that is missing.
+    os.environ["AGENT_MODE"] = "loop"
+    get_settings.cache_clear()
 
     # Redirected to a file, Python buffers stdout and a twenty-minute run shows
     # nothing at all until it exits. Progress on a long run is most of what the
