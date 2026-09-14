@@ -358,7 +358,24 @@ def _search_filter(state: dict[str, Any]) -> list[str]:
         or coverage.get("article")
         or (str(employee["article_number"]) if employee else None)
     )
-    return [str(article), *CROSS_CUTTING_ARTICLES] if article else []
+    if not article:
+        return []
+    # A fund that takes its benefits from another is searched in both. Section
+    # 10-103 gives Forest Preserve District employees "the same annuities,
+    # refunds and benefits ... as are made and allowed for employees of the
+    # county", so an Article 10 figure worked under Section 9-134 is right and
+    # filtering to 10 alone would hide the law it comes from. Read out of
+    # `funds.py`, where the establishing section is declared -- never inferred
+    # from a cross-reference, because an Article whose text merely mentions
+    # another is not incorporating it.
+    borrowed: list[str] = []
+    try:
+        fund = FUNDS.get(int(article))
+    except (TypeError, ValueError):
+        fund = None
+    if fund is not None and fund.benefits_from:
+        borrowed = [str(fund.benefits_from)]
+    return [str(article), *borrowed, *CROSS_CUTTING_ARTICLES]
 
 
 def _leave_hypothetical(state: dict[str, Any]) -> dict[str, Any]:

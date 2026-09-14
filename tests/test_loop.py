@@ -879,3 +879,31 @@ async def test_an_anonymous_member_with_no_article_searches_the_whole_code(monke
     await loop_mod.investigate({"question": "how are pensions calculated?", "turn_index": 0})
     args = next(args for name, args in ran if name == "search_statute")
     assert not args.get("articles")
+
+
+async def test_a_fund_that_takes_its_benefits_from_another_searches_both(monkeypatch):
+    """F10. Section 10-103 gives Forest Preserve District employees "the same
+    annuities, refunds and benefits ... as are made and allowed for employees of
+    the county" -- employees of the county being Article 9 -- so an Article 10
+    figure worked under Section 9-134 is right, and `fund_smoke`'s rule is true
+    of every fund but this one.
+
+    Filtering the fallback to Article 10 alone would hide the law the figure
+    comes from on any turn the model did not search for itself. Declared in
+    `funds.py` with the section that establishes it and never inferred from a
+    cross-reference: an Article whose text merely *mentions* another is not
+    incorporating it, and guessing would re-admit the borrowed-formula failure
+    the suite exists to catch.
+    """
+    _script(monkeypatch, [_turn(("outline", {"article": "10"})), _turn(content="Found it.")])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "10-103"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "what would my pension be if I retired at the end of this year?",
+            "turn_index": 0,
+            "employee_record": {"article_number": 10},
+        }
+    )
+    args = next(args for name, args in ran if name == "search_statute")
+    assert args["articles"] == ["10", "9", *loop_mod.CROSS_CUTTING_ARTICLES]
