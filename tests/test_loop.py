@@ -964,3 +964,29 @@ async def test_nothing_settled_means_nothing_pinned(monkeypatch):
         {"question": "what is Article 11?", "turn_index": 0, "employee_record": {"article_number": 11}}
     )
     assert [args.get("section") for name, args in ran if name == "get_section"] == []
+
+
+async def test_the_settled_provision_is_read_even_when_the_budget_is_gone(monkeypatch):
+    """G30 turn 13 again, failing in the full suite after passing alone.
+
+    The pin was gated on `not exhausted`, copied from `_complete_the_evidence`
+    — and the two are different in kind. Completion makes up to three
+    *speculative* fetches for cross-references that might matter, and skipping
+    those when the budget is gone is right. This makes exactly one *known*
+    fetch, for the provision the answer has to rest on, and skipping it is
+    backwards: a turn that spent its whole budget is the one most likely to have
+    drifted away from its own subject.
+    """
+    _script(monkeypatch, [_turn(*[("search_statute", {"queries": ["x"]})] * 20)])
+    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-130"}]})
+
+    await loop_mod.investigate(
+        {
+            "question": "I think the pathway you picked was wrong.",
+            "turn_index": 12,
+            "employee_record": {"article_number": 11},
+            "selected_provision": {"formula_type": "retirement_annuity", "section": "11-134"},
+        }
+    )
+    fetched = [args.get("section") for name, args in ran if name == "get_section"]
+    assert "11-134" in fetched, fetched

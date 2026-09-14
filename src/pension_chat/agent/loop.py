@@ -22,7 +22,7 @@ import time
 from typing import Any
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent.blocks import render_assumptions
+from pension_chat.agent.blocks import render_assumptions, render_thresholds
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import ANSWER_SYSTEM, _record_coverage
 from pension_chat.agent.presentation import select_rung
@@ -643,8 +643,21 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # verification will not let it cite -- so the answer talks around the
     # provision the whole conversation is about, and whether the case passes
     # comes down to whether the model restates it from memory.
+    #
+    # Not gated on the budget, unlike the completion step above, and the
+    # difference is the point: completion makes up to three *speculative*
+    # fetches for cross-references that might matter, and dropping those when
+    # the budget is gone is right. This is one *known* fetch for the provision
+    # the answer has to rest on, and a turn that spent its whole budget is the
+    # one most likely to have drifted away from its own subject.
+    #
+    # Reading it is necessary and not sufficient, which the full suite settled:
+    # G30 failed with Section 11-134 sitting in its own retrieved sections,
+    # cited 11-110, 11-125 and 11-221 instead, and the pin had run. What was
+    # missing is on the other side -- `_settled_provision` puts it in front of
+    # the model writing the answer, not only the one gathering evidence.
     settled_section = str((state.get("selected_provision") or {}).get("section") or "")
-    if settled_section and not exhausted:
+    if settled_section:
         if not any(str(s.get("section")) == settled_section for s in sections):
             result, update = await run_tool(
                 "get_section", {"section": settled_section}, working
@@ -776,6 +789,72 @@ def _worked_from(state: dict[str, Any]) -> str:
         "and cite it. Naming a different section beside the same number says "
         "the figure came from somewhere it did not, and a section whose heading "
         "reads better is the usual way that happens."
+    )
+
+
+def _cliff_ahead(state: dict[str, Any]) -> str:
+    """A boundary the member is walking towards, and what reaching it is worth.
+
+    L11, and the Phase 3c note named it in advance: "`shape_for`,
+    `_comparison_rows` and the THRESHOLDS slot are all in that category and none
+    of them runs on the loop path." This is that slot.
+
+    `execute_calculations` prices the boundary with the same interpreter that
+    produced the answer's own figure -- which is why the guardrail admits the
+    number -- and `prepare_answer` renders it. `compose` rendered nothing, so a
+    member of 56 carrying an 11% reduction that vanishes at 60 was never told
+    the date, and the sentence saying so is what a good advisor offers
+    unprompted.
+
+    Whether there *is* a cliff worth mentioning is `find_thresholds`' decision,
+    not this one: a boundary already behind the member is real, is in the
+    recipe's parameters, and saying anything about it is noise dressed as
+    service. This renders what it was handed and nothing else.
+    """
+    for entry in (state.get("calculation_result") or {}).values():
+        if rendered := render_thresholds((entry or {}).get("thresholds")):
+            return rendered
+    return ""
+
+
+def _settled_provision(state: dict[str, Any]) -> str:
+    """The provision this conversation has been about, when nothing new was worked.
+
+    G30 turn 13, and the first attempt at it was half a fix. The investigation
+    reads the settled section — Section 11-134 was in that turn's own retrieved
+    sections — and the answer still came back citing 11-110, 11-125 and 11-221.
+    **Being available to cite is not being named.** The pin sits in the middle of
+    a long tool history; `compose`'s blocks are what the model reads immediately
+    before it writes, which is the difference between this and `_assumed`.
+
+    Two conditions, both load-bearing. **No figure this turn**, because
+    `_worked_from` is the sharper statement when there is one — this turn's
+    number came from this section — and two blocks naming provisions is how they
+    end up disagreeing. And **the text was actually read this turn**, because a
+    provision named but not read is one verification will not let the answer
+    cite, so pointing the model at it would manufacture the rejection.
+
+    A fact, not a stance: which provision the conversation has been about is
+    read off `selected_provision`; whether this turn is still about that benefit
+    stays the model's call, and a member who has moved to survivor benefits
+    should be answered about those.
+    """
+    if _worked_from(state):
+        return ""
+    section = str((state.get("selected_provision") or {}).get("section") or "")
+    if not section:
+        return ""
+    read = {str(s.get("section")) for s in (state.get("retrieved_sections") or [])}
+    if section not in read:
+        return ""
+    return (
+        f"This conversation has been about Section {section}: it is the provision "
+        "the determination and any figure already given to this member rest on, "
+        "and its text is in front of you. If this turn is still about that "
+        "benefit, name it and cite it. Being challenged is not a reason to drop "
+        "it -- a determination that was right should survive being questioned, "
+        "and if it was wrong, say which provision replaces it and why. If the "
+        "member has moved to a different benefit, answer about that one instead."
     )
 
 
@@ -924,6 +1003,23 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
 
     if provision := _worked_from(state):
         messages.append({"role": "system", "content": provision})
+
+    if settled := _settled_provision(state):
+        messages.append({"role": "system", "content": settled})
+
+    if cliff := _cliff_ahead(state):
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "This member is walking towards a boundary in the Code, and "
+                    "the figures below were worked by the same engine as their "
+                    "own estimate, so you may quote them. State it plainly beside "
+                    "the answer -- do not offer to look into it, and do not close "
+                    "with a question:" + chr(10) + chr(10) + cliff
+                ),
+            }
+        )
 
     if disclosure := _assumed(state):
         # `apply_assumptions` fills a missing value deep inside `resolve_inputs`,

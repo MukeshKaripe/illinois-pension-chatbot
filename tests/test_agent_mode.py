@@ -370,3 +370,128 @@ async def test_compose_names_no_provision_when_no_figure_was_worked():
     )
     tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
     assert "was worked from" not in tail.lower()
+
+
+async def test_compose_offers_the_cliff_the_member_is_walking_towards():
+    """L11, and the Phase 3c note predicted it by name: "`shape_for`,
+    `_comparison_rows` and the THRESHOLDS slot are all in that category and
+    none of them runs on the loop path."
+
+    `execute_calculations` prices the boundary — it is the same interpreter that
+    produced the answer's own figure, which is why the guardrail admits the
+    number — and `prepare_answer` renders it into a THRESHOLDS slot. `compose`
+    rendered nothing, so a member of 56 carrying an 11% reduction that vanishes
+    at 60 was never told the date.
+
+    The case passed the previous full run on the substring "before age 60" in
+    unrelated prose, which is the same way S4 stayed green after its subject had
+    been fixed. An answer that happens to contain the words is not an answer
+    that did the thing.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "what would my pension be if I retired now?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-134", "article": "11"}],
+            "calculation_result": {
+                "retirement_annuity": {
+                    "section": "11-134",
+                    "base": {"ok": True},
+                    "thresholds": [
+                        {
+                            "boundary": 60,
+                            "distance_months": 44,
+                            "difference_from_now_annual": "4102.19",
+                            "section": "11-134",
+                        }
+                    ],
+                }
+            },
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "44 months" in tail
+    assert "age 60" in tail
+
+
+async def test_compose_says_nothing_about_a_boundary_that_was_not_priced():
+    """L12: a boundary already behind the member is real, is in the recipe's
+    parameters, and saying anything about it helps nobody. `find_thresholds`
+    decides that; `compose` only renders what it was handed."""
+    out = await loop_mod.compose(
+        {
+            "question": "what would my pension be if I retired now?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-134", "article": "11"}],
+            "calculation_result": {
+                "retirement_annuity": {"section": "11-134", "base": {"ok": True}}
+            },
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "Worth knowing" not in tail
+
+
+async def test_compose_names_the_provision_the_conversation_rests_on():
+    """G30 turn 13, and the first fix for it was half of one.
+
+    The investigation reads the settled provision — Section 11-134 was in the
+    turn's own retrieved sections — and the answer still came back citing
+    11-110, 11-125 and 11-221. Being available to cite is not being named: the
+    pin lives in the middle of a long tool history, and `compose`'s blocks are
+    what the model reads immediately before writing.
+
+    A fact given, not a stance handed over: which provision the conversation has
+    been about is read off `selected_provision`, and whether this turn is still
+    about that benefit stays the model's call. Without the second half, "I think
+    the pathway you picked was wrong" gets an answer that quietly drops the
+    provision it was challenging.
+    """
+    out = await loop_mod.compose(
+        {
+            "question": "I think the pathway you picked was wrong. Re-run the analysis.",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-134", "article": "11"}],
+            "selected_provision": {"formula_type": "retirement_annuity", "section": "11-134"},
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "Section 11-134" in tail
+    assert "challenged" in tail.lower() or "survive" in tail.lower()
+
+
+async def test_compose_says_nothing_settled_when_the_text_was_never_read():
+    """A provision named but not read is one verification will not let the
+    answer cite, so pointing the model at it manufactures a rejection."""
+    out = await loop_mod.compose(
+        {
+            "question": "and what about my wife?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-145.1", "article": "11"}],
+            "selected_provision": {"formula_type": "retirement_annuity", "section": "11-134"},
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "has been about Section 11-134" not in tail
+
+
+async def test_a_fresh_figure_outranks_the_settled_provision():
+    """`_worked_from` is the sharper statement — this turn's figure came from
+    this section — so the two must not both speak and disagree."""
+    out = await loop_mod.compose(
+        {
+            "question": "what would I get at 60?",
+            "loop_messages": [],
+            "retrieved_sections": [{"section": "11-134", "article": "11"}],
+            "selected_provision": {"formula_type": "retirement_annuity", "section": "11-134"},
+            "calculation_result": {
+                "retirement_annuity": {"section": "11-134", "base": {"ok": True}}
+            },
+            "recipe_provenance": [
+                {"formula_type": "retirement_annuity", "section": "11-134"}
+            ],
+        }
+    )
+    tail = chr(10).join(str(m.get("content", "")) for m in out["answer_messages"])
+    assert "figure you have was worked from Section 11-134" in tail
+    assert "has been about Section" not in tail
