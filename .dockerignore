@@ -1,0 +1,25 @@
+# Keep the build context to what the image actually needs. The repo root holds
+# eval reports, logs and a virtualenv that together dwarf the source.
+.git
+.venv
+.mypy_cache
+.pytest_cache
+**/__pycache__
+**/*.pyc
+
+# Secrets never enter the image. Configuration arrives as environment
+# variables at run time; a baked .env is a credential in a registry.
+.env
+.env.*
+!.env.example
+
+# Local artefacts
+.*.json
+.*.log
+.bench-*.json
+frontend/
+docs/
+evals/_captured/
+data/
+*.md
+!README.md
