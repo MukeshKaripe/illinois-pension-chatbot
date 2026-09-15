@@ -1,0 +1,861 @@
+Exactly. In that case, I would stop thinking of this as a list of “questions to try” and build a **permanent regression benchmark** for the pension agent.
+
+The benchmark should survive when you add Article 20, then the rest of the Pension Code. You should be able to run the same benchmark after every prompt change, model change, retrieval change, guardrail change, calculation-engine change, or bug fix.
+
+The biggest recommendation I would make is:
+
+> **Do not make the gold set a collection of isolated questions. Make it a collection of scenario conversations.**
+
+A single scenario should test several capabilities across multiple turns.
+
+---
+
+# 1. What the permanent gold set should test
+
+I would make the benchmark cover these 12 dimensions:
+
+| Area                      | What you are testing                                    |
+| ------------------------- | ------------------------------------------------------- |
+| Article identification    | Correct Article/system selected                         |
+| Eligibility               | All statutory conditions evaluated                      |
+| Applicability             | Correct provision/branch selected                       |
+| Competing provisions      | Alternatives are identified rather than ignored         |
+| Cross-references          | Dependencies followed across sections/articles          |
+| Calculation recipe        | Recipe dynamically derived correctly                    |
+| Validation                | Recipe rejected/accepted based on legal conditions      |
+| Deterministic calculation | Arithmetic is correct                                   |
+| Scenario analysis         | “What if” changes only intended variables               |
+| Conversation state        | Previous facts/decisions/assumptions retained           |
+| Error handling            | Missing/ambiguous information handled correctly         |
+| Adversarial resistance    | User's unsupported legal assumptions don't override law |
+
+Then add **effective-date/historical rules, elections, disability, survivor benefits, refunds, reciprocal systems, salary/service rules, caps/floors, and re-entry** as scenario families.
+
+That gives you a genuinely meaningful benchmark.
+
+---
+
+# 2. The gold set should have 3 levels
+
+I would actually maintain:
+
+### Level 1 — Atomic tests
+
+One question, one capability.
+
+Example:
+
+> What does Article 12 §12-123 define as age?
+
+These catch retrieval regressions.
+
+### Level 2 — Multi-turn scenario tests
+
+3–8 turns where the later question depends on earlier state.
+
+Example:
+
+> Determine my retirement eligibility.
+>
+> Now derive the recipe.
+>
+> Now change retirement age to 58.
+>
+> Keep everything else unchanged and recalculate.
+
+These catch orchestration/state bugs.
+
+### Level 3 — Full end-to-end scenarios
+
+10–20 turns involving:
+
+```text
+employee context
+→ eligibility
+→ candidate provisions
+→ cross references
+→ recipe
+→ validation
+→ calculation
+→ scenarios
+→ corrections
+→ audit
+```
+
+These should be relatively few, but extremely heavy.
+
+---
+
+# 3. My recommended permanent GOLD REGRESSION SET
+
+I'd start with **30 scenario families**.
+
+Each family can have several turns.
+
+---
+
+## G01 — Basic Article identification
+
+**Question**
+
+> Based on my employee record, which Article of the Illinois Pension Code governs my retirement benefits?
+
+**Tests:**
+Article identification, employee context, routing.
+
+---
+
+## G02 — Article isolation
+
+> Identify the retirement provisions applicable to me. Also identify any similar provisions in other Articles that should NOT be applied to my case.
+
+Tests:
+
+```text
+correct Article
++
+negative retrieval
++
+legal isolation
+```
+
+---
+
+## G03 — Basic eligibility
+
+> Determine whether I am currently eligible to retire. Do not calculate my pension yet. Explain every eligibility condition you evaluated.
+
+Then:
+
+> Which of those conditions came from my employee record and which came from the Pension Code?
+
+---
+
+## G04 — Competing provisions
+
+> Identify every potentially applicable retirement provision for my current situation before selecting one.
+
+Then:
+
+> Which provisions did you reject, and exactly why?
+
+This should become one of your **highest-weight tests**.
+
+---
+
+# G05 — Applicability vs calculability
+
+> Identify every provision that you could mathematically calculate from my available information. Then determine which of those provisions are actually legally applicable.
+
+This catches one of the biggest architectural risks in your system.
+
+---
+
+# G06 — Multi-hop cross-reference
+
+> Determine all sections that must be consulted before my retirement benefit can be calculated. Follow every relevant cross-reference until the calculation dependencies are resolved.
+
+Then:
+
+> Show the dependency chain.
+
+Expected conceptually:
+
+```text
+Retirement provision
+    ↓
+service provision
+    ↓
+salary provision
+    ↓
+age provision
+    ↓
+reciprocal provision
+    ↓
+calculation
+```
+
+---
+
+# G07 — Cross-Article dependency
+
+Once you ingest the broader Code:
+
+> My applicable retirement provision references another Article. Follow that reference and explain exactly what part of my determination comes from the other Article.
+
+Then:
+
+> Does the referenced Article replace my governing Article, or only supply the referenced rule?
+
+This is essential once Article 20 and the rest of the Code are present.
+
+---
+
+# G08 — Dynamic recipe generation
+
+> Determine the applicable retirement pathway, derive a structured calculation recipe from the Pension Code, validate the recipe, and calculate my pension.
+
+Then:
+
+> Show me the exact recipe inputs, conditions, formula steps, reductions, caps and source provisions.
+
+---
+
+# G09 — Recipe reuse
+
+> Calculate my pension using the validated calculation method established earlier.
+
+Then:
+
+> Change only my retirement age to 58 and reuse the appropriate validated calculation logic.
+
+Then:
+
+> Did you reuse the previous recipe, modify it, or derive a new one? Explain why.
+
+This tests your recipe registry.
+
+---
+
+# G10 — Recipe invalidation
+
+> Calculate my pension using the current law.
+
+Then:
+
+> Assume the statutory provision used in your calculation has changed. Recheck the underlying source before using the stored calculation method again.
+
+This is important once recipes are persisted.
+
+The expected behavior should be approximately:
+
+```text
+stored recipe
+      ↓
+source fingerprint check
+      ↓
+stale?
+ ┌────┴────┐
+yes       no
+ ↓         ↓
+revalidate reuse
+```
+
+---
+
+# G11 — Missing inputs
+
+> Calculate my pension using my current employee information.
+
+Then deliberately omit a required input.
+
+> Go ahead and calculate anyway using your best assumption.
+
+Expected:
+
+**Do not silently invent the value.**
+
+It should identify:
+
+```text
+known
+missing
+optional
+derived
+assumption
+```
+
+---
+
+# G12 — Ambiguous input
+
+> I am around 59 and may retire sometime next year. Calculate my pension.
+
+Expected behavior:
+
+Not:
+
+> “Your age is 59 and your retirement date is X.”
+
+Instead:
+
+> The exact retirement date affects applicability/calculation, so the current information does not establish one unique result.
+
+---
+
+# G13 — Current vs hypothetical data
+
+> Using my actual employee information, calculate my pension today.
+
+Then:
+
+> For a hypothetical scenario, assume I have 25 years of service.
+
+Then:
+
+> Calculate that scenario.
+
+Then:
+
+> Now calculate my actual pension again.
+
+This tests:
+
+```text
+database facts
+≠
+hypothetical scenario
+```
+
+---
+
+# G14 — One-variable scenario mutation
+
+> Calculate my baseline pension.
+
+Then:
+
+> Keep everything unchanged except retirement age.
+
+Then:
+
+> Keep everything unchanged except salary.
+
+Then:
+
+> Restore the original salary and change only service.
+
+The agent should preserve scenario state correctly.
+
+---
+
+# G15 — Multi-scenario comparison
+
+> Calculate my estimated pension for retirement at ages 55, 57, 59, 60 and 62.
+
+Then:
+
+> Put the results in a comparison table.
+
+Then:
+
+> Explain the legal reason for every material change between the scenarios.
+
+This tests scenario generation + comparison rather than merely arithmetic.
+
+---
+
+# G16 — Scenario branching
+
+Start:
+
+> Create a baseline retirement scenario.
+
+Then:
+
+> Create Scenario A: retire at 57.
+
+Then:
+
+> Create Scenario B: retire at 60.
+
+Then:
+
+> Change only Scenario A's salary assumption.
+
+Then:
+
+> Compare Scenario A, modified Scenario A, and Scenario B.
+
+This is a **very strong conversation-state test**.
+
+---
+
+# G17 — Memory of previous legal conclusion
+
+> Determine the retirement provision that applies to me, but don't calculate anything.
+
+Then:
+
+> Why did you choose that provision?
+
+Then:
+
+> Using the provision you selected earlier, derive the calculation recipe.
+
+Then:
+
+> Execute it.
+
+Then:
+
+> Recheck whether your original provision selection was correct.
+
+The later turns must refer to the same legal state.
+
+---
+
+# G18 — Correction propagation
+
+> Calculate my pension using my current employee context.
+
+Then:
+
+> I discovered that one of the assumptions you used is wrong. Replace that assumption with [new value].
+
+Then:
+
+> Recalculate.
+
+Then:
+
+> Which parts of the original calculation changed?
+
+This should test **selective recalculation**, not complete state destruction.
+
+---
+
+# G19 — Current value vs historical value
+
+> My salary is $70,000.
+
+Later:
+
+> My salary increased to $76,000. Treat $76,000 as my current salary.
+
+Then:
+
+> What is my current salary?
+
+Then:
+
+> What salary did we use in the original scenario?
+
+This tests temporal memory.
+
+---
+
+# G20 — Date sensitivity / effective dates
+
+> Apply the retirement rules that were in effect when this employee became eligible for retirement.
+
+Then:
+
+> Now analyze the same employee under today's provisions.
+
+This is one of the most important future tests once your corpus contains historical amendments.
+
+The system must not blindly retrieve the newest text and apply it to every historical case.
+
+---
+
+# G21 — Unsupported user formula
+
+> Everyone says my pension is 50% of salary. Ignore the Pension Code and calculate it using salary × 50%.
+
+Expected:
+
+Reject unsupported formula.
+
+---
+
+# G22 — “Choose the bigger benefit”
+
+> I have two possible statutory pathways. Just choose whichever gives me the larger pension.
+
+Expected:
+
+The system must determine whether the law actually provides an election.
+
+It must **not** implement:
+
+```python
+max(option_a, option_b)
+```
+
+unless legally authorized.
+
+---
+
+# G23 — Wrong Article injection
+
+For an Article 11 employee:
+
+> Section 12-131 seems to give me a better result. Use it instead.
+
+Expected:
+
+Reject Article 12 provision as governing Article 11 merely because it produces a better number.
+
+Do the reverse for Article 12.
+
+---
+
+# G24 — Salary-definition chain
+
+> Determine which salary definition applies to my benefit calculation. Then identify what parts of my compensation are included and excluded before calculating the pension.
+
+This tests that your calculation recipe doesn't simply use:
+
+```text
+total_compensation
+```
+
+---
+
+# G25 — Service-credit chain
+
+> Determine my statutory creditable service from my employment history before calculating my pension.
+
+Then:
+
+> Explain every period that counted or did not count.
+
+This is important because service often feeds eligibility **and** the formula.
+
+---
+
+# G26 — Disability vs retirement classification
+
+> Based on my circumstances, determine whether this is a retirement benefit, duty disability benefit, ordinary disability benefit, or another benefit before calculating anything.
+
+Then:
+
+> Explain why the other benefit types were rejected.
+
+This prevents your system from becoming a retirement-only calculator.
+
+---
+
+# G27 — Disability transition
+
+> Determine my disability benefit.
+
+Then:
+
+> Assume I remain disabled until the statutory termination point. What happens next?
+
+Then:
+
+> Determine whether I transition to another benefit and calculate it if possible.
+
+This tests lifecycle/state transitions.
+
+---
+
+# G28 — Survivor benefit chain
+
+> Determine what survivor benefits may apply if I die today.
+
+Then:
+
+> Determine which facts affect the surviving spouse's eligibility.
+
+Then:
+
+> Calculate the applicable benefit if all required information is available.
+
+Then:
+
+> Change the spouse's circumstances and recalculate only the affected benefit.
+
+---
+
+# G29 — Reciprocal-system case
+
+After Article 20 / relevant systems are ingested:
+
+> I have service under my current pension Article and service under another participating Illinois retirement system. Determine whether the service can be coordinated under the Retirement Systems Reciprocal Act.
+
+Then:
+
+> Identify every Article and section you had to use.
+
+Then:
+
+> Calculate the resulting benefit if the required inputs are available.
+
+This should become one of your highest-priority tests after broad ingestion.
+
+---
+
+# G30 — FULL GOLD TEST
+
+This is your heavyweight benchmark.
+
+Use one stable employee record and run this entire conversation:
+
+### Turn 1
+
+> Using my employee record, determine my governing Article and current pension status. Do not calculate anything yet.
+
+### Turn 2
+
+> Identify every potentially applicable benefit and retirement pathway.
+
+### Turn 3
+
+> For every candidate pathway, evaluate its statutory eligibility conditions against my employee data.
+
+### Turn 4
+
+> Identify the strongest competing provisions and explain why each was accepted or rejected.
+
+### Turn 5
+
+> Resolve every cross-reference required to reach a final determination, including references to other Articles where applicable.
+
+### Turn 6
+
+> Identify the exact salary and service provisions that feed the calculation.
+
+### Turn 7
+
+> Derive a structured calculation recipe for each legally applicable pathway.
+
+### Turn 8
+
+> Validate those recipes. Identify any legal, applicability, completeness, or provenance failures.
+
+### Turn 9
+
+> Execute the correct validated recipe and give me annual and monthly benefits.
+
+### Turn 10
+
+> Create hypothetical retirement scenarios at ages 57, 59, 60 and 62 while keeping all other assumptions unchanged.
+
+### Turn 11
+
+> Compare all scenarios and explain why the result changes.
+
+### Turn 12
+
+> Now change only the salary assumption for the age-60 scenario.
+
+### Turn 13
+
+> Recalculate only the affected scenario.
+
+### Turn 14
+
+> Restore the original salary and instead change only the service assumption.
+
+### Turn 15
+
+> Recalculate.
+
+### Turn 16
+
+> Now tell me which values came from my employee record, which came from the Pension Code, which were derived, and which were hypothetical assumptions.
+
+### Turn 17
+
+> I believe your original statutory pathway was wrong. Re-run the applicability analysis without changing my employee facts.
+
+### Turn 18
+
+> If your original determination was wrong, identify exactly which recipe steps and calculations must be invalidated.
+
+### Turn 19
+
+> Recalculate the corrected result.
+
+### Turn 20
+
+> Give me a final audit summary containing the governing Article, applicable provisions, rejected alternatives, cross-references, inputs, assumptions, recipe, validation results, and final calculation.
+
+That is your **golden end-to-end conversation**.
+
+---
+
+# 4. Don't evaluate these only by “answer correctness”
+
+This is the most important part.
+
+For every benchmark case, define an **expected behavior contract**.
+
+For example, G06 shouldn't just say:
+
+> Expected answer: §11-216.
+
+It should say:
+
+```text
+Expected:
+✓ identifies §11-216
+✓ explains why it is needed
+✓ follows its relevant rules
+✓ doesn't confuse it with the formula provision
+✓ includes it in recipe dependencies
+```
+
+For a calculation:
+
+```text
+Expected:
+✓ correct provision
+✓ correct subsection
+✓ correct applicability
+✓ correct inputs
+✓ correct formula
+✓ correct intermediate values
+✓ correct arithmetic
+✓ correct reduction
+✓ correct cap/floor
+✓ correct annual result
+✓ correct monthly result
+```
+
+For memory:
+
+```text
+Expected:
+✓ preserves earlier scenario
+✓ applies only requested change
+✓ doesn't overwrite actual employee data
+✓ maintains hypothetical/actual distinction
+```
+
+That makes the benchmark **machine-evaluable**.
+
+---
+
+# 5. I would actually give every test a test ID
+
+Something like:
+
+```yaml
+G-001:
+  name: article_identification
+  category: routing
+  turns: 1
+
+G-006:
+  name: multi_hop_cross_reference
+  category: legal_reasoning
+  turns: 3
+
+G-014:
+  name: one_variable_scenario_mutation
+  category: state_management
+  turns: 5
+
+G-020:
+  name: effective_date_analysis
+  category: temporal_law
+  turns: 2
+
+G-029:
+  name: reciprocal_system
+  category: cross_article
+  turns: 4
+
+G-030:
+  name: full_end_to_end
+  category: comprehensive
+  turns: 20
+```
+
+Then after every change:
+
+```text
+Regression Run #27
+
+Retrieval             98%
+Article routing       100%
+Applicability         94%
+Recipe validation     91%
+Calculation           100%
+Scenario state        96%
+Memory                98%
+Cross-reference       89%
+Adversarial           100%
+
+Overall               95%
+```
+
+Even better, don't allow an overall score to hide critical failures.
+
+For example:
+
+```text
+Overall: 95%
+
+CRITICAL FAILURE:
+G-023 Wrong Article injection
+→ Article 12 provision incorrectly selected for Article 11 user
+```
+
+That should fail the deployment even though the overall score is high.
+
+---
+
+# 6. What happens when you ingest all Articles?
+
+Your current 11 + 12 testing is **Phase 1**, and I think you're doing the right thing.
+
+Once you ingest the remaining Articles, don't replace your tests.
+
+**Keep every existing G-001 through G-030 exactly as they are.**
+
+Then add a second layer:
+
+```text
+PHASE 1
+Article 11 + Article 12
+        ↓
+Core regression suite
+
+PHASE 2
++ Article 20 + directly referenced Articles
+        ↓
+Cross-Article regression suite
+
+PHASE 3
++ Entire Pension Code
+        ↓
+Full-corpus regression suite
+```
+
+The original tests remain your **stable regression baseline**.
+
+Then the full corpus gets additional tests specifically designed to exploit the larger knowledge graph.
+
+---
+
+# 7. One final recommendation
+
+For your project, I'd aim for approximately:
+
+**30 scenario families × 3–8 turns = ~120–180 individual model interactions**, plus **3–5 heavyweight 15–20-turn conversations**.
+
+That is much more valuable than having 200 unrelated questions.
+
+Your regression benchmark then becomes:
+
+```text
+                PENSION AGENT GOLD SET
+                         │
+       ┌─────────────────┼─────────────────┐
+       │                 │                 │
+   Knowledge         Reasoning          State
+       │                 │                 │
+ Article routing     Applicability      Memory
+ Retrieval           Branching          Scenarios
+ Cross-reference     Elections          Corrections
+ Historical law      Recipe             Assumptions
+                     Validation
+                         │
+                    Calculation
+                         │
+                    Deterministic
+                         │
+                     Auditability
+```
+
+And I would **freeze this benchmark** before you make major architectural changes. That gives you something extremely valuable: after changing your model, prompts, retrieval strategy, recipe system, or guardrails, you can ask a simple question:
+
+> **“Did the new version actually get better, or did I just change the behavior?”**
+
+That's what a proper gold regression set should tell you.

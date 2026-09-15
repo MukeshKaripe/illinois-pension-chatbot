@@ -40,3 +40,19 @@ alembic/__pycache__/
 
 # UV
 .python-version
+
+# Eval and benchmark reports.
+#
+# `scripts/eval_agent.py --json` and `scripts/bench_ttft.py --json` are written
+# to dot-prefixed files in the repo root by convention, and they are output, not
+# source: a report is true of one run against one index and one model
+# deployment, and is stale the moment any of those moves. The harness that
+# produces them is committed; what it produced on a particular afternoon is not.
+/.*.json
+/.*.log
+
+# Local scratch results from the same sessions.
+/my_test.txt
+/test_results_2.txt
+/test_Questions_results.txt
+/scenario based testing.txt

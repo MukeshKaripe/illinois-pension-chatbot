@@ -1,0 +1,1471 @@
+==================== feedback on 2nd round of testing ==========================
+Yes — **this latest output is materially better than the previous version**, but I would **not yet consider the calculation engine correct**. The agent is now doing the kind of reasoning you wanted, but there are still some important legal/calculation issues.
+
+The biggest positive is that it is **no longer refusing to calculate just because a recipe wasn't pre-approved**. It is finding/reusing a recipe, explaining the statutory path, and executing it. That is the right architecture.
+
+However, I see **4 important problems**.
+
+---
+
+## 1. The biggest issue: §11-130 is being dismissed too easily
+
+Your chatbot says:
+
+> “Section 11-130(1) does not control because it provides an annuity from accumulated employee and city contributions, and the actuarial conversion factors needed to compute that annuity are not provided.”
+
+This reasoning is questionable.
+
+The actual §11-130 says that an employee age 55–59 with 10+ years who withdraws is entitled to an annuity, and for 20+ years it specifies that the age-and-service annuity comes from the accumulated employee and city contributions, plus prior-service annuity for a present employee. It also explicitly says the annuity is computed as of the employee's age at withdrawal. 
+
+So your agent shouldn't conclude:
+
+```text
+§11-130
+   ↓
+conversion factors unavailable
+   ↓
+ignore §11-130
+```
+
+It should instead reason:
+
+```text
+§11-130 is applicable
+        ↓
+What benefit does §11-130 produce?
+        ↓
+Can the supplied employee data determine it?
+        ↓
+YES → calculate
+NO  → identify missing accumulation/conversion data
+```
+
+And now you've actually supplied:
+
+* Employee accumulation = $180,000
+* City accumulation = $360,000
+* Prior service = $0
+
+So **your test is specifically designed to see whether the agent can use §11-130**, not simply bypass it because §11-134 has a convenient percentage formula.
+
+This is the biggest thing I'd investigate.
+
+---
+
+# 2. The agent is choosing §11-134 because it can calculate it
+
+This sentence is especially concerning:
+
+> “The tiered 1.80%/2.00%/2.20%/2.40% election in Section 11-134(a) is not used because the applicable 2.40% election produces the larger annuity.”
+
+That is backwards from a legal reasoning perspective.
+
+The system shouldn't do:
+
+```text
+find applicable formulas
+       ↓
+calculate all possible numbers
+       ↓
+pick the largest
+```
+
+unless the statute **explicitly grants the employee that choice**.
+
+The source itself says that certain §11-134 provisions are elections “in lieu of any other employee annuity provided in this Section.” 
+
+So the agent needs to distinguish:
+
+### Statutory choice
+
+> The law explicitly allows the member to elect between alternatives.
+
+from:
+
+### Model optimization
+
+> “This formula produces a larger pension, therefore we'll use it.”
+
+Those are **not the same thing**.
+
+Your recipe representation should therefore contain something like:
+
+```json
+{
+  "decision_type": "statutory_election",
+  "election_required": true,
+  "options": [
+    "...",
+    "..."
+  ],
+  "selection_rule": "member_election"
+}
+```
+
+rather than allowing the LLM to choose `max(benefit_options)`.
+
+---
+
+# 3. Your 44-month reduction is mathematically consistent — but the input is suspicious
+
+The chatbot says:
+
+> Reduction (44 months × 0.25%) = -11.00%
+
+And:
+
+```text
+$36,097.50 × (1 - 11%)
+= $32,126.78
+```
+
+So **the arithmetic itself checks out**.
+
+But there is a critical question:
+
+### Where did the 44 months come from?
+
+The chatbot says:
+
+> “assuming you withdraw on September 7, 2026 and begin the annuity at age 56.”
+
+But knowing someone is **age 56** does not tell you their exact age in years/months/days.
+
+For example:
+
+```text
+Age 56 years 0 months
+→ 48 months until age 60
+
+Age 56 years 4 months
+→ 44 months until age 60
+
+Age 56 years 11 months
+→ 37 months until age 60
+```
+
+So if your employee record only contains:
+
+```text
+age = 56
+```
+
+then **44 months is an invented precision** unless the underlying employee fixture contains the birth date or exact age-at-withdrawal.
+
+This is an important test for your system.
+
+Your calculation engine should never silently transform:
+
+```text
+age = 56
+```
+
+into:
+
+```text
+months_to_60 = 44
+```
+
+It should require:
+
+```text
+date_of_birth
++
+withdrawal_date
+```
+
+or an explicitly supplied:
+
+```text
+age_at_withdrawal = 56y 4m
+```
+
+---
+
+# 4. The $32,126.78 number is internally reproducible
+
+This part is actually good.
+
+The chatbot gives:
+
+```text
+FAS = $69,956.40
+Service = 21.5
+Rate = 2.40%
+
+Base:
+69,956.40 × 21.5 × 2.4%
+= $36,097.50
+
+Reduction:
+44 × 0.25%
+= 11%
+
+Final:
+36,097.50 × 89%
+= $32,126.78
+```
+
+So unlike the earlier version, we can now trace the number.
+
+**That's a significant improvement.**
+
+Your deterministic engine is apparently applying the reduction correctly.
+
+The remaining problem isn't arithmetic.
+
+It's whether the **recipe that generated the arithmetic is legally the correct recipe for this employee.**
+
+---
+
+# 5. The three-year scenario has a similar problem
+
+It says:
+
+> “retirement at age 59 and 12 months before age 60.”
+
+That is logically fine **if** the scenario means exactly three years from age 56.
+
+But the calculation changes because:
+
+```text
+service:
+21.5 → 24.5
+```
+
+and presumably:
+
+```text
+FAS:
+69,956.40 → something else
+```
+
+Yet the response doesn't tell us the new FAS.
+
+This is critical.
+
+If salary history is available, waiting three years doesn't automatically mean the FAS becomes some particular value.
+
+Your scenario engine needs to explicitly determine:
+
+```text
+future service
+future salary history
+future FAS
+future statutory parameters
+future age
+future reduction
+```
+
+The result:
+
+> `$39,388.68`
+
+should therefore expose those assumptions.
+
+---
+
+# 6. There is a particularly important issue with your §11-134 interpretation
+
+Your chatbot says:
+
+> “Section 11-134(a) governs because ... your annuity begins after age 55.”
+
+But the actual statute says the relevant 2.40% formula is available to an employee who withdraws on/after January 1, 2002 with 20+ years of service, and the annuity is to begin no earlier than age 55 if under that age at withdrawal. 
+
+That is subtly different from:
+
+> “annuity begins after age 55, therefore §11-134(a) governs.”
+
+Your recipe validator should preserve the **actual statutory predicate**, rather than allowing the LLM to paraphrase it into a looser condition.
+
+---
+
+# 7. Your §11-216 handling is also slightly inconsistent
+
+The chatbot says:
+
+> “Section 11-216 defines or computes service for the age-60 minimum-annuity provision...”
+
+But §11-134 itself says service is defined/computed under §11-216. 
+
+So your system should model this as:
+
+```text
+§11-134
+   depends on
+      ↓
+§11-216
+   ↓
+service calculation
+```
+
+not:
+
+```text
+§11-216 only applies to age-60 minimum annuity
+```
+
+That's a semantic distinction worth fixing in the recipe derivation prompt.
+
+---
+
+# 8. What your agent is doing correctly now
+
+There are several things I **really like** about the current behavior.
+
+### It rejects the user's invented 50% formula
+
+Good.
+
+### It finds the actual statutory percentage
+
+Good.
+
+### It identifies FAS instead of using current salary
+
+Good.
+
+### It applies the age reduction
+
+Good.
+
+### It checks the 80% ceiling
+
+Good.
+
+### It explains the source
+
+Good.
+
+### It reuses the stored recipe
+
+Good.
+
+### It performs an actual calculation instead of saying “no approved recipe”
+
+**Very good.**
+
+That's the architecture you were trying to achieve.
+
+---
+
+# 9. But your architecture now needs a second-level critic
+
+This is exactly where I would improve the system.
+
+Your current process seems to be:
+
+```text
+RAG
+ ↓
+LLM reasoning
+ ↓
+recipe
+ ↓
+recipe validation
+ ↓
+calculation
+```
+
+I would make it:
+
+```text
+RAG
+ ↓
+Legal planner
+ ↓
+Candidate statutory pathways
+ ↓
+Applicability evaluator
+ ↓
+Recipe derivation
+ ↓
+┌─────────────────────────────┐
+│ Recipe Legal Critic         │
+│                             │
+│ 1. Correct section?         │
+│ 2. Correct subsection?      │
+│ 3. Correct branch?          │
+│ 4. Conditions satisfied?    │
+│ 5. Elections represented?   │
+│ 6. Exceptions represented?  │
+│ 7. Cross-references?        │
+│ 8. Effective dates?         │
+│ 9. Required inputs?         │
+│ 10. Competing provisions?   │
+└──────────────┬──────────────┘
+               ↓
+       Deterministic gate
+               ↓
+        Calculation engine
+```
+
+This is different from your current **completeness critic**.
+
+Completeness asks:
+
+> “Do I have everything needed?”
+
+The new critic asks:
+
+> **“Is the thing I have actually the correct legal rule?”**
+
+That's the missing layer.
+
+---
+
+# 10. Your test has revealed a very important principle
+
+Your agent must **not confuse "calculable" with "applicable."**
+
+For example:
+
+```text
+§11-130
+```
+
+may be applicable but difficult to calculate.
+
+And:
+
+```text
+§11-134
+```
+
+may be easy to calculate.
+
+That doesn't mean:
+
+```text
+easy-to-calculate rule = controlling rule
+```
+
+This is probably the single most important lesson from these tests.
+
+---
+
+# 11. I'd modify your recipe schema
+
+Your current recipe should have something along these lines:
+
+```json
+{
+  "legal_basis": {
+    "article": "11",
+    "section": "11-134",
+    "subsection": "a",
+    "paragraph": "...",
+    "source_citations": []
+  },
+
+  "applicability": {
+    "predicates": [],
+    "evaluated": true,
+    "result": true
+  },
+
+  "alternatives": [
+    {
+      "section": "11-130",
+      "status": "applicable",
+      "reason": "..."
+    }
+  ],
+
+  "election": {
+    "required": true,
+    "options": [],
+    "selection_source": "statute"
+  },
+
+  "cross_references": [
+    "11-216"
+  ],
+
+  "inputs": [],
+
+  "formula": {},
+
+  "reductions": [],
+
+  "caps": [],
+
+  "assumptions": [],
+
+  "evidence_fingerprint": ""
+}
+```
+
+Notice the important addition:
+
+```text
+alternatives
+```
+
+Your system needs to remember:
+
+> “I found §11-130 too.”
+
+It shouldn't retrieve §11-134 and forget that another applicable provision exists.
+
+---
+
+# 12. Your "every statutory provision" requirement is currently not actually satisfied
+
+The answer claims:
+
+> “identify every statutory provision that affects my benefit”
+
+but then says:
+
+> “The supplied text does not identify additional indirect cross-references...”
+
+That's too strong.
+
+The system should distinguish:
+
+```text
+directly applicable
+potentially applicable
+dependency
+historical/inapplicable
+survivor-related
+irrelevant
+```
+
+For this employee, you want a legal dependency graph such as:
+
+```text
+                 Retirement request
+                       │
+                       ▼
+               Eligibility analysis
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+       §11-130      §11-134      §11-216
+       applicable   candidate     service
+          │            │
+          │            ▼
+          │       §11-134(a)
+          │            │
+          │            ▼
+          │        2.40% rule
+          │            │
+          └────────────┴───────?
+```
+
+The `?` is exactly where your system needs to determine whether §11-130 and §11-134 are alternatives, cumulative/minimum rules, or one supersedes another under the statute.
+
+---
+
+# My overall assessment
+
+I'd rate this version:
+
+| Area                             | Assessment               |
+| -------------------------------- | ------------------------ |
+| Basic RAG                        | 🟢 Good                  |
+| Section retrieval                | 🟢 Good                  |
+| Citation grounding               | 🟢 Good                  |
+| Cross-reference discovery        | 🟢 Good                  |
+| Rejecting user-invented formula  | 🟢 Good                  |
+| Dynamic recipe reuse             | 🟢 Good                  |
+| Deterministic arithmetic         | 🟢 Good                  |
+| Showing calculation steps        | 🟢 Much better           |
+| Applicability reasoning          | 🟡 Needs work            |
+| Competing statutory pathways     | 🔴 Needs work            |
+| Statutory election handling      | 🔴 Needs work            |
+| Exact date/age handling          | 🟡 Needs work            |
+| Scenario calculation assumptions | 🟡 Needs work            |
+| Legal recipe validation          | 🔴 Biggest remaining gap |
+
+### So I would **not scrap your current architecture**.
+
+You're actually quite close to the architecture we discussed.
+
+The next evolution should be:
+
+> **Don't make recipes merely evidence-backed. Make them evidence-backed + applicability-validated + branch-aware + election-aware.**
+
+And I would especially investigate the current behavior around **§11-130 vs §11-134**, because your test with the `$180k/$360k/$0` contribution data is specifically designed to expose whether the agent is genuinely reasoning over the Pension Code or simply selecting the easiest available percentage formula.
+
+The fact that it immediately says **“§11-130 is not controlling because its conversion factors aren't available”** is the part I would challenge most aggressively in your next test.
+
+
+
+
+==================== feedback for overall structure of all the responses ==================
+For your pension chatbot, I would **not** use one universal response format. A legal explanation, a calculation, a missing-input situation, and a multi-scenario comparison should each have a slightly different presentation.
+
+The important thing is that the user should be able to answer these questions within a few seconds:
+
+> **What applies to me?**
+> **Why does it apply?**
+> **What do I need to provide / what did you assume?**
+> **What is the result?**
+> **Where does the law say this?**
+
+I would build around the following response structures.
+
+---
+
+# 1. Simple legal question
+
+Example:
+
+> “What does Section 11-116 define as salary?”
+
+### Recommended response
+
+```text
+## Section 11-116 — Salary
+
+Section 11-116 defines “salary” primarily as the compensation payable
+for normal full-time service, excluding overtime and certain other
+payments.
+
+### In simple terms
+
+For pension calculations, salary generally refers to the compensation
+that counts under the statutory definition—not simply every payment
+shown on a paycheck.
+
+### What it includes
+
+• Regular compensation for normal full-time service
+• Certain nonannual compensation converted under §11-217
+• Certain lodging/meals when the statutory conditions are met
+• Employee contributions picked up by the employer under §11-170.1
+
+### What it excludes
+
+• Overtime
+• Final vacation payment
+• Other compensation excluded by the statute
+
+### Legal basis
+
+§11-116(a)–(d)
+
+[View supporting provision]
+```
+
+### Why this works
+
+The user gets the **plain-English answer first**, then the details.
+
+Don't start with:
+
+> “According to subsection (a)...”
+
+That is legally precise but cognitively poor.
+
+---
+
+# 2. “Which provision applies to me?”
+
+This is one of the **most important response types** for your system.
+
+Example:
+
+> “I am 56 with 21.5 years of service and currently employed. Which retirement provision applies?”
+
+This should **not immediately jump to a formula**.
+
+### Recommended structure
+
+```text
+## Your applicable retirement provisions
+
+Based on the information provided, two statutory pathways need to be
+considered.
+
+### 1. §11-130 — Potentially applicable
+
+You are:
+
+• Age: 56
+• Service: 21.5 years
+• Currently employed
+
+§11-130 covers an employee age 55 or older but younger than 60 who
+withdraws from service with at least 10 years of service.
+
+Because you are currently employed, the withdrawal condition has not
+yet occurred.
+
+**Status: Potential pathway — becomes applicable upon withdrawal.**
+
+### 2. §11-134 — Also needs evaluation
+
+§11-134 contains separate annuity provisions based on age, service,
+and other statutory conditions.
+
+**Status: Requires branch/election evaluation.**
+
+### What this means
+
+You cannot be told that one formula automatically controls solely from
+your age and service.
+
+The system must determine:
+
+1. Whether you withdraw now
+2. Which §11-134 branch applies, if any
+3. Whether the provisions operate as alternatives, minimums, or
+elections
+4. Whether any age-based reduction applies
+
+### Current conclusion
+
+**You are not yet at a point where a single retirement formula can be
+selected solely from the information provided.**
+
+I can calculate the applicable pathways once the withdrawal date and
+remaining required inputs are established.
+
+### Legal basis
+
+§11-130  
+§11-134  
+§11-216
+```
+
+This format is particularly important because your current agent has demonstrated the exact failure mode you want to prevent:
+
+> “§11-134 is calculable, therefore §11-134 must be the applicable provision.”
+
+Those are **not the same question**.
+
+Your UI should therefore distinguish:
+
+**Applicable provision**
+from
+**Calculable provision**.
+
+---
+
+# 3. Calculation request
+
+When the user actually asks for a pension calculation, the response should become more structured.
+
+Example:
+
+> “Calculate my pension. I am 56, have 21.5 years of service and my highest 4-year average salary is $69,956.40.”
+
+### Recommended format
+
+```text
+## Estimated pension
+
+### Result
+
+**Estimated annual pension: $32,126.78**
+
+**Estimated monthly pension: $2,677.23**
+
+---
+
+### How the calculation was derived
+
+| Item | Value |
+|---|---:|
+| Age | 56 |
+| Creditable service | 21.5 years |
+| Highest average salary | $69,956.40 |
+| Applicable provision | §11-134(...) |
+| Base percentage | 2.40% per year |
+| Age reduction | 11% |
+| Final result | $32,126.78 |
+
+### Calculation
+
+Base annuity:
+
+$69,956.40 × 21.5 × 2.40%  
+= **$36,097.50**
+
+Age reduction:
+
+$36,097.50 × 11%  
+= **$3,971.73**
+
+Reduced annual pension:
+
+$36,097.50 − $3,971.73  
+= **$32,125.77**
+
+### Important
+
+This estimate assumes that the applicable statutory pathway,
+salary basis, service credit and age-reduction period above are
+correct.
+
+### Supporting law
+
+§11-134(...)
+§11-216
+...
+```
+
+There is one issue here: the arithmetic in that example must always be generated by your deterministic engine. The LLM should **never be trusted to perform the arithmetic**.
+
+Also notice that I would avoid dumping the entire recipe into the main response.
+
+Instead:
+
+> **How the calculation was derived**
+
+and optionally:
+
+> **View calculation recipe**
+
+That recipe can be expandable.
+
+---
+
+# 4. Calculation where the system discovered a recipe dynamically
+
+This is actually your **signature feature**, so I would expose it clearly.
+
+Suppose the agent finds a combination of provisions and derives a recipe dynamically.
+
+### User-facing response
+
+```text
+## Pension estimate
+
+**Estimated annual pension: $XX,XXX.XX**
+
+### Why this calculation applies
+
+The calculation was derived from the following statutory provisions:
+
+• §11-130
+• §11-216
+• §11-XXX
+
+The applicable conditions were satisfied based on your age,
+service, employment status and retirement date.
+
+### Calculation steps
+
+1. Determine creditable service under §11-216
+2. Determine salary under §11-116
+3. Apply the annuity rule under §11-130
+4. Apply the applicable age/reduction provision
+5. Apply statutory limits, if any
+
+### Inputs used
+
+| Input | Value | Source |
+|---|---:|---|
+| Age | 56 | Employee record |
+| Service | 21.5 yrs | Employee record / §11-216 |
+| Salary | $69,956.40 | §11-116 |
+| Withdrawal date | ... | User input |
+
+### Confidence / validation
+
+✓ Statutory evidence found  
+✓ Applicability conditions satisfied  
+✓ Cross-references resolved  
+✓ Calculation recipe validated  
+✓ Deterministic calculation executed
+
+### Sources
+
+§11-130
+§11-116
+§11-216
+...
+```
+
+This is where your architecture becomes visible to the user:
+
+```text
+Law
+ ↓
+Reasoning
+ ↓
+Recipe
+ ↓
+Validation
+ ↓
+Calculation
+```
+
+But **don't show those internal architectural labels unless useful**.
+
+For example, instead of:
+
+> “LLM generated recipe RCP-102”
+
+say:
+
+> “The calculation was derived from the applicable statutory provisions.”
+
+---
+
+# 5. Missing information
+
+This needs a very clean response.
+
+The worst UX would be:
+
+> “Unable to calculate due to insufficient information.”
+
+Instead, tell the user exactly what's missing.
+
+### Recommended
+
+```text
+## I can calculate this, but I need 2 more details
+
+I can determine the applicable pension calculation, but the current
+information is insufficient to establish the final amount.
+
+### Already known
+
+✓ Age: 56
+✓ Service: 21.5 years
+✓ Employee contribution accumulation: $180,000
+✓ City contribution accumulation: $360,000
+
+### Still needed
+
+1. **Withdrawal/retirement date**
+   - Needed to determine the exact age and applicable reduction period.
+
+2. **Salary history or required salary average**
+   - Needed to establish the salary basis required by the applicable
+     provision.
+
+### Why these are required
+
+The Pension Code applies different rules depending on the member's
+age, service, withdrawal status and applicable salary definition.
+
+I will not assume these values because doing so could produce a
+statutorily incorrect pension estimate.
+```
+
+This is substantially better than a generic error.
+
+---
+
+# 6. Multiple possible statutory pathways
+
+This is where I would introduce a **comparison format**.
+
+Example:
+
+> “What happens if I retire now versus at 60?”
+
+### Recommended
+
+```text
+## Retirement comparison
+
+| | Retire now | Retire at 60 |
+|---|---:|---:|
+| Age | 56 | 60 |
+| Service | 21.5 yrs | 25.5 yrs* |
+| Applicable pathway | §11-XXX | §11-XXX |
+| Age reduction | Yes | No |
+| Estimated annual pension | $XX,XXX | $XX,XXX |
+| Estimated monthly pension | $X,XXX | $X,XXX |
+
+\* Assumes continuous service until age 60.
+
+### Retire now
+
+Estimated annual pension: **$XX,XXX**
+
+The result includes the applicable age-based reduction.
+
+### Retire at 60
+
+Estimated annual pension: **$XX,XXX**
+
+This scenario assumes:
+
+• Continuous service
+• No change in salary unless otherwise specified
+• Applicable statutory conditions remain satisfied
+
+### Key difference
+
+Waiting until 60 increases the result because:
+
+1. Additional service is credited
+2. The age-based reduction no longer applies / changes
+3. The salary basis may change
+
+### Important assumption
+
+The age-60 result is a **projection**, not a current entitlement.
+It depends on the assumptions above.
+```
+
+This is much easier to understand than two long calculation blocks.
+
+---
+
+# 7. “What if?” scenarios
+
+For questions like:
+
+> “What if I retire at 56, 57, 58, 59 and 60?”
+
+Use a table first.
+
+```text
+## Retirement scenarios
+
+| Retirement age | Service | Reduction | Estimated annual pension |
+|---:|---:|---:|---:|
+| 56 | 21.5 | XX% | $XX,XXX |
+| 57 | 22.5 | XX% | $XX,XXX |
+| 58 | 23.5 | XX% | $XX,XXX |
+| 59 | 24.5 | XX% | $XX,XXX |
+| 60 | 25.5 | 0% | $XX,XXX |
+
+### Assumptions
+
+• Continuous employment through each retirement age
+• Salary remains at $XX,XXX
+• No additional service interruptions
+• Current statutory provisions remain applicable
+
+### What changes
+
+The major changes across the scenarios are:
+
+**Service:** increases each year  
+**Age reduction:** decreases / disappears  
+**Salary basis:** assumed constant in this projection
+
+These assumptions can materially change the results.
+```
+
+The table gives the answer immediately.
+
+Then the explanation gives context.
+
+---
+
+# 8. “Explain why you chose this provision”
+
+This should expose the **decision chain**, but not internal chain-of-thought.
+
+For example:
+
+```text
+## Why §11-134 was selected
+
+The system selected §11-134 because the following statutory conditions
+were satisfied:
+
+✓ Article 11 membership
+✓ Required age condition
+✓ Required service condition
+✓ Retirement/withdrawal condition
+✓ Applicable subsection conditions
+
+### Provisions considered
+
+**§11-130**
+Considered because you are between ages 55 and 60 and have more than
+10 years of service.
+
+**§11-134**
+Considered because it contains an applicable annuity pathway for your
+age and service.
+
+### Why §11-134 was selected
+
+[Statutory explanation]
+
+### Cross-references checked
+
+§11-216 → service credit  
+§11-116 → salary definition  
+...
+
+### Conclusion
+
+§11-134(...) is the applicable calculation pathway for the facts
+provided.
+```
+
+This is especially valuable for debugging your agent.
+
+You aren't exposing hidden reasoning such as:
+
+> “The model thought X, then reconsidered Y...”
+
+Instead you expose the **auditable legal decision basis**.
+
+---
+
+# 9. Adversarial / user-provided formula
+
+For:
+
+> “Everyone says pension is 50% of salary, just calculate it.”
+
+I would keep the response very short.
+
+```text
+## I won't use the 50% assumption
+
+A 50% salary rule was not used because the Pension Code must determine
+the applicable retirement formula based on your statutory eligibility,
+service, salary definition, and retirement circumstances.
+
+### What I will use instead
+
+I will:
+
+1. Identify the applicable pension provision
+2. Check its eligibility conditions
+3. Resolve required cross-references
+4. Determine the salary/service basis
+5. Apply the statutory formula
+6. Calculate the result deterministically
+
+If you provide the required retirement details, I can calculate the
+statutory estimate.
+```
+
+This is a good example where **less is more**.
+
+---
+
+# 10. Pure explanation + no calculation
+
+Sometimes the user isn't asking for a personalized result.
+
+Example:
+
+> “Explain §11-130.”
+
+Don't show tables full of personal calculations.
+
+Use:
+
+```text
+## Section 11-130 — Retirement after age 55
+
+### What it does
+
+Section 11-130 provides an annuity pathway for certain employees who
+withdraw from service between ages 55 and 60.
+
+### Eligibility
+
+Generally, the provision addresses an employee who:
+
+• Is age 55 or older
+• Is younger than 60
+• Has at least 10 years of service
+• Withdraws from service
+
+### 20+ years of service
+
+For employees with 20 or more years, the section contains a separate
+calculation basis involving accumulated employee/city contributions
+and prior-service credit.
+
+### Important distinction
+
+This provision should not automatically be treated as the same thing
+as the percentage-based formulas appearing elsewhere in Article 11.
+
+### Related provisions
+
+§11-216 — service credit  
+§11-116 — salary definition
+```
+
+---
+
+# 11. Unsupported / ambiguous legal situation
+
+This is another important template.
+
+```text
+## I cannot determine a single applicable rule yet
+
+The available facts support more than one possible statutory pathway,
+but the Pension Code conditions needed to select between them have not
+been established.
+
+### What is established
+
+✓ Article 11
+✓ Age: 56
+✓ Service: 21.5 years
+
+### What remains unresolved
+
+• Withdrawal date/status
+• Applicable election, if any
+• [specific missing statutory condition]
+
+### Why I am not giving a number
+
+Selecting one pathway without resolving these conditions could produce
+a mathematically correct number based on the wrong statutory rule.
+
+### Next step
+
+Provide [specific information].
+
+I can then evaluate the competing provisions and calculate the
+applicable result.
+```
+
+This should be the chatbot's **safe failure mode**.
+
+Not:
+
+> “I cannot help.”
+
+Rather:
+
+> **“Here is exactly what is known, exactly what is unresolved, and exactly what is needed.”**
+
+---
+
+# 12. Recipe reuse
+
+Since recipe persistence is one of the architectural goals, I would make this almost invisible to the user.
+
+For example:
+
+```text
+## Pension estimate
+
+**$32,126.78/year**
+
+The calculation was validated against the applicable Pension Code
+provisions and the resulting calculation method has been retained for
+reuse when the same statutory conditions apply.
+
+### Applied rule
+
+§11-134(...)
+
+### Inputs
+
+...
+
+### Sources
+
+...
+```
+
+Don't tell users:
+
+> “Recipe RCP-8f94ab has been inserted into the registry.”
+
+That's internal architecture.
+
+But internally you absolutely should have something like:
+
+```json
+{
+  "recipe_id": "RCP-8f94ab",
+  "status": "validated",
+  "source_fingerprint": "...",
+  "legal_basis": [...],
+  "applicability": [...],
+  "inputs": [...],
+  "formula": {...}
+}
+```
+
+---
+
+# The one common structure I would use everywhere
+
+Despite having different templates, I'd standardize the **visual hierarchy**.
+
+Almost every substantive response should follow:
+
+```text
+1. ANSWER
+2. WHY
+3. DETAILS / CALCULATION
+4. ASSUMPTIONS / MISSING INPUTS
+5. LEGAL BASIS
+```
+
+So visually:
+
+```text
+┌──────────────────────────────────────┐
+│ ANSWER                               │
+│ $32,126.78 / year                    │
+├──────────────────────────────────────┤
+│ WHY                                  │
+│ §11-XXX applies because...           │
+├──────────────────────────────────────┤
+│ DETAILS                              │
+│ Inputs / formula / intermediate      │
+│ calculations                         │
+├──────────────────────────────────────┤
+│ ASSUMPTIONS                          │
+│ Continuous service, salary assumed...│
+├──────────────────────────────────────┤
+│ LEGAL BASIS                          │
+│ §11-116 · §11-130 · §11-216         │
+└──────────────────────────────────────┘
+```
+
+That consistency will make the bot feel substantially more reliable.
+
+---
+
+# I would also separate “answer” from “evidence”
+
+This is particularly important for your RAG architecture.
+
+Instead of this:
+
+> According to §11-134(a), which states that...
+
+> ...15 lines of statute...
+
+> therefore...
+
+I would use:
+
+### Answer
+
+> Based on your current facts, the applicable pathway is §11-134(...).
+
+### Why
+
+> You satisfy A, B, and C.
+
+### Calculation
+
+> Formula → values → result.
+
+### Evidence
+
+> **§11-134(...)** — supports the eligibility/formula.
+> **§11-116** — supports salary definition.
+> **§11-216** — supports service-credit calculation.
+
+So retrieval evidence supports the answer without **overwhelming the user with retrieved text**.
+
+---
+
+# One especially important addition for your system
+
+I would add a compact **“Decision status”** badge/label to calculation responses.
+
+For example:
+
+| Status                          | Meaning                                                              |
+| ------------------------------- | -------------------------------------------------------------------- |
+| **Calculated**                  | All required conditions and inputs established                       |
+| **Calculated with assumptions** | Result is possible, but one or more assumptions materially affect it |
+| **Multiple pathways**           | More than one statutory provision may apply                          |
+| **Needs information**           | Required input is missing                                            |
+| **Unable to determine**         | Evidence does not establish a unique legal pathway                   |
+
+This makes the chatbot much easier to trust.
+
+For example:
+
+> **Status: Multiple statutory pathways**
+
+is far better than giving the user a confident number when your agent hasn't actually resolved §11-130 vs §11-134.
+
+---
+
+# My preferred “gold standard” calculation response
+
+For your project specifically, I'd aim for something approximately like this:
+
+```text
+## Estimated retirement benefit
+
+**Status: Calculated**
+
+### Result
+
+**Annual:** $32,126.78  
+**Monthly:** $2,677.23
+
+### Applicable provision
+
+**§11-134(...)**
+
+The provision applies because:
+
+✓ Age requirement satisfied
+✓ Service requirement satisfied
+✓ Retirement condition satisfied
+✓ Required cross-references resolved
+
+### Competing provisions considered
+
+**§11-130** — considered because age is 55–59 and service exceeds
+10 years.
+
+**Disposition:** [why it does / does not control, or whether it is
+an alternative/election]
+
+### Calculation
+
+| Step | Calculation | Result |
+|---|---|---:|
+| Salary basis | Highest 4-year average | $69,956.40 |
+| Service | Creditable service | 21.5 yrs |
+| Base benefit | salary × service × factor | $36,097.50 |
+| Reduction | applicable age reduction | −$3,971.73 |
+| Final annual benefit | base − reduction | **$32,126.78** |
+
+### Inputs used
+
+| Input | Value | Origin |
+|---|---|---|
+| Age | 56 | Employee record |
+| Service | 21.5 | Employee record / §11-216 |
+| Salary | $69,956.40 | Salary history / §11-116 |
+| Retirement date | ... | User |
+
+### Assumptions
+
+• ...
+• ...
+
+### Validation
+
+✓ Statutory evidence found  
+✓ Applicability conditions checked  
+✓ Cross-references resolved  
+✓ Required inputs available  
+✓ Recipe validated  
+✓ Deterministic calculation executed
+
+### Legal basis
+
+§11-134(...)  
+§11-116  
+§11-216
+```
+
+That, in my view, is the **target UX** for the pension chatbot.
+
+The most important change from your current outputs is that the bot should no longer simply say **“I selected §11-134 because I can calculate it.”** It should explicitly show **candidate provisions → applicability → disposition → recipe → calculation**. That makes the system auditable and directly addresses the weakness exposed by your §11-130 / §11-134 tests.
+
+And I would keep the **full machine-readable recipe out of the normal answer**, with a UI expansion such as **“View calculation recipe”** for debugging/audit users.

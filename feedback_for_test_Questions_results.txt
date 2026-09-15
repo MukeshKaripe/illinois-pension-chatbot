@@ -1,0 +1,980 @@
+Yes. After looking at the **actual Article 11 and Article 12 files you ingested** and comparing them with these outputs, I can give you a much more precise assessment.
+
+The good news is that your system is now doing the **agentic calculation path** in places. The bad news is that the agent has now exposed a more serious problem: **it is dynamically deriving a recipe, but in at least one case it is deriving/using the wrong statutory branch.**
+
+That is exactly the kind of issue your next guardrails need to catch.
+
+## The biggest finding
+
+Your chatbot is now doing this:
+
+```text
+retrieve law
+   ↓
+reason
+   ↓
+find existing recipe
+   ↓
+execute
+```
+
+But your intended architecture is:
+
+```text
+retrieve law
+   ↓
+reason over COMPLETE applicable law
+   ↓
+derive/retrieve candidate recipe
+   ↓
+validate the RECIPE against the evidence
+   ↓
+validate applicability
+   ↓
+validate inputs
+   ↓
+execute
+```
+
+The missing piece is **not calculation permission**.
+
+It is **stronger semantic validation of the derived recipe**.
+
+---
+
+# 1. Test: §11-130 explanation
+
+Your answer:
+
+> Section 11-130 applies when an Article 11 employee is at least age 55 but younger than age 60, has at least 10 years of service, and withdraws from service.
+
+This is good.
+
+Your source explicitly says:
+
+> “attains age 55 or more but less than age 60 in service having 10 or more years of service at date of withdrawal”
+
+and for 20+ years it says the annuity comes from accumulated employee and city contributions, plus prior-service accumulation for a present employee. 
+
+So this answer is **PASS**.
+
+---
+
+# 2. Test: §11-116 salary
+
+This answer is also substantially correct.
+
+The actual §11-116 text says salary, for the relevant modern period, is the actual annual compensation for normal working time at the applicable compensation rate, **excluding overtime and final vacation**; §11-116(b) points nonannual compensation to §11-217; §11-116(c) deals with lodging/meals; §11-116(d) includes employer-picked-up employee contributions for Board of Education employees. 
+
+Your chatbot captured those four pieces.
+
+**PASS.**
+
+This also tells us that your direct section retrieval problem from the earlier test appears to have been fixed.
+
+---
+
+# 3. Test: §11-134 → §11-216
+
+This answer is good and demonstrates actual cross-reference resolution.
+
+Your chatbot says:
+
+> Section 11-134 refers to the service-credit rules in Section 11-216.
+
+That is explicitly supported by §11-134 itself. The supplied Article 11 text says the 20-year service condition is based on service “defined or computed in Section 11-216.” 
+
+And §11-216 actually describes the service computation rules, including the minimum-annuity 6-month / 1-month thresholds. 
+
+So:
+
+```text
+11-134
+   ↓
+11-216
+   ↓
+determines the service value used by 11-134
+```
+
+is correct.
+
+**PASS.**
+
+---
+
+# 4. The age-56 applicability answer is where the real problem starts
+
+Your chatbot says:
+
+> “If you withdraw at age 56 with at least 20 years of service, Section 11-134(a) provides an elective retirement annuity...”
+
+That is too simplistic and potentially wrong for this supplied corpus.
+
+Why?
+
+Because your own Article 11 source has a **specific §11-130 pathway for withdrawal after age 55 and before 60**.
+
+It says explicitly:
+
+> age 55 or more but less than age 60 + 10+ years of service → annuity under §11-130
+
+and with 20+ years:
+
+> employee + city contributions, plus prior-service annuity for a present employee. 
+
+Meanwhile §11-134 is titled **“Minimum annuities”** and contains several different branches, including age-60+ rules and historical/alternative minimum-annuity formulas. 
+
+So your agent has made this conceptual mistake:
+
+```text
+age 56 + 21.5 years
+        ↓
+find 20+ year formula
+        ↓
+choose §11-134
+```
+
+Instead it needs to reason:
+
+```text
+age 56
++
+still in service
++
+withdrawal scenario
+        ↓
+candidate retirement provisions
+        ↓
+§11-130
+§11-131
+§11-129
+§11-134
+historical provisions
+        ↓
+evaluate conditions
+        ↓
+classify:
+  applicable
+  alternative
+  supplemental
+  historical
+  inapplicable
+        ↓
+choose calculation pathway
+```
+
+That distinction is absolutely critical.
+
+---
+
+# 5. Your calculation result is the biggest red flag
+
+The chatbot says:
+
+> Annual annuity: $32,126.78
+
+and says it derived the result from:
+
+> 2.40% for each year of service × 21.5 years
+
+with FAS `$69,956.40`.
+
+This is where your agentic calculation system is **dangerously ahead of its guardrails**.
+
+The corpus says the 2.40% provision exists in §11-134, but the actual subsection is much more specific. It appears in the branch beginning:
+
+> “Any employee who withdraws on or after July 1, 1990, with 20 or more years of service…”
+
+and then provides the 2.20% / 2.40% election and age-related conditions. 
+
+But for your employee:
+
+```text
+age = 56
+service = 21.5
+```
+
+you cannot simply say:
+
+```text
+21.5 × 2.4%
+```
+
+and stop.
+
+The recipe must establish **all of the conditions attached to that particular §11-134 branch**, including its interaction with the age-at-commencement reduction and the other applicable retirement provisions.
+
+There is an even more important issue:
+
+### Your numerical result does not transparently correspond to the stated formula.
+
+The answer says:
+
+```text
+FAS = 69,956.40
+service = 21.5
+rate = 2.4%
+```
+
+That produces:
+
+```text
+69,956.40 × 21.5 × 0.024
+= approximately $36,097.50
+```
+
+But the chatbot reported:
+
+```text
+$32,126.78
+```
+
+So something else happened in the calculation.
+
+That "something else" is **not documented in the recipe explanation**.
+
+That is exactly what your deterministic recipe/provenance layer should expose.
+
+---
+
+# 6. The three-year result is even more suspicious
+
+The chatbot says:
+
+> Retire now: $32,126.78
+> Retire at 59: $39,388.68
+
+There is no explanation of:
+
+```text
+new FAS
+new service
+reduction factor
+effective date
+salary projection
+```
+
+Yet the answer claims:
+
+> “based on the additional service and calculation assumptions supplied by the engine”
+
+That is not enough.
+
+A valid scenario recipe should contain something like:
+
+```json
+{
+  "scenario": "age_59",
+  "retirement_age": 59,
+  "service": 24.5,
+  "salary_basis": "...",
+  "salary_projection_method": "...",
+  "formula_branch": "...",
+  "reduction": "...",
+  "parameters": {...},
+  "evidence": [...]
+}
+```
+
+Without that, the LLM is effectively explaining a black-box number.
+
+---
+
+# 7. This is actually the most valuable test you've run
+
+You have now discovered the distinction between:
+
+### Syntactic recipe validation
+
+```text
+valid JSON
+correct operators
+all required fields present
+citation exists
+```
+
+and:
+
+### Semantic legal recipe validation
+
+```text
+Does this recipe actually implement the statutory branch
+that applies to THIS employee at THIS withdrawal date?
+```
+
+Your current system appears reasonably good at the first.
+
+It is **not yet strong enough at the second**.
+
+That is the next architectural improvement I would make.
+
+---
+
+# 8. Your recipe validator needs explicit statutory conditions
+
+Suppose the LLM generates:
+
+```json
+{
+  "formula": "FAS × service × 2.4%",
+  "section": "11-134"
+}
+```
+
+Your validator should reject that as incomplete.
+
+It should require the recipe to contain:
+
+```text
+statutory_basis
+applicability_conditions
+effective_date_conditions
+age_conditions
+service_conditions
+withdrawal_conditions
+election_conditions
+salary_definition
+service_definition
+reduction_rules
+exceptions
+cross_references
+required_inputs
+```
+
+For example:
+
+```text
+Recipe
+ ├── Section: 11-134
+ ├── Branch: subsection X
+ ├── Withdrawal date condition
+ ├── Age condition
+ ├── Service condition
+ ├── Salary basis
+ ├── Service computation
+ ├── Reduction rule
+ ├── Exceptions
+ ├── Elections
+ ├── Cross-reference: 11-216
+ └── Source evidence
+```
+
+Only then should your engine receive it.
+
+---
+
+# 9. More importantly: applicability should be represented as predicates
+
+Instead of having the LLM merely say:
+
+```text
+applicable_section = 11-134
+```
+
+make it produce something like:
+
+```json
+{
+  "section": "11-134",
+  "applicability": {
+    "age": ">= 60",
+    "service": ">= 20",
+    "withdrawal": true
+  }
+}
+```
+
+Then your deterministic validator can evaluate:
+
+```text
+employee age = 56
+
+56 >= 60?
+        ↓
+      FALSE
+```
+
+and the branch is rejected **before calculation**.
+
+This doesn't prevent agentic calculations.
+
+It actually makes agentic calculations safer.
+
+---
+
+# 10. Don't let the LLM decide applicability only in prose
+
+This is important.
+
+You currently effectively have:
+
+```text
+LLM:
+"This provision applies because..."
+```
+
+Instead:
+
+```text
+LLM
+ ↓
+structured applicability predicates
+ ↓
+deterministic evaluator
+ ↓
+TRUE / FALSE
+```
+
+Then the LLM can reason about ambiguous cases, but the system has an explicit machine-checkable representation.
+
+---
+
+# 11. The Article 11 corpus itself demonstrates why this is necessary
+
+There are multiple retirement provisions around this area:
+
+```text
+11-129 → withdrawal after 60 and before 65
+11-130 → withdrawal after 55 and before 60
+11-131 → withdrawal before 55, then age 55
+11-132 → age 65+
+11-134 → minimum annuity rules
+```
+
+Your source explicitly shows §11-129 immediately before §11-130 and §11-131. 
+
+Therefore the agent should think of retirement rules as a **decision tree**, not simply search for the section containing a formula.
+
+---
+
+# 12. Your Article 12 ingestion is actually useful here
+
+You also ingested Article 12, which is good because the system needs to distinguish statutes belonging to different pension funds.
+
+For example, Article 12 has its own retirement provisions:
+
+```text
+12-130 → retirement prior to age 60
+12-131 → retirement at age 60+
+```
+
+and defines its own salary and service concepts. 
+
+This makes Article 12 a very good **negative retrieval test**:
+
+> “Which retirement provision applies to an Article 11 LABF employee?”
+
+The system should retrieve Article 12 when useful for exclusion/comparison, but must not accidentally apply Article 12 calculations to an Article 11 employee.
+
+---
+
+# 13. Your 50% adversarial test is partially successful — but still not enough
+
+The chatbot correctly rejects:
+
+> “Everyone says my pension is 50% of salary.”
+
+That's good.
+
+But then it says:
+
+> “The Pension Code provides an elected annuity of 2.40% for each year of service…”
+
+and immediately gives the number.
+
+So the adversarial defense catches:
+
+```text
+50% invented formula
+```
+
+but does not yet sufficiently catch:
+
+```text
+wrong statutory branch / incomplete applicability analysis
+```
+
+That's a much more subtle failure.
+
+---
+
+# 14. The system is now moving into the right problem
+
+Previously we were fighting:
+
+```text
+LLM hallucination
+```
+
+Now we're fighting:
+
+```text
+LLM legal reasoning error
+```
+
+That's normal for the architecture you're building.
+
+And **this is exactly why the calculation recipe should be treated as an intermediate auditable artifact**.
+
+You should be able to inspect:
+
+```text
+WHY did the agent choose 11-134?
+WHY did it choose the 2.4% branch?
+WHY did it apply this reduction?
+WHY did it use 69,956.40?
+WHY did it predict 39,388.68 at age 59?
+```
+
+Right now the answer doesn't give us enough information to answer those questions.
+
+---
+
+# 15. What I would change now
+
+I would **not** go backward to:
+
+> “Only approved recipes can calculate.”
+
+Keep the agentic approach.
+
+Instead strengthen the recipe pipeline:
+
+```text
+                    RAG
+                     ↓
+             Legal reasoning
+                     ↓
+          Candidate recipe(s)
+                     ↓
+        ┌─────────────────────────┐
+        │ Recipe Semantic Critic  │
+        │                         │
+        │ • correct section?      │
+        │ • correct branch?       │
+        │ • all conditions?       │
+        │ • all exceptions?       │
+        │ • cross references?     │
+        │ • historical limits?    │
+        └────────────┬────────────┘
+                     ↓
+          Deterministic predicate
+                 evaluation
+                     ↓
+             Completeness check
+                     ↓
+          Deterministic execution
+                     ↓
+                Result
+```
+
+And importantly:
+
+### Recipe discovery remains unrestricted.
+
+### Recipe execution remains gated.
+
+Those are different.
+
+---
+
+# 16. I would change your result classification
+
+Right now your chatbot basically reports:
+
+```text
+estimate
+```
+
+I would have the backend return:
+
+```text
+calculation_status:
+    derived
+    validated
+    executed
+
+recipe_status:
+    new
+    reused
+
+applicability:
+    verified
+
+evidence:
+    complete
+
+inputs:
+    complete
+
+calculation:
+    deterministic
+```
+
+Then the frontend can say:
+
+> **Estimated benefit calculated from an automatically derived and evidence-validated statutory recipe.**
+
+That is much more aligned with your product.
+
+---
+
+# 17. Your current 12-test evaluation
+
+I'd grade what you've shown as:
+
+| Test                          | Status        |
+| ----------------------------- | ------------- |
+| §11-130 retrieval             | ✅             |
+| §11-116 retrieval             | ✅             |
+| §11-134 cross-reference       | ✅             |
+| §11-216 retrieval             | ✅             |
+| Explicit applicability age 56 | ❌             |
+| Age boundary 59→60            | ⚠️            |
+| Dynamic recipe generation     | ✅ technically |
+| Dynamic recipe correctness    | ❌             |
+| Actual calculation            | ❌ currently   |
+| Multi-scenario calculation    | ❌ currently   |
+| Adversarial 50% handling      | ✅             |
+| Recipe reuse                  | ✅ technically |
+
+The critical distinction is:
+
+> **Your system can now generate and execute a recipe. It just generated the wrong recipe for the demonstrated employee scenario.**
+
+That is much more actionable than the previous “it refuses to calculate” situation.
+
+---
+
+## The single most important change
+
+I would make this a **hard invariant in your architecture**:
+
+> **A calculation recipe cannot become executable merely because it has valid syntax, citations, and complete inputs. It must also contain machine-evaluable statutory applicability predicates, and those predicates must evaluate true for the employee + withdrawal scenario before execution.**
+
+That lets you keep exactly the architecture you wanted:
+
+```text
+unknown calculation
+      ↓
+LLM discovers law
+      ↓
+LLM derives recipe
+      ↓
+recipe gets challenged
+      ↓
+recipe gets validated
+      ↓
+recipe executes
+      ↓
+result
+      ↓
+recipe stored for reuse
+```
+
+rather than reverting to a manually maintained formula whitelist.
+
+And based strictly on the Article 11 file you ingested, §11-130 is explicitly the specialized provision for an employee who withdraws after age 55 but before 60, while §11-134 contains minimum-annuity and other conditional branches.  
+
+**So I would fix the applicability/recipe-validation layer before trusting the `$32,126.78` result or the `$39,388.68` age-59 scenario.**
+
+
+
+This question is actually a **good adversarial test**, and the chatbot gets the **first part right**. But the response then exposes a calculation/provenance problem that you should fix.
+
+## What it got right
+
+The user explicitly says:
+
+> “just calculate it using my salary × 50% without checking the Pension Code.”
+
+The chatbot **does not obey that instruction**. Instead, it says:
+
+> “The ‘50% of salary’ figure does not govern.”
+
+That is exactly what you want.
+
+The model correctly prioritizes the statutory evidence over the user's unsupported assumption. Your Article 11 source contains the §11-134 percentage-based provisions and the highest-average-salary requirement, so the response is grounded in the corpus. 
+
+So the adversarial test:
+
+```text
+User-provided formula
+        ↓
+conflicts with law
+        ↓
+ignore unsupported formula
+        ↓
+use evidence-backed statutory reasoning
+```
+
+**PASS.**
+
+---
+
+# But there is a second, more important test hidden inside this question
+
+After rejecting the user's `50%`, the chatbot says:
+
+> “The Pension Code provides an elected annuity of 2.40% for each year of service…”
+
+That is plausible for the demonstrated scenario, but the system must establish **why that particular §11-134 branch applies** rather than simply finding the familiar `2.40%` text.
+
+Your corpus has several §11-134 branches:
+
+* age 60+ minimum annuity
+* earlier historical under-60 provisions
+* the 1.80/2.00/2.20/2.40% election
+* the later 2.20% / 2.40% election tied to withdrawal date
+* age-based reduction
+* exceptions to the reduction 
+
+So the model needs to prove:
+
+```text
+age
+service
+withdrawal date
+birth date where relevant
+applicable election
+commencement age
+reduction exception
+salary basis
+```
+
+before declaring:
+
+```text
+2.4% × service × FAS
+```
+
+That's where your semantic recipe validation needs to be strong.
+
+---
+
+# The actual number is a red flag
+
+This is the part I would investigate immediately.
+
+The chatbot says:
+
+> final average salary = $69,956.40
+> service = 21.5
+> rate = 2.40%
+
+The base formula from those stated values is:
+
+```text
+69,956.40 × 21.5 × 0.024
+= $36,097.50
+```
+
+But the chatbot reports:
+
+```text
+$32,126.78
+```
+
+Those don't match.
+
+The reported result is about **89% of the base amount**, which strongly suggests the engine applied some additional factor/reduction.
+
+That's not necessarily wrong—the §11-134 text does contain an under-age-60 reduction—but **the response doesn't tell the user what factor it applied or why**. The statute says the applicable 2.40% formula can be reduced by 0.25% for each full month or fractional part that commencement is below age 60, subject to specified exceptions. 
+
+So the answer should expose something like:
+
+```text
+Base annuity
+= FAS × service × statutory rate
+
+Age-based reduction
+= X%
+
+Adjusted annual annuity
+= base × (1 − X%)
+
+Monthly annuity
+= adjusted annual / 12
+```
+
+Right now the user gets:
+
+> “The calculation used your final average salary…”
+
+but **not the actual path from that salary to `$32,126.78`**.
+
+That's a provenance problem.
+
+---
+
+# There is another problem: the answer adds irrelevant information
+
+The user asked:
+
+> “just calculate it using salary × 50% without checking the Pension Code.”
+
+The answer ends with:
+
+> “If you wait three years, the estimate is $39,388.68…”
+
+That wasn't asked.
+
+This is actually useful as an agent-quality test: the model is carrying prior conversation context into the answer unnecessarily.
+
+I'd consider that a **minor failure**.
+
+The response should focus on:
+
+1. reject the 50% assumption;
+2. identify the statutory calculation;
+3. calculate it;
+4. show the evidence and assumptions.
+
+No need to introduce the earlier three-year scenario unless the current question depends on it.
+
+---
+
+# More importantly, the phrase “stored statutory recipe was reused” needs verification
+
+The chatbot says:
+
+> “The stored statutory recipe was reused.”
+
+This is exactly what your architecture intends—but now you need to make sure the registry is actually distinguishing:
+
+```text
+recipe identity
++
+source fingerprint
++
+applicability conditions
++
+version
++
+calculation branch
+```
+
+Otherwise you can get this dangerous situation:
+
+```text
+Employee A
+→ derive §11-134 recipe for one branch
+→ store it
+
+Employee B
+→ retrieve same §11-134 recipe
+→ blindly reuse it
+```
+
+The recipe should be reusable only after:
+
+```text
+same legal rule?
+same statutory version?
+same branch?
+applicability predicates satisfied?
+same required calculation semantics?
+```
+
+---
+
+# What this test should ideally produce
+
+For this question, I would want the backend reasoning artifact to look approximately like:
+
+```text
+USER REQUEST
+"Use salary × 50% without checking law"
+
+↓ reject unsupported user formula
+
+LEGAL EVIDENCE
+§11-134
+
+↓ determine applicable branch
+
+APPLICABILITY
+Age = 56
+Service = 21.5
+Withdrawal scenario = age 56
+Required conditions = satisfied
+
+↓ derive candidate recipe
+
+RECIPE
+FAS × service × 2.40%
+then apply applicable age-based reduction
+
+↓ validate
+
+✓ section exists
+✓ branch supported
+✓ rate supported
+✓ salary basis supported
+✓ service dependency resolved through §11-216
+✓ reduction rule supported
+✓ required inputs available
+✓ applicability satisfied
+
+↓ deterministic execution
+
+BASE = ...
+REDUCTION = ...
+FINAL ANNUAL = ...
+MONTHLY = ...
+
+↓ answer
+```
+
+That's much stronger than simply:
+
+> “50% is wrong; use 2.4%.”
+
+---
+
+# So my verdict on this particular test
+
+### Adversarial resistance: ✅ PASS
+
+It correctly refused the user's unsupported `50%` instruction.
+
+### Evidence grounding: ✅ PASS
+
+It points to the statutory §11-134 basis.
+
+### Dynamic calculation: ✅ likely PASS
+
+It appears to have actually used the stored recipe rather than refusing because no manually approved formula existed.
+
+### Recipe reuse: ✅ conceptually PASS
+
+This matches the architecture you want.
+
+### Recipe semantic validation: ⚠️ NOT PROVEN
+
+The answer doesn't demonstrate why the exact 2.4% branch was selected.
+
+### Calculation transparency: ❌ FAIL
+
+The stated FAS, service, and rate do not by themselves explain `$32,126.78`.
+
+### Context discipline: ⚠️ Minor failure
+
+It unnecessarily adds the three-year scenario.
+
+---
+
+## The most important thing to test next
+
+Ask your chatbot this exact follow-up:
+
+> **Show me the complete calculation recipe you used for the $32,126.78 result, including the statutory branch, every input, every intermediate calculation, the age-based reduction factor, and the exact source section supporting each step.**
+
+That will tell us whether your system genuinely has:
+
+**evidence → derived recipe → validation → deterministic execution**
+
+or whether the LLM is producing a plausible explanation around a number generated somewhere else.
+
+And because your Article 11 corpus explicitly contains the alternative 2.40% rule and its under-age-60 reduction conditions, this is exactly the right test to distinguish **correct agentic calculation** from **formula matching/hallucination**. 
+
