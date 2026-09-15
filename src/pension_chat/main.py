@@ -19,6 +19,27 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
 )
+
+# The SDK loggers are silenced independently of our own level.
+#
+# At DEBUG, `azure.core`'s HTTP policy logs every request and response header
+# and httpx logs every URL. Run in a container that ships stdout to Log
+# Analytics, that is what a deployment's logs become: thousands of lines of
+# headers per turn, an ingestion bill for them, and -- once a real member is
+# asking about a real pension -- request metadata retained somewhere nobody
+# decided to retain it. Raising our own level to DEBUG to debug our own code
+# should not turn the transport into a firehose, so these are pinned at
+# WARNING rather than left to inherit.
+for _noisy in (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.identity",
+    "httpx",
+    "httpcore",
+    "openai",
+    "urllib3",
+):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 logger = logging.getLogger("pension_chat")
 
 
