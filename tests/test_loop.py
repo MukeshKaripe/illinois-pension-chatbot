@@ -990,3 +990,117 @@ async def test_the_settled_provision_is_read_even_when_the_budget_is_gone(monkey
     )
     fetched = [args.get("section") for name, args in ran if name == "get_section"]
     assert "11-134" in fetched, fetched
+
+
+async def test_the_completion_fetches_are_made_at_once(monkeypatch):
+    """Three cross-references the evidence leans on, read in one wait, not three.
+
+    Each is a known section id and none of them decides whether another is
+    worth reading, so reading them one after another spent three round trips of
+    the member's time to learn nothing between them. What has to stay ordered is
+    which sections are chosen, not when their text arrives.
+    """
+    import asyncio
+
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")])
+    in_flight = 0
+    peak = 0
+
+    async def fake_run(name, arguments, state):
+        nonlocal in_flight, peak
+        if name == "get_section":
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.05)
+            in_flight -= 1
+            return "text", {
+                "retrieved_sections": [{"section": arguments["section"], "text": "t"}]
+            }
+        return "found", {
+            "retrieved_sections": [
+                {
+                    "section": "11-134",
+                    "text": "t",
+                    "referenced_sections": ["11-216", "11-169", "11-161"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    out = await loop_mod.investigate({"question": "q", "messages": []})
+
+    assert peak > 1, "the completion fetches were made one at a time"
+    assert {s["section"] for s in out["retrieved_sections"]} == {
+        "11-134",
+        "11-216",
+        "11-169",
+        "11-161",
+    }
+
+
+async def test_a_completion_fetch_that_fails_does_not_lose_the_others(monkeypatch):
+    """One unreachable section must not take the turn with it."""
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")])
+
+    async def fake_run(name, arguments, state):
+        if name == "get_section":
+            if arguments["section"] == "11-169":
+                raise RuntimeError("search is unreachable")
+            return "text", {
+                "retrieved_sections": [{"section": arguments["section"], "text": "t"}]
+            }
+        return "found", {
+            "retrieved_sections": [
+                {
+                    "section": "11-134",
+                    "text": "t",
+                    "referenced_sections": ["11-216", "11-169"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+
+    out = await loop_mod.investigate({"question": "q", "messages": []})
+
+    assert "11-216" in {s["section"] for s in out["retrieved_sections"]}
+
+
+async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetches(
+    monkeypatch,
+):
+    """The registry knows which provision governs without reading any section.
+
+    `_engine_provisions` asks the registry, which needs nothing the completion
+    step gathers -- so the two waits are one wait.
+    """
+    import asyncio
+    import time
+
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")])
+
+    async def slow_provisions(state):
+        await asyncio.sleep(0.2)
+        return []
+
+    async def fake_run(name, arguments, state):
+        if name == "get_section":
+            await asyncio.sleep(0.2)
+            return "text", {
+                "retrieved_sections": [{"section": arguments["section"], "text": "t"}]
+            }
+        return "found", {
+            "retrieved_sections": [
+                {"section": "11-134", "text": "t", "referenced_sections": ["11-216"]}
+            ]
+        }
+
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+    monkeypatch.setattr(loop_mod, "_engine_provisions", slow_provisions)
+
+    started = time.perf_counter()
+    await loop_mod.investigate({"question": "q", "messages": []})
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.35, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"

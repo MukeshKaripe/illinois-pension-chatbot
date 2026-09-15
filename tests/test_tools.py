@@ -181,3 +181,50 @@ async def test_no_memory_means_no_line(monkeypatch):
         "search_statute", {"queries": ["x"], "why": "y"}, {}
     )
     assert "previously answered" not in text.lower()
+
+
+async def test_the_memory_hint_does_not_wait_for_the_search(monkeypatch):
+    """Two remote calls that need nothing from each other, made at the same time.
+
+    `memory.recall` is "a hint, not a finding" -- it cannot narrow the search
+    and is not given the chance to. Run after it, that independence bought
+    nothing and cost a round trip to Postgres plus an embedding on the member's
+    critical path, measured at 0.7--4.8s of a 20s time-to-first-token.
+    """
+    import asyncio
+    import time
+
+    async def slow_retrieve(queries, **kwargs):
+        await asyncio.sleep(0.2)
+        return [_section("11-134")]
+
+    async def slow_recall(question, **kwargs):
+        await asyncio.sleep(0.2)
+        return ["11-216"]
+
+    monkeypatch.setattr(tools, "retrieve", slow_retrieve)
+    monkeypatch.setattr(tools.memory, "recall", slow_recall)
+
+    started = time.perf_counter()
+    text, _ = await tools.run_tool("search_statute", {"queries": ["x"], "why": "y"}, {})
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.35, f"recall and retrieve ran one after the other ({elapsed:.2f}s)"
+    assert "11-216" in text, "and the hint still reaches the model"
+
+
+async def test_a_failed_hint_still_leaves_the_search(monkeypatch):
+    """The hint is optional; the sections are not. Concurrency must not change
+    which of the two can lose the turn."""
+
+    async def found(queries, **kwargs):
+        return [_section("11-134")]
+
+    async def broken(question, **kwargs):
+        raise RuntimeError("answer_evidence is unreachable")
+
+    monkeypatch.setattr(tools, "retrieve", found)
+    monkeypatch.setattr(tools.memory, "recall", broken)
+
+    text, update = await tools.run_tool("search_statute", {"queries": ["x"], "why": "y"}, {})
+    assert [s["section"] for s in update["retrieved_sections"]] == ["11-134"]

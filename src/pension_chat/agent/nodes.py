@@ -41,7 +41,7 @@ from pension_chat.agent.registry import (
     RegistryRecipe,
     lookup_recipe,
     note_contested,
-    note_reuse,
+    note_reuse_later,
     persist_recipe,
     verify_freshness,
 )
@@ -514,7 +514,7 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
                     # `lookup_recipe` returned and freshness then refused has
                     # not been reused, and counting it there would make the
                     # column measure lookups rather than load.
-                    await note_reuse(row)
+                    note_reuse_later(row)
                     return
             else:
                 logger.info(

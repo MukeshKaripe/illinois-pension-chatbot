@@ -79,7 +79,12 @@ async def lifespan(app: FastAPI):
     await _warm_connections()
     yield
     from pension_chat.agent.llm import close_clients
+    from pension_chat.agent.registry import drain_background_writes
 
+    # Bookkeeping writes were moved off the member's critical path, which means
+    # some may still be in flight when the process is asked to stop. Closing the
+    # connection pool under them would lose the count they were carrying.
+    await drain_background_writes()
     await close_clients()
     logger.info("Shutting down Pension Chat API")
 

@@ -20,6 +20,7 @@ from by trying a different one.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -351,26 +352,44 @@ async def _search(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         return "search_statute needs at least one query in `queries`.", {}
     articles = [str(a) for a in (arguments.get("articles") or [])] or None
     settings = get_settings()
-    found = await retrieve(
-        queries,
-        articles=articles,
-        top_sections=settings.retrieval_top_sections,
-        char_budget=settings.retrieval_context_token_budget * 4,
+
+    # Enrichment, never a filter. The search below runs its own query and
+    # returns what it found; the hint is a line of text beside the results. A
+    # section that once got lucky therefore cannot entrench itself by
+    # suppressing the search that would have found a better one, which is the
+    # failure mode every retrieval cache has.
+    #
+    # Started *with* the search rather than after it, and that independence is
+    # exactly why it can be: a hint that cannot narrow the search has nothing to
+    # learn from its results. Awaited second, it cost a Postgres round trip plus
+    # an embedding on the member's critical path -- 0.7s to 4.8s of a 20s
+    # time-to-first-token, for a line the answer does not depend on.
+    coverage = state.get("coverage") or {}
+    found, hint = await asyncio.gather(
+        retrieve(
+            queries,
+            articles=articles,
+            top_sections=settings.retrieval_top_sections,
+            char_budget=settings.retrieval_context_token_budget * 4,
+        ),
+        memory.recall(
+            str(state.get("question") or " ".join(queries)),
+            article=str(coverage.get("article") or "") or None,
+            tier=(state.get("member_facts") or {}).get("tier"),
+        ),
+        # The hint is optional and the sections are not, so a hint that raises
+        # must not take the search down with it. `recall` swallows its own
+        # failures today; concurrency is not the place to rely on that.
+        return_exceptions=True,
     )
+    if isinstance(found, BaseException):
+        raise found
+    if isinstance(hint, BaseException):
+        logger.warning("Could not recall anything beside the search: %s", hint)
+        hint = []
+
     rows = [s.to_dict() for s in found]
     body = _render(rows, settings.retrieval_context_token_budget * 4)
-
-    # Enrichment, never a filter. The search above has already run its own
-    # query and returned what it found; this is a line of text beside the
-    # results. A section that once got lucky therefore cannot entrench itself
-    # by suppressing the search that would have found a better one, which is
-    # the failure mode every retrieval cache has.
-    coverage = state.get("coverage") or {}
-    hint = await memory.recall(
-        str(state.get("question") or " ".join(queries)),
-        article=str(coverage.get("article") or "") or None,
-        tier=(state.get("member_facts") or {}).get("tier"),
-    )
     remembered = (
         "Sections that previously answered questions like this, and whose "
         f"answers were verified: {', '.join(hint)}. Read one if it looks "

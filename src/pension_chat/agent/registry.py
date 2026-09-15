@@ -18,6 +18,7 @@ registry as ``agent_derived`` with an ``estimate`` execution policy; promotion t
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, date, datetime
 from typing import Any
@@ -304,6 +305,42 @@ async def note_reuse(row: FormulaRegistry) -> None:
         reuse_count=FormulaRegistry.reuse_count + 1,
         last_reused_at=datetime.now(UTC),
     )
+
+
+#: Background bookkeeping writes, held so the event loop does not collect a
+#: task nobody is awaiting. Discarded as each finishes.
+_BACKGROUND: set[asyncio.Task[None]] = set()
+
+
+def note_reuse_later(row: FormulaRegistry) -> None:
+    """Count the reuse without the member waiting for the write.
+
+    `note_reuse` runs inside `compute_benefit`, on the way to a figure. Against
+    Azure Postgres the UPDATE cost 0.72s of a member's time-to-first-token --
+    BEGIN, the statement, COMMIT -- to increment a column nobody reads until a
+    reviewer opens the registry. The reviewer's question is "what is
+    load-bearing", and the answer is no less true for arriving a second late.
+
+    Deliberately not `await`ed and deliberately not silent: a task nobody holds
+    is collected mid-flight, and a task nobody awaits swallows its exception
+    until the loop complains about it long after the turn it belonged to.
+    """
+
+    async def _quietly() -> None:
+        try:
+            await note_reuse(row)
+        except Exception as exc:  # noqa: BLE001 - bookkeeping never costs a turn
+            logger.warning("Could not count the reuse of %s: %s", row.formula_id, exc)
+
+    task = asyncio.ensure_future(_quietly())
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
+
+
+async def drain_background_writes() -> None:
+    """Wait for the bookkeeping writes still in flight. For tests and shutdown."""
+    while _BACKGROUND:
+        await asyncio.gather(*tuple(_BACKGROUND), return_exceptions=True)
 
 
 async def note_contested(formula_id: str) -> None:

@@ -17,6 +17,7 @@ already knows about and answer.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -237,6 +238,39 @@ def _available(spent: dict[str, int]) -> list[dict[str, Any]]:
 def _merge_sections(existing: list[dict], incoming: list[dict]) -> list[dict]:
     seen = {s.get("section") for s in existing}
     return existing + [s for s in incoming if s.get("section") not in seen]
+
+
+async def _read_sections(
+    targets: list[str], working: dict[str, Any]
+) -> list[tuple[str, dict] | None]:
+    """Read several known sections in one wait, in the order they were asked for.
+
+    Every caller below is past the point of choosing: the section ids are
+    settled, and none of the texts decides whether another is worth fetching.
+    Read one after another they cost a round trip each to Azure Search -- about
+    a quarter of a second apiece, on the member's time-to-first-token, for
+    nothing that could not have happened at once.
+
+    A target that fails comes back as ``None`` rather than ending the turn. Each
+    of these fetches is a section being *completed* for the model, not the
+    evidence the answer stands on; losing one costs a paragraph's grounding,
+    and raising costs the member their answer. What is left unread is already
+    reported by `unread_references`.
+    """
+    if not targets:
+        return []
+    results = await asyncio.gather(
+        *(run_tool("get_section", {"section": target}, working) for target in targets),
+        return_exceptions=True,
+    )
+    read: list[tuple[str, dict] | None] = []
+    for target, outcome in zip(targets, results):
+        if isinstance(outcome, BaseException):
+            logger.warning("Could not read Section %s for the answer: %s", target, outcome)
+            read.append(None)
+        else:
+            read.append(outcome)
+    return read
 
 
 def _reference_weights(sections: list[dict]) -> dict[str, int]:
@@ -697,11 +731,23 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     #
     # Skipped when the budget is gone: this is worth a few calls, not an
     # overrun, and `unread_references` reports what is left either way.
+    # The registry lookup below needs nothing any of these fetches return -- it
+    # reads coverage, the record and the tier -- so it is started here and
+    # collected after them rather than waiting its turn behind them.
+    provisions_task = asyncio.ensure_future(_engine_provisions(working))
+
     if not exhausted:
         weights = _reference_weights(sections)
         wanted = sorted(weights, key=lambda s: (-weights[s], s))[:MAX_COMPLETION_FETCHES]
-        for target in wanted:
-            result, update = await run_tool("get_section", {"section": target}, working)
+        # Read in one wait rather than three. Each target is already chosen and
+        # none of them decides whether another is worth reading, so the round
+        # trips were serial for no reason. What has to stay ordered is which
+        # sections are chosen -- `wanted` settles that above -- and the order
+        # they are put in front of the model, which the zip below preserves.
+        for target, fetched in zip(wanted, await _read_sections(wanted, working)):
+            if fetched is None:
+                continue
+            result, update = fetched
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
                 working["retrieved_sections"] = sections
@@ -743,44 +789,50 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # missing is on the other side -- `_settled_provision` puts it in front of
     # the model writing the answer, not only the one gathering evidence.
     settled_section = str((state.get("selected_provision") or {}).get("section") or "")
-    if settled_section:
-        if not any(str(s.get("section")) == settled_section for s in sections):
-            result, update = await run_tool(
-                "get_section", {"section": settled_section}, working
-            )
-            if update.get("retrieved_sections"):
-                sections = _merge_sections(sections, update["retrieved_sections"])
-                working["retrieved_sections"] = sections
-                messages.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            f"This conversation already settled on Section "
-                            f"{settled_section}, so it has been read for you. Being "
-                            "challenged is not a reason to change the answer: if the "
-                            "determination was right it should survive being "
-                            "questioned, and if it was wrong say which provision "
-                            "replaces it and why." + chr(10) + chr(10) + result
-                        ),
-                    }
-                )
+    if settled_section and any(str(s.get("section")) == settled_section for s in sections):
+        settled_section = ""
 
-    # ── The provision the engine would use, read before it is named ──
-    #
-    # G17. "Which retirement provision applies to me? Do not calculate anything
-    # yet." The loop browsed Article 11's outline, picked by heading, and named
-    # 11-130 -- then computed from 11-134 two turns later, so "the provision you
-    # selected earlier" was not the one it used. The registry knew all along.
-    #
-    # Read here and named in `compose`, because G30 settled that one without the
-    # other is half a fix: available to cite is not named, and named without
-    # having been read is a citation verification refuses.
-    engine_provisions = await _engine_provisions(working)
-    for provision in engine_provisions:
-        target = str(provision.get("section") or "")
-        if not target or any(str(x.get("section")) == target for x in sections):
+    engine_provisions = await provisions_task
+    engine_targets = [
+        provision
+        for provision in engine_provisions
+        if str(provision.get("section") or "")
+        and not any(str(x.get("section")) == str(provision["section"]) for x in sections)
+    ]
+
+    # The turn's last known fetches, made together. Both are named sections
+    # rather than candidates, and neither's text changes whether the other is
+    # worth reading, so the old order bought two waits instead of one.
+    tail_targets = ([settled_section] if settled_section else []) + [
+        str(p["section"]) for p in engine_targets
+    ]
+    tail = dict(zip(tail_targets, await _read_sections(tail_targets, working)))
+
+    if settled_section and (read := tail.get(settled_section)) is not None:
+        result, update = read
+        if update.get("retrieved_sections"):
+            sections = _merge_sections(sections, update["retrieved_sections"])
+            working["retrieved_sections"] = sections
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        f"This conversation already settled on Section "
+                        f"{settled_section}, so it has been read for you. Being "
+                        "challenged is not a reason to change the answer: if the "
+                        "determination was right it should survive being "
+                        "questioned, and if it was wrong say which provision "
+                        "replaces it and why." + chr(10) + chr(10) + result
+                    ),
+                }
+            )
+
+    for provision in engine_targets:
+        target = str(provision["section"])
+        read = tail.get(target)
+        if read is None:
             continue
-        result, update = await run_tool("get_section", {"section": target}, working)
+        result, update = read
         if update.get("retrieved_sections"):
             sections = _merge_sections(sections, update["retrieved_sections"])
             working["retrieved_sections"] = sections
@@ -797,6 +849,17 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                 }
             )
     working["engine_provisions"] = engine_provisions
+
+    # ── The provision the engine would use, read before it is named ──
+    #
+    # G17. "Which retirement provision applies to me? Do not calculate anything
+    # yet." The loop browsed Article 11's outline, picked by heading, and named
+    # 11-130 -- then computed from 11-134 two turns later, so "the provision you
+    # selected earlier" was not the one it used. The registry knew all along.
+    #
+    # Read here and named in `compose`, because G30 settled that one without the
+    # other is half a fix: available to cite is not named, and named without
+    # having been read is a citation verification refuses.
 
     sections, set_aside = _confined_to_premise(sections, working)
 

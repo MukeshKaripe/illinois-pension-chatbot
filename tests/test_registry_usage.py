@@ -167,3 +167,48 @@ def test_every_formula_action_is_admin_guarded():
     for route in _formula_routes():
         source = inspect.getsource(route.endpoint)
         assert "require_admin" in source, f"{route.path} is not admin-guarded"
+
+
+# ── Bookkeeping is not something a member waits for ───────────────
+
+
+async def test_counting_a_reuse_does_not_make_the_member_wait(monkeypatch):
+    """The write that records "this recipe was used again" told the member
+    nothing and cost them a round trip.
+
+    Measured at 0.72s against Azure Postgres, sitting inside `compute_benefit`
+    on the way to a figure -- a quarter of it BEGIN and COMMIT for a single
+    UPDATE nobody reads until a reviewer opens the registry. It still happens;
+    it just stops happening in front of the answer.
+    """
+    import asyncio
+
+    written = _capture_updates(monkeypatch)
+    started = asyncio.Event()
+
+    async def slow_mark(row, **values):
+        started.set()
+        await asyncio.sleep(0.05)
+        written.append(values)
+
+    monkeypatch.setattr(registry, "_mark", slow_mark)
+
+    registry.note_reuse_later(_row())
+    assert written == [], "the caller waited for a write it does not read"
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await registry.drain_background_writes()
+    assert "reuse_count" in written[-1], "and the count still lands"
+
+
+async def test_a_failed_bookkeeping_write_is_logged_not_raised(monkeypatch):
+    """Nothing awaits this task, so an exception in it would surface as an
+    unretrieved-task warning long after the turn it belonged to."""
+
+    async def broken(row, **values):
+        raise RuntimeError("registry is unreachable")
+
+    monkeypatch.setattr(registry, "_mark", broken)
+
+    registry.note_reuse_later(_row())
+    await registry.drain_background_writes()
