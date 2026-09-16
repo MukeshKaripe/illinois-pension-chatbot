@@ -85,20 +85,38 @@ than by an answer-level flag.
 `2026-09-16-general-agent-design.md` assumed explanation turns were the cheap
 majority and calculation the expensive minority. Both halves are false.
 
-**The mix is about half.** Measured by running 23 questions and classifying by
-whether `compute_benefit` actually ran: **52.2%** figure-seeking. The eval suite
-self-labels at 46.2%; the reported transcripts run at 60%.
+**The mix is unknowable without real traffic, and every estimate of it
+disagrees.** Classifying by whether `compute_benefit` actually ran:
 
-**And the mix barely matters**, because the median is flat across it — from
-18.40s at 0% calculation to 15.47s at 100% (local, resampled). Three seconds
-across the entire range.
+| sample | figure-seeking |
+|---|---|
+| 100 diverse questions, half seeded from section headings | **13%** — and 0% for the corpus half alone |
+| the situation-seeded half of those 100 | 26% |
+| 23 questions drawn from the eval suite and the reported transcripts | 52% |
+| the reported transcripts alone | 60% |
 
-**Because explanation turns were the slow ones.** In-region, baseline:
+Zero to sixty, decided entirely by how the questions were sampled. No number in
+that column is member traffic, and the architecture must not rest on any of
+them.
 
-| | TTFT p50 | round trips |
-|---|---|---|
-| called `compute_benefit` | 6.84s | 3–6 |
-| no calculation | **9.68s** | 3–10 |
+**Which is survivable, because the mix barely matters.** Measured directly at
+n=100, the two classes cost the same: **10.56s for calculation, 10.89s for
+everything else.** Resampling the smaller set across the whole mix range moves
+the median only from 18.40s at 0% calculation to 15.47s at 100% (local). The
+median is flat because the classes are equally expensive, so the design is
+robust to a number nobody can pin down.
+
+**Because explanation turns are the unbounded ones.** In-region, baseline, and
+the round-trip gap widens as the questions get more diverse:
+
+| | TTFT p50 | round trips p50 | worst |
+|---|---|---|---|
+| called `compute_benefit` | 6.84s | 4.0 | 6 trips |
+| no calculation | **9.68s** | **5.0** | **9 trips, 26.3s, 35 citations** |
+
+At n=100, **nine of the ten worst turns did no calculation at all.** The worst
+was "I moved from one Illinois pension fund to another" — nine round trips and
+thirty-five citations, for a question with no arithmetic in it.
 
 **Calculation has a terminating condition and explanation does not.**
 `compute_benefit` either returns a figure or names exactly what is missing;
@@ -245,6 +263,13 @@ respectively. **Termination is a latency and evidence property, not an
 epistemic one.** Refusing to assume, refusing to illustrate, and answering "how
 is my pension calculated?" with paragraphs about what is missing are §7's
 problem, and nothing here touches them.
+
+How big that problem is, measured over the 100: **33 of 100 answers hedge** —
+they contain "could not establish", "cannot state", "is not available" or a
+close relative — and every one of those 100 passed verification. So this is not
+the guardrail retracting answers. It is the agent, unretracted and unchallenged,
+declining to say a third of what it was asked. That is the number §7 has to
+move, and no amount of §6 will move it.
 
 ## 7. Assumptions
 
@@ -465,7 +490,10 @@ And one flagship product test: **100 diverse member questions, uncategorised**,
 measured for whether the agent understood, retrieved the right law, answered
 naturally, asked only when necessary, calculated when useful, avoided
 calculating when not, kept context, and how long until the first grounded token.
-§3's mix number came from 23 questions; it should be re-measured at 100.
+Run once at n=100 on 2026-09-16; §3 and §15 carry the result. It moved the mix
+estimate from 52% to 13% and surfaced the hedging rate, so **it earns its place
+as a recurring product test rather than a one-off** — and the next run should be
+on real member questions, which is the one input this test has never had.
 
 ## 13. Sequencing
 
@@ -515,9 +543,18 @@ output.
 first run that agreed within run-to-run variance (baseline 8.23s, closure+cap
 4.72s, cap-only 3.88s, no-browsing 6.66s).
 
-**Question mix:** 52.2% of turns invoked `compute_benefit` (23 questions);
-eval suite self-labels 46.2% of 158 turns; the reported transcripts run at 60%.
-Median TTFT across the full mix range spans only 18.40s → 15.47s (local).
+**Question mix**, classified by whether `compute_benefit` ran: 13% over 100
+diverse questions (0% for the 50 seeded from section headings, 26% for the 50
+seeded from member circumstances); 52% over 23 drawn from the eval suite and the
+reported transcripts; 60% over the transcripts alone. The eval suite self-labels
+46.2% of its 158 turns. **None of these is real traffic**, and the spread is the
+finding: §3 rests on the classes costing the same (10.56s against 10.89s at
+n=100), not on any point estimate. Median TTFT across the full simulated mix
+range spans only 18.40s → 15.47s (local).
+
+**The 100-question run, in-region, on current code:** overall TTFT p50 10.85s,
+guardrail 100/100, **33/100 answers hedged**, and nine of the ten worst turns
+did no calculation.
 
 **Corpus composition**, 2,111 distinct sections sampled: 57.3% carry no
 calculation-relevance tag at all; `eligibility_rule` 11.3% outnumbers
