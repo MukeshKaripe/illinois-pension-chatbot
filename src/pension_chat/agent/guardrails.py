@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -239,6 +239,10 @@ CONSEQUENCE: dict[str, str] = {
     # add a disclosure, and cannot make a flat statement conditional.
     "ASSUMPTION_NOT_DISCLOSED": REPAIR,
     "UNMARKED_HYPOTHETICAL": REPAIR,
+    # Raised by `graph.py`, not here: the stream was stopped mid-sentence, so
+    # the text that survives is truncated rather than wrong. Cutting more out
+    # of it cannot help; it has to be written again.
+    "STREAM_UNGROUNDED": REPAIR,
 }
 
 
@@ -573,6 +577,68 @@ _ATTRIBUTED_TO_RECORD = re.compile(
     r"what (?:your|the) (?:record|file) shows|the record (?:says|shows|places))\b",
     re.IGNORECASE,
 )
+
+
+#: Below this, what excision left is a fragment rather than an answer, and the
+#: member is better served by the retraction telling them what happened.
+MIN_EXCISED_WORDS = 25
+
+
+def downgrade(
+    answer: str,
+    report: GuardrailReport,
+    verify: Callable[[str], GuardrailReport],
+) -> tuple[str, GuardrailReport] | None:
+    """The answer with its failing spans cut out, if that is enough to save it.
+
+    ``None`` when it is not, and the caller falls through to repair and then to
+    the fallback exactly as before. Three ways this declines, and each is the
+    conservative direction:
+
+    * the worst failure is not excisable -- an untraceable figure is not fixed
+      by deleting the sentence around it;
+    * too little survives to be an answer, so the member is better told plainly
+      that it was withdrawn;
+    * what survives does not verify on its own, which would publish unverified
+      text under a passing report -- worse than the retraction it replaces.
+
+    ``verify`` is passed in rather than called here because verification needs
+    the turn's whole state, which this module deliberately does not have.
+    """
+    if report.passed or report.consequence != EXCISE:
+        return None
+    spans = [
+        span for failure in report.hard_failures for span in (failure.get("spans") or [])
+    ]
+    trimmed = excise(answer, spans)
+    if not trimmed or len(trimmed.split()) < MIN_EXCISED_WORDS:
+        return None
+    retry = verify(trimmed)
+    if not retry.passed:
+        return None
+    return trimmed, retry
+
+
+def excise(answer: str, spans: Sequence[str]) -> str:
+    """``answer`` with each span removed and the whitespace closed up.
+
+    Longest span first, so a sentence containing another is not left holding a
+    fragment of it. Paragraph breaks survive, because the answer's shape is
+    part of how it reads -- but a paragraph emptied entirely goes with its
+    break, or the cut leaves a hole where a claim used to be.
+
+    No model call. That is what separates this from repair, and it is why the
+    common failure case gets faster rather than slower.
+    """
+    text = answer
+    for span in sorted(spans, key=len, reverse=True):
+        if span:
+            text = text.replace(span, "")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _spans_around(answer: str, needles: Iterable[str]) -> list[str]:

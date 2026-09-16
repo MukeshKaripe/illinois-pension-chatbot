@@ -74,8 +74,15 @@ def test_every_code_the_guardrail_can_raise_has_a_consequence():
     import re
     from pathlib import Path
 
-    source = Path("src/pension_chat/agent/guardrails.py").read_text(encoding="utf-8")
-    raised = set(re.findall(r'\.fail\(\s*"([A-Z_]+)"', source))
+    # Both files: `graph.py` raises STREAM_UNGROUNDED against the same report,
+    # and a code raised from outside this module is exactly the one a table
+    # living inside it would miss.
+    raised: set[str] = set()
+    for name in ("guardrails.py", "graph.py"):
+        source = Path(f"src/pension_chat/agent/{name}").read_text(encoding="utf-8")
+        raised |= set(
+            re.findall(r'\.fail\(\s*"([A-Z_]+)"', source)
+        )
     assert raised, "no failure codes found -- the pattern has drifted"
     assert raised <= set(CONSEQUENCE), f"no consequence for {raised - set(CONSEQUENCE)}"
 
