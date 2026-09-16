@@ -722,6 +722,7 @@ def _input_origins(
     sheet: WorkSheet,
     question: str,
     stand_in: bool = False,
+    held: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Where each resolved input came from, decided here because here it is known.
 
@@ -744,7 +745,19 @@ def _input_origins(
         if name in assumed:
             origins[name] = SOURCE_ASSUMED
         elif name in taken:
-            origins[name] = SOURCE_STATED if _stated_in(taken[name], question) else SOURCE_DERIVED
+            # The ledger first: `_stated_in` only ever saw the current message,
+            # so a figure the member gave three turns ago came back `derived`
+            # and the card told them the assistant had worked out a number they
+            # had typed themselves. A value they stated stays stated until they
+            # supersede it.
+            if (held or {}).get(name) == SOURCE_STATED:
+                origins[name] = SOURCE_STATED
+            else:
+                origins[name] = (
+                    SOURCE_STATED
+                    if _stated_in(taken[name], question)
+                    else SOURCE_DERIVED
+                )
         else:
             fact = sheet.fact(name)
             default = SOURCE_STAND_IN if stand_in else SOURCE_RECORD
@@ -957,6 +970,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         sheet=sheet,
         question=state["question"],
         stand_in=_stand_ins_allowed(state),
+        held=ledger.provenance(state.get("fact_ledger") or {}, ledger.SELF),
     )
 
     return {

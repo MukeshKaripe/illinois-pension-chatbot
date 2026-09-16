@@ -206,3 +206,53 @@ def test_a_stand_in_is_never_written_to_durable_state() -> None:
     state = {**_SUPPOSED, "stand_in_facts": True}
     sheet = WorkSheet.from_state(state, record_usable=True, as_stand_in=True)
     assert "service_years" not in (sheet.to_state_update().get("assumptions") or {})
+
+
+def test_a_value_stated_three_turns_ago_is_still_stated():
+    """`_stated_in` only ever looked at the current message, so a figure the
+    member gave earlier came back labelled `derived` -- and the card told them
+    the assistant had worked out a number they had typed themselves."""
+    from pension_chat.agent.nodes import _input_origins
+    from pension_chat.agent.worksheet import SOURCE_STATED, WorkSheet
+
+    origins = _input_origins(
+        resolved={"total_service_years": 40},
+        taken={"total_service_years": 40},
+        assumed={},
+        sheet=WorkSheet(),
+        question="so what would that come to?",
+        held={"total_service_years": SOURCE_STATED},
+    )
+    assert origins["total_service_years"] == SOURCE_STATED
+
+
+def test_the_current_message_still_wins_when_the_ledger_is_silent():
+    from pension_chat.agent.nodes import _input_origins
+    from pension_chat.agent.worksheet import SOURCE_STATED, WorkSheet
+
+    origins = _input_origins(
+        resolved={"final_average_salary": 75000},
+        taken={"final_average_salary": 75000},
+        assumed={},
+        sheet=WorkSheet(),
+        question="my average salary is 75000",
+        held={},
+    )
+    assert origins["final_average_salary"] == SOURCE_STATED
+
+
+def test_an_assumption_this_turn_is_not_promoted_by_an_older_statement():
+    """The assumption branch runs first and must keep running first: a value we
+    filled in this turn is ours, whatever they said about it before."""
+    from pension_chat.agent.nodes import _input_origins
+    from pension_chat.agent.worksheet import SOURCE_ASSUMED, SOURCE_STATED, WorkSheet
+
+    origins = _input_origins(
+        resolved={"retirement_age": 67},
+        taken={},
+        assumed={"retirement_age": 67},
+        sheet=WorkSheet(),
+        question="what would I get?",
+        held={"retirement_age": SOURCE_STATED},
+    )
+    assert origins["retirement_age"] == SOURCE_ASSUMED
