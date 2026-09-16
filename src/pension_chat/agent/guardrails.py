@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -213,6 +213,35 @@ _MONEY = re.compile(r"\$\s*([\d,]+(?:\.\d{1,2})?)")
 _PERCENT = re.compile(r"(\d{1,3}(?:\.\d{1,3})?)\s*%")
 
 
+#: What a failure costs, worst first by `_COST`. A report carrying several
+#: failures pays the worst of them.
+RETRACT = "retract"
+REPAIR = "repair"
+EXCISE = "excise"
+
+_COST = {RETRACT: 0, REPAIR: 1, EXCISE: 2}
+
+#: A consequence per failure code. Anything absent retracts: a check added
+#: without an entry here fails safe rather than quietly becoming excisable, and
+#: `test_downgrade_ladder.py` fails until somebody decides which it is.
+CONSEQUENCE: dict[str, str] = {
+    "EMPTY_ANSWER": RETRACT,
+    # The one failure that harms a member, so it is the one that costs
+    # everything. A figure nobody can trace is not improved by deleting the
+    # sentence around it.
+    "UNVERIFIED_FIGURE": RETRACT,
+    # A sentence naming a section nobody retrieved, beside four naming sections
+    # that were. Withdrawing all five is how a sound explanation of teacher
+    # pensions became "I have taken that answer back -- sorry."
+    "UNVERIFIED_CITATION": EXCISE,
+    "UNSUPPORTED_COVERAGE": EXCISE,
+    # Nothing in the answer is wrong; something is missing. Cutting text cannot
+    # add a disclosure, and cannot make a flat statement conditional.
+    "ASSUMPTION_NOT_DISCLOSED": REPAIR,
+    "UNMARKED_HYPOTHETICAL": REPAIR,
+}
+
+
 @dataclass
 class GuardrailReport:
     """Outcome of verifying one generated answer."""
@@ -224,9 +253,34 @@ class GuardrailReport:
     unverified_citations: list[str] = field(default_factory=list)
     unverified_numbers: list[str] = field(default_factory=list)
 
-    def fail(self, code: str, message: str):
+    def fail(self, code: str, message: str, spans: Sequence[str] = ()):
+        """Record a hard failure.
+
+        ``spans`` are verbatim substrings of the answer this failure objects
+        to. They have to be verbatim: excision removes a span by string match,
+        so one that does not appear would cut nothing and publish the sentence
+        it objected to under a passing report.
+        """
         self.passed = False
-        self.hard_failures.append({"code": code, "message": message})
+        self.hard_failures.append(
+            {"code": code, "message": message, "spans": list(spans)}
+        )
+
+    @property
+    def consequence(self) -> str:
+        """The worst thing this report's failures cost; "" when it passed.
+
+        An excisable failure that recorded no span is not excisable: knowing a
+        sentence is wrong is not knowing which sentence, so it retracts.
+        """
+        worst = ""
+        for failure in self.hard_failures:
+            cost = CONSEQUENCE.get(failure["code"], RETRACT)
+            if cost == EXCISE and not failure.get("spans"):
+                cost = RETRACT
+            if not worst or _COST[cost] < _COST[worst]:
+                worst = cost
+        return worst
 
     def warn(self, code: str, message: str):
         self.warnings.append({"code": code, "message": message})
