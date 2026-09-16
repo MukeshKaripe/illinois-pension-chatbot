@@ -25,6 +25,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -33,7 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent import guardrails, ledger
+from pension_chat.agent import gaps, guardrails, ledger
 from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.llm import complete
@@ -734,6 +735,49 @@ def apply_assumptions(
     return filled, origins, still_missing
 
 
+def gap_verdict(
+    missing: Sequence[Mapping[str, Any]],
+    *,
+    filled: Mapping[str, str],
+) -> str:
+    """What this turn's gaps allow, decided by counting what the ledger holds.
+
+    Four states, and only one of them is a question:
+
+    ==========================  ==========================================
+    ledger state                behaviour
+    ==========================  ==========================================
+    no gaps                     ``compute``
+    gaps filled below the       ``compute_with_assumptions`` -- compute,
+    ceiling                     and name what was filled
+    a gap nobody can fill, or   ``worked_example`` -- work the provision
+    too many inventions         through on the Code's own figures, and say
+                                what would make it theirs
+    any governing gap           ``ask``, or branch and compare
+    ==========================  ==========================================
+
+    The count is over *invented* fills only: a value derived from what the
+    member said, or cited to the section that states it, is not a gap that was
+    papered over. ``filled`` maps each name to the rank it resolved at, which
+    code assigned at resolution time -- so the ceiling cannot be evaded by a
+    model that would rather answer than ask, and "what I assumed" cannot be
+    wrong.
+
+    A governing gap wins outright however few there are. It does not change the
+    number, it changes which provision computes it, so filling it in produces a
+    real citation about a member who may not exist.
+    """
+    governing, value = gaps.split(missing)
+    if governing:
+        return "ask"
+    invented = sum(1 for source in filled.values() if source == SOURCE_ASSUMED)
+    if value or invented > get_settings().assumption_ceiling:
+        return "worked_example"
+    if filled:
+        return "compute_with_assumptions"
+    return "compute"
+
+
 def _input_origins(
     *,
     resolved: dict[str, Any],
@@ -1031,6 +1075,13 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         # and saying so is the difference between "tell me your age" and "your
         # file has your age, but I am not using it while we talk about Article 12".
         "missing_inputs": _dedupe_missing_inputs(still_missing),
+        # What these gaps allow: compute, compute and say what was filled, work
+        # the provision through on the Code's own figures, or ask. Decided here
+        # because here the ranks are known, and read by `_describe` so the
+        # model is told what to do rather than left to pick.
+        "gap_verdict": gap_verdict(
+            _dedupe_missing_inputs(still_missing), filled=filled_origins
+        ),
         # What the Code supplied, so the answer's block can cite it. Only the
         # fills that were actually used: a parameter that filled nothing is the
         # recipe's own arithmetic and has no business in a list of the member's

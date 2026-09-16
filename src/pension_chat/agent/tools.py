@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any
 
-from pension_chat.agent import corpus, memory
+from pension_chat.agent import corpus, gaps, memory
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
     BENEFIT_TYPES,
@@ -501,8 +501,17 @@ def _describe(
     revised: dict[str, Any] | None = None,
     benefit: str = "this benefit",
     read_anything: bool = True,
+    verdict: str = "",
 ) -> str:
-    """What to tell the model, whichever of the three things happened."""
+    """What to tell the model, whichever of the three things happened.
+
+    ``verdict`` is `nodes.gap_verdict`'s reading of what this turn's gaps
+    allow, counted in code from the rank each input resolved at. It decides
+    which of two very different things a gap means: a routing field nobody can
+    supply is a question, and a value nobody can supply is still a provision
+    worth working through on the Code's own figures. Both used to come out as
+    "Could not compute: missing X. Ask the member."
+    """
     lines: list[str] = []
     for formula_type, entry in (result or {}).items():
         base = (entry or {}).get("base") or {}
@@ -540,11 +549,31 @@ def _describe(
                     f"  {variant.get('label')}: {variant.get('annual_amount')} a year"
                 )
     if missing:
-        lines.append(
-            "Could not compute: missing "
-            + "; ".join(str(m.get("ask_for") or m.get("name")) for m in missing)
-            + ". Ask the member for what is actually needed, and nothing else."
-        )
+        governing, value = gaps.split(missing)
+        asks = "; ".join(str(m.get("ask_for") or m.get("name")) for m in governing)
+        wants = "; ".join(str(m.get("ask_for") or m.get("name")) for m in value)
+        if verdict == "ask" and governing:
+            lines.append(
+                f"Cannot pick the provision: {asks} decides which rule applies, "
+                "not what it computes. Either ask the member for it, or -- where "
+                "there are only two possibilities -- compute both and compare "
+                "them, saying which applies in which case. Do not pick one."
+            )
+            if value:
+                lines.append(f"  also missing: {wants}.")
+        elif verdict == "worked_example":
+            lines.append(
+                f"Not enough to compute this member's own figure: missing {wants}. "
+                "Do NOT stop at saying so. Set out how the provision computes the "
+                "benefit, work it through on the figures the Code itself states, "
+                "and then say exactly what you would need to make it theirs."
+            )
+        else:
+            lines.append(
+                "Could not compute: missing "
+                + "; ".join(str(m.get("ask_for") or m.get("name")) for m in missing)
+                + ". Ask the member for what is actually needed, and nothing else."
+            )
     if blocked:
         detail = "; ".join(str(e.get("detail") or e) for e in (errors or []))
         lines.append(f"Blocked: {blocked}. {detail}".strip())
@@ -759,6 +788,7 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             _revised(update),
             benefit,
             bool(state.get("retrieved_sections")),
+            str(update.get("gap_verdict") or ""),
         ),
         update,
     )
