@@ -422,6 +422,36 @@ Remaining slow paths, each honest about doing more work: a fresh premise with no
 prefetch runs the full loop; a first-ever recipe derivation costs ~26s and shows
 what it is deriving.
 
+### 10.1 Shipped, and what it actually measures
+
+Built 2026-09-16: the contextual query, the prefetch, the closure and the
+conditional cap. Verified in-region on the five `bench_ttft` questions, which
+have baselines at two earlier points:
+
+| | TFGT p50 | round trips p50 | citations p50 | guardrail |
+|---|---|---|---|---|
+| before any of this work | 9.71s | 3–4 | — | — |
+| with the streaming gate only | 8.69s | — | — | — |
+| **shipped** | **5.39s** | **2.0** | **14.0** | **10/10** |
+
+**Not the spike's 3.84s, and the difference is the metric.** That figure was
+time-to-first-*delta* on a wider 23-question set that included two free
+declines. This is time-to-first-*grounded*-token — the gate's sentence
+buffering is inside it — on five questions with no declines among them. Against
+the same metric on the same questions, 8.69s → 5.39s.
+
+**Every prefetched turn took exactly two round trips.** The three-trip turns
+were the ones where the prefetch was skipped, which is §6.1 working rather than
+failing.
+
+**A concrete next win, found by that check.** The skip is driven by
+`classify_self_reference`, which reads *"what would my pension be **if I
+retired now**?"* as a stipulation. It is a timing hypothetical, not a supposed
+job, and nothing about it risks seeding another fund's law — but it loses the
+fast path. Narrowing that classifier, or deciding the skip on whether the
+supposition names an *Article* rather than on whether it is a supposition at
+all, would bring the largest remaining class of turns onto the two-trip path.
+
 **The guard.** A benchmark someone has to remember to run will not hold this.
 
 1. A unit test with a fake LLM asserting **model round trips before the first
