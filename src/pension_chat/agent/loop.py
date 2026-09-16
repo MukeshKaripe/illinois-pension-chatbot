@@ -22,6 +22,8 @@ import logging
 import time
 from typing import Any
 
+from langgraph.config import get_stream_writer
+
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.blocks import (
     render_assumptions,
@@ -668,6 +670,12 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # layer exists to prevent. Those turns run the loop as they always did.
     prefetched: set[str] = set()
     if coverage_mod.classify_self_reference(state["question"]) is None:
+        prefetch_args = {
+            "queries": _contextual_queries(state),
+            "articles": _search_filter(working),
+            "why": "searched before the first model call",
+        }
+        _progress("search_statute", prefetch_args)
         result, update = await run_tool(
             "search_statute",
             {
@@ -817,6 +825,9 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         messages.append(turn.raw_message)
         for call in turn.calls:
             spent[call.name] = spent.get(call.name, 0) + 1
+            # Before the call, not after it: a step reported on completion is
+            # the step the member has already finished waiting for.
+            _progress(call.name, call.arguments)
             result, update = await run_tool(call.name, call.arguments, working)
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
@@ -846,6 +857,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # it, and whatever comes back joins the citable set rather than replacing
     # what the model chose.
     if not exhausted and not spent.get("search_statute"):
+        _progress("search_statute", {"queries": _contextual_queries(state)})
         result, update = await run_tool(
             "search_statute",
             {
@@ -1096,6 +1108,44 @@ def _branched(state: dict[str, Any]) -> str:
 #: requires the *answer* to disclose an assumption in its own words, and a block
 #: substituted into the stream is not the answer saying anything.
 MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS")
+
+
+#: How a tool call reads as a step, in the member's terms rather than the
+#: agent's. Listed rather than generated from the tool name, because "running
+#: related_sections" describes the machinery and "checking what else bears on
+#: 11-134" describes the work.
+def _step_for(name: str, arguments: dict[str, Any]) -> str:
+    if name == "search_statute":
+        queries = arguments.get("queries") or []
+        first = str(queries[0]) if queries else ""
+        return f"searching the Code for {first}" if first else "searching the Code"
+    if name == "get_section":
+        return f"reading Section {arguments.get('section')}"
+    if name == "outline":
+        return f"listing what Article {arguments.get('article')} covers"
+    if name == "related_sections":
+        return f"checking what else bears on Section {arguments.get('section')}"
+    if name == "compute_benefit":
+        return f"working out the {arguments.get('benefit') or 'benefit'}"
+    if name == "check_coverage":
+        return "working out which fund covers you"
+    return ""
+
+
+def _progress(name: str, arguments: dict[str, Any]) -> None:
+    """Report a step as it starts, best effort.
+
+    `get_stream_writer` raises outside a graph run, and `investigate` is called
+    directly by the eval harness and by most of this module's tests. Progress
+    is a courtesy; it must never be the reason a turn fails.
+    """
+    step = _step_for(name, arguments)
+    if not step:
+        return
+    try:
+        get_stream_writer()({"progress": step})
+    except Exception:  # noqa: BLE001 - a missing writer is not this turn's problem
+        pass
 
 
 def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:

@@ -239,7 +239,11 @@ async def run_agent_stream(
         async for mode, payload in active_graph().astream(
             turn,
             config,
-            stream_mode=["values", "updates"],
+            # `custom` carries what the loop reports as it works. The `updates`
+            # labels fire on node *completion*, so on the longest wait they name
+            # the step that has just finished -- they stay as the coarse
+            # fallback for nodes that report nothing of their own.
+            stream_mode=["values", "updates", "custom"],
             # One checkpoint write at the end of the turn rather than one per
             # superstep. Seven extra round trips to Azure Postgres would land
             # squarely on time-to-first-token.
@@ -252,6 +256,19 @@ async def run_agent_stream(
                 }
                 state = dict(payload)
                 state["timings"] = merged_timings
+                continue
+            if mode == "custom":
+                if step := (payload or {}).get("progress"):
+                    # `at` is carried so the *client* decides whether to show
+                    # this. A fast turn is not one the server can recognise in
+                    # advance -- it only knows in hindsight -- so the server
+                    # reports honestly and the client shows nothing until the
+                    # member has actually been made to wait.
+                    yield {
+                        "type": "progress",
+                        "text": str(step),
+                        "at": time.perf_counter() - started,
+                    }
                 continue
             for node_name in payload:
                 label = STAGE_LABELS.get(node_name)

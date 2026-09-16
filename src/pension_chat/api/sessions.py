@@ -30,6 +30,7 @@ from pension_chat.sse import (
     sse_done,
     sse_error,
     sse_preamble,
+    sse_progress,
     sse_replace,
     sse_status,
     sse_token,
@@ -448,6 +449,8 @@ async def send_message(
                 kind = event["type"]
                 if kind == "status":
                     yield sse_status(event["stage"])
+                elif kind == "progress":
+                    yield sse_progress(event["text"], event["at"])
                 elif kind == "view":
                     yield sse_view(event["slot"], event["markdown"])
                 elif kind == "token":

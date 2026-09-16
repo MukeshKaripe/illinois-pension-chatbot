@@ -77,6 +77,16 @@ def sse_status(stage: str) -> str:
     return sse_event("status", {"stage": stage})
 
 
+def sse_progress(text: str, at: float) -> str:
+    """Emit one step of the work, as it starts.
+
+    `at` is seconds since the turn began. The client uses it to stay quiet on a
+    fast turn: whether a turn was fast is only knowable in hindsight, so the
+    server reports every step and the client decides what was worth showing.
+    """
+    return sse_event("progress", {"text": text, "at": at})
+
+
 def sse_view(slot: str, markdown: str) -> str:
     """Emit one code-rendered table, as soon as it exists.
 
