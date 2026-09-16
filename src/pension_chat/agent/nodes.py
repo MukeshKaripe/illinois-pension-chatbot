@@ -688,37 +688,55 @@ def apply_assumptions(
     missing: list[dict[str, Any]],
     known: dict[str, Any],
     ceiling: int,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], dict[str, str], list[dict[str, Any]]]:
     """Fill what policy allows, record why, and return what still has to be asked.
 
     Order is the order `missing` arrives in, so the ceiling bites the least
     important inputs rather than an arbitrary set of them.
+
+    **The ceiling counts inventions, not fills.** A rule that derives its value
+    from facts already held creates no new claim about the member, so it passes
+    free and is recorded at `derived`. Counting it was how a member who stated
+    their age could be refused a figure for want of a second slot -- having
+    supplied the very fact the value was computed from.
+
+    Returns the fills, the rank each resolved at, and what is still missing.
+    The ranks go to `_input_origins` rather than being re-derived there: the
+    calculation card shows them to the member, so the one place that knows how
+    a value was arrived at is the place that arrived at it.
     """
     filled: dict[str, Any] = {}
+    origins: dict[str, str] = {}
     still_missing: list[dict[str, Any]] = []
+    invented = 0
 
     for item in missing:
         name = str(item.get("name") or "")
-        if len(filled) >= ceiling or not is_assumable(name):
+        rule = rule_for(name)
+        derives = bool(rule and rule.derives)
+        if not is_assumable(name) or (not derives and invented >= ceiling):
             still_missing.append(item)
             continue
         value = default_for(name, known)
         if value is None:
             still_missing.append(item)
             continue
-        rule = rule_for(name)
+        source = SOURCE_DERIVED if derives else SOURCE_ASSUMED
         basis = rule.basis if rule else ""
-        sheet.record_fact(name, value, SOURCE_ASSUMED, basis=basis)
+        sheet.record_fact(name, value, source, basis=basis)
         filled[name] = value
+        origins[name] = source
+        if not derives:
+            invented += 1
 
-    return filled, still_missing
+    return filled, origins, still_missing
 
 
 def _input_origins(
     *,
     resolved: dict[str, Any],
     taken: dict[str, Any],
-    assumed: dict[str, Any],
+    filled_origins: dict[str, str],
     sheet: WorkSheet,
     question: str,
     stand_in: bool = False,
@@ -726,7 +744,10 @@ def _input_origins(
 ) -> dict[str, str]:
     """Where each resolved input came from, decided here because here it is known.
 
-    - Filled by the assumption policy: `assumed`.
+    - Filled while resolving: the rank the fill itself resolved at, carried in
+      `filled_origins` -- `derived` for a value computed from facts already
+      held, `statutory_parameter` for one the Code states, `assumed` only for
+      one nobody supplied.
     - Read out of the conversation by the model: `stated` when the member wrote
       that value in this message, otherwise `derived` -- "I am 60" states an
       age; the months before 60 are worked out from it.
@@ -742,8 +763,8 @@ def _input_origins(
     """
     origins: dict[str, str] = {}
     for name in resolved:
-        if name in assumed:
-            origins[name] = SOURCE_ASSUMED
+        if name in filled_origins:
+            origins[name] = filled_origins[name]
         elif name in taken:
             # The ledger first: `_stated_in` only ever saw the current message,
             # so a figure the member gave three turns ago came back `derived`
@@ -960,13 +981,15 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     )
     filtered = sheet.filter_asks(missing)
     settings_ceiling = settings.assumption_ceiling
-    assumed, still_missing = apply_assumptions(sheet, filtered, facts, settings_ceiling)
+    assumed, filled_origins, still_missing = apply_assumptions(
+        sheet, filtered, facts, settings_ceiling
+    )
     resolved.update(assumed)
 
     origins = _input_origins(
         resolved=resolved,
         taken=taken,
-        assumed=assumed,
+        filled_origins=filled_origins,
         sheet=sheet,
         question=state["question"],
         stand_in=_stand_ins_allowed(state),
