@@ -228,6 +228,11 @@ class PensionAgentState(TypedDict, total=False):
     # than written by the model (see blocks.py) -- per-turn, like
     # calculation_result.
     answer_blocks: dict[str, str]
+    # Tables this turn can show, rendered by code before generation begins:
+    # slot -> markdown. The calculation drawer reads these, and each is sent
+    # to the client as its own event rather than riding on `done` behind the
+    # whole answer and its verification.
+    views: dict[str, str]
     answer_rung: int
     tool_calls: list[dict]
     guardrail_passed: bool
@@ -392,6 +397,7 @@ def initial_state(
         "final_answer": None,
         "citations": [],
         "answer_blocks": {},
+        "views": {},
         "answer_rung": 0,
         "tool_calls": [],
         "guardrail_passed": True,

@@ -22,8 +22,15 @@ import logging
 import time
 from typing import Any
 
+from langgraph.config import get_stream_writer
+
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent.blocks import render_assumptions, render_branches, render_thresholds
+from pension_chat.agent.blocks import (
+    render_assumptions,
+    render_branches,
+    render_thresholds,
+    render_worked_steps,
+)
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import (
     ANSWER_SYSTEM,
@@ -663,6 +670,12 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # layer exists to prevent. Those turns run the loop as they always did.
     prefetched: set[str] = set()
     if coverage_mod.classify_self_reference(state["question"]) is None:
+        prefetch_args = {
+            "queries": _contextual_queries(state),
+            "articles": _search_filter(working),
+            "why": "searched before the first model call",
+        }
+        _progress("search_statute", prefetch_args)
         result, update = await run_tool(
             "search_statute",
             {
@@ -812,6 +825,9 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         messages.append(turn.raw_message)
         for call in turn.calls:
             spent[call.name] = spent.get(call.name, 0) + 1
+            # Before the call, not after it: a step reported on completion is
+            # the step the member has already finished waiting for.
+            _progress(call.name, call.arguments)
             result, update = await run_tool(call.name, call.arguments, working)
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
@@ -841,6 +857,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # it, and whatever comes back joins the citable set rather than replacing
     # what the model chose.
     if not exhausted and not spent.get("search_statute"):
+        _progress("search_statute", {"queries": _contextual_queries(state)})
         result, update = await run_tool(
             "search_statute",
             {
@@ -1080,6 +1097,85 @@ def _branched(state: dict[str, Any]) -> str:
     registry all along.
     """
     return render_branches(state.get("calculation_result") or {})
+
+
+#: Views the model emits by marker and code fills. A table's numbers are the
+#: thing a model can get wrong in a way nothing downstream catches -- two
+#: figures swapped between two branches both trace to engine output, so the
+#: guardrail passes them -- so the model names the table and never writes it.
+#:
+#: ASSUMPTIONS is deliberately absent. `guardrails._check_assumptions_disclosed`
+#: requires the *answer* to disclose an assumption in its own words, and a block
+#: substituted into the stream is not the answer saying anything.
+MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS")
+
+
+#: How a tool call reads as a step, in the member's terms rather than the
+#: agent's. Listed rather than generated from the tool name, because "running
+#: related_sections" describes the machinery and "checking what else bears on
+#: 11-134" describes the work.
+def _step_for(name: str, arguments: dict[str, Any]) -> str:
+    if name == "search_statute":
+        queries = arguments.get("queries") or []
+        first = str(queries[0]) if queries else ""
+        return f"searching the Code for {first}" if first else "searching the Code"
+    if name == "get_section":
+        return f"reading Section {arguments.get('section')}"
+    if name == "outline":
+        return f"listing what Article {arguments.get('article')} covers"
+    if name == "related_sections":
+        return f"checking what else bears on Section {arguments.get('section')}"
+    if name == "compute_benefit":
+        return f"working out the {arguments.get('benefit') or 'benefit'}"
+    if name == "check_coverage":
+        return "working out which fund covers you"
+    return ""
+
+
+def _progress(name: str, arguments: dict[str, Any]) -> None:
+    """Report a step as it starts, best effort.
+
+    `get_stream_writer` raises outside a graph run, and `investigate` is called
+    directly by the eval harness and by most of this module's tests. Progress
+    is a courtesy; it must never be the reason a turn fails.
+    """
+    step = _step_for(name, arguments)
+    if not step:
+        return
+    try:
+        get_stream_writer()({"progress": step})
+    except Exception:  # noqa: BLE001 - a missing writer is not this turn's problem
+        pass
+
+
+def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:
+    """The first result entry that actually computed, or None."""
+    for entry in (state.get("calculation_result") or {}).values():
+        if ((entry or {}).get("base") or {}).get("ok"):
+            return dict(entry)
+    return None
+
+
+def _views(state: dict[str, Any]) -> dict[str, str]:
+    """Every table this turn can show, keyed by slot.
+
+    Rendered here because here is before generation. A view built from state
+    that already exists can be sent to the member while the prose is still
+    being written, and can be filled into the answer by marker so the model
+    never transcribes a number into it.
+
+    Only non-empty renders are recorded: a slot carrying "" is a blank panel in
+    the calculation drawer, which reads to a member as something having gone
+    wrong rather than as nothing to say.
+    """
+    first = _first_figure(state)
+    rendered = {
+        "WORKED_STEPS": render_worked_steps(first["base"]) if first else "",
+        "COMPARISON": render_branches(state.get("calculation_result") or {}),
+        "ASSUMPTIONS": _assumed(state),
+        "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
+    }
+    return {slot: text for slot, text in rendered.items() if text.strip()}
 
 
 def _attribution(state: dict[str, Any]) -> str:
@@ -1435,6 +1531,28 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    views = _views(state)
+    if marked := [slot for slot in MARKED_VIEWS if slot in views]:
+        # The model names the table; code writes it. Handing over the rendered
+        # table as text to paraphrase is what lets a number be transposed --
+        # and two figures swapped between two branches both trace to engine
+        # output, so nothing downstream would catch it.
+        #
+        # A marker the model forgets is not lost: `MarkerSubstituter.unused()`
+        # appends the block at the end of the answer.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "These tables are already written and will be inserted for "
+                    "you. Put each marker on a line of its own where the table "
+                    "belongs, and do not write the figures yourself:"
+                    + chr(10) + chr(10)
+                    + chr(10).join(f"<<<{slot}>>>" for slot in marked)
+                ),
+            }
+        )
+
     if provision := _worked_from(state):
         messages.append({"role": "system", "content": provision})
 
@@ -1483,11 +1601,12 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 "role": "system",
                 "content": (
                     "This member's tier is not established, so BOTH provisions "
-                    "were priced by the same engine. Give both figures with the "
-                    "condition on each -- do not pick one, and do not say you "
-                    "could not establish the tier and stop. Say what decides it, "
-                    "so they can tell you which applies:" + chr(10) + chr(10)
-                    + comparison
+                    "were priced by the same engine, and the table below will be "
+                    "inserted at <<<COMPARISON>>>. Do not pick one, and do not "
+                    "say you could not establish the tier and stop. Say what "
+                    "decides it, so they can tell you which applies -- and do "
+                    "not write the figures, the table carries them."
+                    + chr(10) + chr(10) + comparison
                 ),
             }
         )
@@ -1542,7 +1661,14 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "answer_messages": messages,
-        "answer_blocks": {},
+        # Rendered before generation, so they can be sent to the member while
+        # the prose is still being written -- and so the calculation drawer has
+        # something to show. `card.py` has been reading `answer_blocks` for
+        # these since the cutover, and nothing has written it since.
+        "views": views,
+        "answer_blocks": {
+            slot: views[slot] for slot in MARKED_VIEWS if slot in views
+        },
         "citations": citations,
         # `select_rung` lives inside `prepare_answer`, which the loop does not
         # run, so every loop answer reported rung 0 -- including answers whose

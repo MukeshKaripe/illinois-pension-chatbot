@@ -470,6 +470,46 @@ step that already finished.
 
 **Progress events are not tokens.** See §10.
 
+### 9.1 Shipped, 2026-09-16 — and a regression it found
+
+**The calculation drawer had been empty since the cutover.** `card.py` builds
+`card["blocks"]` from `state["answer_blocks"]` and `CalculationPanel.tsx`
+renders it, but the only writer of `answer_blocks` was `loop.compose`, setting
+it to `{}`; `prepare_answer`, which used to fill it, no longer exists. All three
+drawer panels resolved to nothing on every turn. `render_worked_steps` had not
+run at all on the live path — `loop.py` imported the assumptions, branch and
+threshold renderers and never that one.
+
+So "extending `MarkerSubstituter`" was not an extension. The machinery was
+intact and unfed.
+
+| | |
+|---|---|
+| `views` — every table, rendered before generation | `loop._views` |
+| the drawer reads it again | `card.py` |
+| tables emitted by marker, never transcribed | `loop.MARKED_VIEWS` |
+| each view its own SSE event, before the first token | `sse_view` |
+| progress reported *before* each tool runs | `loop._progress` |
+| the client stays quiet on a fast turn | `lib/progress.ts` |
+
+**Why a table must not be transcribed.** `_branched` handed the model a rendered
+table and asked it to give both figures. Two figures swapped between two
+branches *both trace to engine output*, so the guardrail passes the swap. A
+marker has no numbers in it. `ASSUMPTIONS` is deliberately still prose:
+`_check_assumptions_disclosed` requires the *answer* to disclose in its own
+words, and a substituted block is not the answer saying anything.
+
+**Elapsed time is carried to the client, not judged on the server.** Whether a
+turn was fast is only knowable in hindsight, so the server reports every step
+with how long it had been going and `visibleSteps` decides. Crossing four
+seconds reveals the whole sequence, not just the part after the threshold.
+
+**Not done:** the fire-and-forget checkpoint write (§15). `durability="exit"`
+persists when the graph exits, on the critical path; `"async"` persists during
+the *following* step, and with three nodes and generation outside the graph
+there may be no following step to hide the write behind. Which is faster is an
+in-region measurement, not a reading of the API.
+
 ## 10. Latency
 
 **The KPI is time to first grounded token.** Not first token: a fused call could

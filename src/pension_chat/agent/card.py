@@ -65,7 +65,11 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
                 }
             )
 
-        computed = state.get("answer_blocks") or {}
+        # `views`, not `answer_blocks`: the latter holds only the blocks the
+        # model emits by marker, and the drawer wants every table the turn
+        # rendered -- including the assumptions, which the answer discloses in
+        # prose and which have no marker.
+        computed = state.get("views") or {}
         return {
             "type": "card",
             "formula_name": entry.get("formula_name"),

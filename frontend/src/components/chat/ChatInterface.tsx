@@ -18,6 +18,7 @@ import { ScenarioChips } from "./ScenarioChips";
 import { NewProfilePanel } from "@/components/profile/NewProfilePanel";
 import { ProfileMenu } from "@/components/profile/ProfileMenu";
 import { ProfilePanel } from "@/components/profile/ProfilePanel";
+import type { ProgressStep } from "@/lib/progress";
 import { takeFrames, type SseEvent } from "@/lib/sse";
 import type { Citation, Message, Panel, Scenario, SessionSummary } from "@/lib/types";
 import { CalculationPanel } from "./CalculationPanel";
@@ -28,7 +29,8 @@ import { Drawer } from "./Drawer";
 import { EmptyState } from "./EmptyState";
 import { EvidencePanel } from "./EvidencePanel";
 import { Sidebar } from "./Sidebar";
-import { StatusLine } from "./StatusLine";
+import { WorkingNote } from "./WorkingNote";
+
 
 const isDesktop = () =>
   typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
@@ -47,6 +49,10 @@ export function ChatInterface() {
   const [sidebar, setSidebar] = useState<boolean | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [agentStatus, setAgentStatus] = useState("");
+  // What the turn is doing, and what it has finished, while the answer is
+  // still being written. Both are cleared the moment prose starts arriving.
+  const [steps, setSteps] = useState<ProgressStep[]>([]);
+  const [views, setViews] = useState<{ slot: string; markdown: string }[]>([]);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
   // The side drawer: a section's text or a calculation, beside the chat.
@@ -256,9 +262,33 @@ export function ChatInterface() {
         case "status":
           if (!sawAnswerToken) setAgentStatus(String(data.stage ?? ""));
           break;
+        case "progress":
+          // Kept whatever the elapsed time says: `visibleSteps` decides what
+          // the member sees, so a turn that turns out to be slow can still
+          // show the steps that happened before anyone knew it would be.
+          if (!sawAnswerToken) {
+            setSteps((prior) => [
+              ...prior,
+              { text: String(data.text ?? ""), at: Number(data.at ?? 0) },
+            ]);
+          }
+          break;
+        case "view":
+          // Rendered before generation began, so it is on screen while the
+          // sentence explaining it is still being written.
+          if (!sawAnswerToken) {
+            setViews((prior) => [
+              ...prior,
+              { slot: String(data.slot ?? ""), markdown: String(data.markdown ?? "") },
+            ]);
+          }
+          break;
         case "token":
           sawAnswerToken = true;
           setAgentStatus("");
+          // The answer carries the tables itself from here.
+          setSteps([]);
+          setViews([]);
           aiContent += String(data.delta ?? "");
           update({ content: aiContent });
           break;
@@ -430,7 +460,7 @@ export function ChatInterface() {
                   onOpenCalculation={(card) => setPanel({ kind: "calculation", card })}
                 />
               ))}
-              <StatusLine text={agentStatus} />
+              <WorkingNote status={agentStatus} steps={steps} views={views} />
             </div>
           )}
         </div>
