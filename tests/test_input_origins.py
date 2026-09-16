@@ -1,8 +1,8 @@
 """Tests for where each calculation input came from, recorded as it resolves.
 
 `resolve_inputs` merges three sources -- the record, what the model read out of
-the conversation, and the assumption policy -- and used to return only the
-merged values. The calculation card then guessed each input's origin from the
+the conversation, and what it fills in while resolving -- and used to return
+only the merged values. The calculation card then guessed each input's origin from the
 worksheet, which holds a stated value only when the model also reported it as a
 revision: the same question was labelled "stated" on one run and "derived" on
 the next. The origin is decided here instead, where it is actually known.
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pension_chat.agent.nodes import _available_facts, _input_origins, _stand_ins_allowed
 from pension_chat.agent.worksheet import (
+    SOURCE_ASSUMED,
     SOURCE_STAND_IN,
     SOURCE_WITHHELD,
     USABLE_SOURCES,
@@ -29,7 +30,7 @@ def test_each_input_is_labelled_by_where_it_actually_came_from() -> None:
             "age_at_annuity_start": "60",
         },
         taken={"final_average_salary": "70000.00", "months_before_age_60": "0"},
-        assumed={"age_at_annuity_start": "60"},
+        filled_origins={"age_at_annuity_start": SOURCE_ASSUMED},
         sheet=sheet,
         question="My final average salary is $70,000.",
     )
@@ -54,7 +55,7 @@ def test_a_record_input_keeps_the_sheets_own_label() -> None:
     origins = _input_origins(
         resolved={"service_years": "25"},
         taken={},
-        assumed={},
+        filled_origins={},
         sheet=sheet,
         question="What would my pension be?",
     )
@@ -164,7 +165,7 @@ def test_the_flag_alone_does_not_relabel_a_members_own_facts() -> None:
     origins = _input_origins(
         resolved={"service_years": "21.5"},
         taken={},
-        assumed={},
+        filled_origins={},
         sheet=sheet,
         question="What would I get?",
     )
@@ -181,7 +182,7 @@ def test_a_borrowed_value_is_labelled_as_a_stand_in() -> None:
     origins = _input_origins(
         resolved={"service_years": "21.5", "final_average_salary": "69956.40"},
         taken={},
-        assumed={},
+        filled_origins={},
         sheet=sheet,
         question="if I were a Chicago police officer with my salary and service?",
     )
@@ -218,7 +219,7 @@ def test_a_value_stated_three_turns_ago_is_still_stated():
     origins = _input_origins(
         resolved={"total_service_years": 40},
         taken={"total_service_years": 40},
-        assumed={},
+        filled_origins={},
         sheet=WorkSheet(),
         question="so what would that come to?",
         held={"total_service_years": SOURCE_STATED},
@@ -233,7 +234,7 @@ def test_the_current_message_still_wins_when_the_ledger_is_silent():
     origins = _input_origins(
         resolved={"final_average_salary": 75000},
         taken={"final_average_salary": 75000},
-        assumed={},
+        filled_origins={},
         sheet=WorkSheet(),
         question="my average salary is 75000",
         held={},
@@ -250,7 +251,7 @@ def test_an_assumption_this_turn_is_not_promoted_by_an_older_statement():
     origins = _input_origins(
         resolved={"retirement_age": 67},
         taken={},
-        assumed={"retirement_age": 67},
+        filled_origins={"retirement_age": SOURCE_ASSUMED},
         sheet=WorkSheet(),
         question="what would I get?",
         held={"retirement_age": SOURCE_STATED},

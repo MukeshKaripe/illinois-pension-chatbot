@@ -196,6 +196,14 @@ class PensionAgentState(TypedDict, total=False):
     # shows it, so it must be known rather than reconstructed.
     input_sources: dict[str, str]
     missing_inputs: list[dict]
+    # What this turn's gaps allow: compute / compute_with_assumptions /
+    # worked_example / ask. Counted from the ranks each input resolved at, so
+    # the ceiling cannot be evaded and "what I assumed" cannot be wrong.
+    gap_verdict: str
+    # Values the Code itself supplied for a gap, each with the section that
+    # states it. The answer cites these rather than disclosing them as
+    # assumptions -- nobody filled them in, and the member can go and read them.
+    statutory_fills: list[dict]
     # Inputs where the member stated a value their record contradicts
     input_overrides: list[dict]
 
@@ -370,6 +378,8 @@ def initial_state(
         "resolved_inputs": {},
         "input_sources": {},
         "missing_inputs": [],
+        "gap_verdict": "compute",
+        "statutory_fills": [],
         "input_overrides": [],
         "validation_errors": [],
         "validation_warnings": [],

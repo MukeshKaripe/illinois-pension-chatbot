@@ -34,10 +34,18 @@ SOURCE_WITHHELD = "withheld"
 #: my salary and service*". The same number as `record` and a different claim
 #: about it -- which is why it is its own source rather than a flag beside one.
 SOURCE_STAND_IN = "stand_in"
-#: A label, not a sheet source: an input worked out from other facts this turn
-#: (the months before 60 from a stated age). Never stored on the sheet;
-#: `nodes._input_origins` uses it so the calculation card can say so.
+#: An input worked out from other facts already held -- the months before 60
+#: from a stated age. It invents nothing: every value it rests on came from the
+#: member or their record, so it is not an assumption and is not disclosed as
+#: one. Telling a member we guessed at something they told us themselves is the
+#: opposite of the truth.
 SOURCE_DERIVED = "derived"
+#: A value the Code itself states -- a threshold, a normal retirement age --
+#: carried with the section that states it. Not an assumption: nobody filled it
+#: in, and the member can go and read it. It ranks below `derived` because a
+#: value worked out from what this member told us is about *them*, where a
+#: statutory parameter is about everyone the provision reaches.
+SOURCE_STATUTORY = "statutory_parameter"
 
 #: Sources a computed figure is allowed to rest on. `withheld` is deliberately
 #: absent: the value is known, and using it anyway is the bug this exists to stop.
@@ -45,7 +53,15 @@ SOURCE_DERIVED = "derived"
 #: labelled borrowed value produces a real figure they can compare against their
 #: own, where a refusal produces nothing.
 USABLE_SOURCES = frozenset(
-    {SOURCE_RECORD, SOURCE_STATED, SOURCE_HYPOTHETICAL, SOURCE_ASSUMED, SOURCE_STAND_IN}
+    {
+        SOURCE_RECORD,
+        SOURCE_STATED,
+        SOURCE_HYPOTHETICAL,
+        SOURCE_DERIVED,
+        SOURCE_STATUTORY,
+        SOURCE_ASSUMED,
+        SOURCE_STAND_IN,
+    }
 )
 
 #: Sources that must never be written into durable state. `record` because the
@@ -279,12 +295,20 @@ class WorkSheet:
             if fact.source in USABLE_SOURCES and fact.value is not None
         }
 
+    def facts_at(self, source: str) -> dict[str, Fact]:
+        """Everything the sheet holds at one rank.
+
+        The answer accounts for the three fill ranks separately, because they
+        are three different claims: the Code states this, we worked this out
+        from what you told us, and we filled this in. Collapsing them tells a
+        member we guessed at a value we cited.
+        """
+        return {name: fact for name, fact in self.facts.items() if fact.source == source}
+
     def assumed_facts(self) -> dict[str, Fact]:
-        return {
-            name: fact
-            for name, fact in self.facts.items()
-            if fact.source == SOURCE_ASSUMED
-        }
+        """Only what nobody supplied. This is the set the ceiling counts and
+        the guardrail requires the answer to disclose."""
+        return self.facts_at(SOURCE_ASSUMED)
 
     # ── Figures and dependencies ─────────────────────────────────
 

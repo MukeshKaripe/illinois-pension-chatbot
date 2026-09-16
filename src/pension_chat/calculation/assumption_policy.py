@@ -71,6 +71,14 @@ class AssumptionRule:
     disclosure_cues: tuple[str, ...] = ()
     default: Callable[[Mapping[str, Any]], Any] | None = None
     plausible: Callable[[Mapping[str, Any]], tuple[Any, Any] | None] | None = None
+    #: True when ``default`` *computes* the value from facts already held
+    #: rather than choosing one. A derivation invents nothing -- every value it
+    #: rests on came from the member or their record -- so it does not spend
+    #: the ceiling and it is not disclosed as an assumption. Disclosing it
+    #: tells a member we guessed at something they told us themselves, and
+    #: spending the ceiling on it can refuse them a figure for want of a slot
+    #: they themselves paid for.
+    derives: bool = False
 
 
 def _today(known: Mapping[str, Any]) -> Any:
@@ -130,6 +138,10 @@ POLICY: dict[str, AssumptionRule] = {
         disclosure_cues=("birthday", "date of birth", "born"),
         default=_months_before_sixty,
         plausible=_months_before_sixty_range,
+        # Computed from an age the member gave. The mid-year placement is the
+        # honest middle of the range their own statement allows, reported with
+        # its spread -- not a value chosen in place of one they withheld.
+        derives=True,
     ),
 }
 

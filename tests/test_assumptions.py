@@ -142,7 +142,7 @@ def test_assumptions_fill_only_what_policy_allows() -> None:
         {"name": "withdrawal_date", "ask_for": "the date you plan to stop working"},
         {"name": "final_average_salary", "ask_for": "your salary history"},
     ]
-    filled, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=2)
+    filled, _, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=2)
 
     assert filled["withdrawal_date"] == "2026-09-09"
     assert [item["name"] for item in still_missing] == ["final_average_salary"]
@@ -153,6 +153,14 @@ def test_assumptions_fill_only_what_policy_allows() -> None:
 
 
 def test_the_ceiling_stops_a_figure_resting_on_too_much_guesswork() -> None:
+    """The ceiling counts inventions, and `months_before_age_60` is not one.
+
+    This test used to spend a ceiling slot on it and assert it was dropped as
+    the third fill. It is computed from an age the member supplied, so it
+    invents nothing and passes free -- refusing it was refusing a member a
+    figure for want of a slot they themselves had paid for. The ceiling still
+    bites, and the case that shows it is three values nobody supplied.
+    """
     from pension_chat.agent.nodes import apply_assumptions
     from pension_chat.agent.worksheet import WorkSheet
 
@@ -162,7 +170,28 @@ def test_the_ceiling_stops_a_figure_resting_on_too_much_guesswork() -> None:
         {"name": "annuity_start_date", "ask_for": "..."},
         {"name": "months_before_age_60", "ask_for": "..."},
     ]
-    filled, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=2)
+    filled, _, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=2)
 
-    assert len(filled) == 2
-    assert [item["name"] for item in still_missing] == ["months_before_age_60"]
+    assert set(filled) == {"withdrawal_date", "annuity_start_date", "months_before_age_60"}
+    assert still_missing == []
+
+
+def test_the_ceiling_bites_a_third_invented_value() -> None:
+    """Two is the contract. A third value nobody supplied is a member we made
+    up, however plausible each one looked on its own."""
+    from pension_chat.agent.nodes import apply_assumptions
+    from pension_chat.agent.worksheet import WorkSheet
+
+    sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": KNOWN, "assumptions": {}})
+    missing = [
+        {"name": "withdrawal_date", "ask_for": "..."},
+        {"name": "annuity_start_date", "ask_for": "..."},
+        {"name": "withdrawal_date_again", "ask_for": "..."},
+    ]
+    filled, _, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=1)
+
+    assert len(filled) == 1
+    assert [item["name"] for item in still_missing] == [
+        "annuity_start_date",
+        "withdrawal_date_again",
+    ]

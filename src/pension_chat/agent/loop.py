@@ -23,7 +23,7 @@ import time
 from typing import Any
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent.blocks import render_assumptions, render_thresholds
+from pension_chat.agent.blocks import render_assumptions, render_branches, render_thresholds
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import (
     ANSWER_SYSTEM,
@@ -1038,20 +1038,48 @@ work from it and from nothing else. Write the answer itself -- no preamble about
 having searched, and no account of how you went about it."""
 
 
+def _has_figure(state: dict[str, Any]) -> bool:
+    return any(
+        (entry or {}).get("base", {}).get("ok")
+        for entry in (state.get("calculation_result") or {}).values()
+    )
+
+
 def _assumed(state: dict[str, Any]) -> str:
-    """What the answer must disclose, or "" when there is nothing to disclose.
+    """How each filled value was arrived at, or "" when nothing was filled.
 
     Only beside a figure. The rule `guardrails` enforces is "a figure resting on
     a value nobody supplied must say so"; with no figure nothing rests on
     anything, and the disclosure reads as a hedge about an answer that never
     needed one.
     """
-    if not any(
-        (entry or {}).get("base", {}).get("ok")
-        for entry in (state.get("calculation_result") or {}).values()
-    ):
+    if not _has_figure(state):
         return ""
     return render_assumptions(WorkSheet.from_state(state))
+
+
+def _must_disclose(state: dict[str, Any]) -> bool:
+    """Whether anything in this figure was actually invented.
+
+    The block now accounts for three ranks, and only one of them is a value
+    nobody supplied. Telling the model a figure "rests on values nobody
+    supplied" when every fill was cited to the Code makes it apologise for the
+    strongest evidence in the answer.
+    """
+    return _has_figure(state) and bool(
+        WorkSheet.from_state(state).assumed_facts()
+    )
+
+
+def _branched(state: dict[str, Any]) -> str:
+    """Both figures, when a governing gap was priced rather than asked about.
+
+    An unknown tier is two provisions, not a missing number. The transcripts
+    show the agent naming the fork -- "If you are Tier 1... If you are Tier 2..."
+    -- and computing neither, while both figures were available from the
+    registry all along.
+    """
+    return render_branches(state.get("calculation_result") or {})
 
 
 def _borrowed_benefits(state: dict[str, Any]) -> str:
@@ -1405,6 +1433,24 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    if comparison := _branched(state):
+        # The block has to be where the decision is made. A model told only
+        # that the tier is unknown writes the sentence the transcripts show and
+        # stops; handed both figures, it has nothing left to refuse.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "This member's tier is not established, so BOTH provisions "
+                    "were priced by the same engine. Give both figures with the "
+                    "condition on each -- do not pick one, and do not say you "
+                    "could not establish the tier and stop. Say what decides it, "
+                    "so they can tell you which applies:" + chr(10) + chr(10)
+                    + comparison
+                ),
+            }
+        )
+
     if disclosure := _assumed(state):
         # `apply_assumptions` fills a missing value deep inside `resolve_inputs`,
         # several tool calls below this conversation, so the model has no way of
@@ -1416,11 +1462,24 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "role": "system",
                 "content": (
-                    "The figure you are about to quote rests on values nobody "
-                    "supplied. You must say so, in your own words, beside the "
-                    "figure:" + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
-                    + "An estimate whose assumptions are not stated will be "
-                    "withdrawn before the member sees it."
+                    (
+                        "The figure you are about to quote rests on values "
+                        "nobody supplied. You must say so, in your own words, "
+                        "beside the figure:"
+                        if _must_disclose(state)
+                        else "Account for how the figure's inputs were arrived "
+                        "at, in your own words. Values the Code sets are "
+                        "citable -- name the section rather than hedging about "
+                        "them, and do not call them assumptions:"
+                    )
+                    + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
+                    + (
+                        "An estimate whose assumptions are not stated will be "
+                        "withdrawn before the member sees it."
+                        if _must_disclose(state)
+                        else "Nothing here was invented, so nothing here needs "
+                        "an apology."
+                    )
                 ),
             }
         )

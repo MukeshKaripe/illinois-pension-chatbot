@@ -14,10 +14,16 @@ in code, at resolution time, deliberately not reported by the model, because
 claim about their own figure".
 
 **Precedence, not overwrite.** A value the member stated outranks one read off
-their record, which outranks one derived from another, which outranks one we
-filled in. Re-reading the file every turn therefore cannot quietly undo a
-correction. Equal rank replaces, because a member restating a value is still the
-member speaking and the later statement is the current one.
+their record, which outranks one derived from another, which outranks one the
+Code states, which outranks one we filled in. Re-reading the file every turn
+therefore cannot quietly undo a correction. Equal rank replaces, because a
+member restating a value is still the member speaking and the later statement is
+the current one.
+
+The two middle ranks are the ones that stop the hedging. A value derived from
+what this member said and a value cited to the section that states it are both
+*better* than a gap, and neither is an assumption -- so neither is capped, and
+neither is disclosed as something we guessed at.
 
 **Per subject.** Facts are held under the subject they are about, and nothing
 reads across. That is the same rule `_available_facts` enforces when it starves
@@ -34,6 +40,7 @@ from pension_chat.agent.worksheet import (
     SOURCE_DERIVED,
     SOURCE_RECORD,
     SOURCE_STATED,
+    SOURCE_STATUTORY,
 )
 
 #: The subject a conversation is about unless it says otherwise.
@@ -45,6 +52,7 @@ PRECEDENCE: tuple[str, ...] = (
     SOURCE_STATED,
     SOURCE_RECORD,
     SOURCE_DERIVED,
+    SOURCE_STATUTORY,
     SOURCE_ASSUMED,
 )
 

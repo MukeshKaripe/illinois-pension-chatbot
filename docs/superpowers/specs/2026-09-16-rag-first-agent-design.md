@@ -273,6 +273,53 @@ move, and no amount of §6 will move it.
 
 ## 7. Assumptions
 
+### 7.1 Shipped, 2026-09-16 — and what was already built
+
+All seven pieces below are implemented, offline-tested and merged
+(`docs/superpowers/plans/2026-09-16-assumptions.md`). One thing this section
+asked for did not need building.
+
+**The statutory parameter registry already existed.** `dsl_types.ParameterSpec`
+is a value plus `source: {section, subsection}`; `derivation.py` refuses any
+constant without a citation; `validator._check_citations` refuses a citation to
+a section nobody retrieved; `formula_registry.rule_specification` persists them
+with the recipe's whole lifecycle; `thresholds.py` already reads them back by
+name. Discovered, persisted, reusable, citable — all four, already there.
+
+The gap was narrower than the prose above suggests: a parameter was usable only
+*inside* its own recipe's calculation tree, so an Article that states the age
+for a full annuity still left the agent unable to establish a retirement age.
+`calculation/statutory.py` is a resolver over evidence already on hand — no new
+table, no migration, no regex, no model call. **Do not rebuild the registry.**
+
+What shipped:
+
+| | |
+|---|---|
+| `statutory_parameter` as rank 4 | `worksheet.py`, `ledger.PRECEDENCE` |
+| a fill computed from known facts is `derived`, not `assumed` | `AssumptionRule.derives` |
+| the ceiling counts **inventions**, not fills | `nodes.apply_assumptions` |
+| cited thresholds fill a gap, with the section | `calculation/statutory.py` |
+| governing gaps vs value gaps | `agent/gaps.py` |
+| the four-row contract | `nodes.gap_verdict`, `tools._describe` |
+| an unknown tier is priced both ways | `nodes.resolve_recipes`, `blocks.render_branches` |
+| three ranks, three headings in the answer | `blocks.render_assumptions` |
+
+**Two things the implementation settled that the design did not.**
+
+*The ceiling was counting the wrong thing.* `months_before_age_60` is computed
+from an age the member stated, and it spent one of the two slots — so a member
+could be refused a figure for want of a slot they themselves had paid for.
+
+*Branching belongs to the registry, not to derivation.* Derivation reads the
+statute, not the member, so branching it would spend two model calls producing
+one recipe. And two branches are only two provisions when the rows differ: one
+recipe answering for either tier prints one figure, not the same figure twice.
+
+**Not measured.** Every claim here is unit-tested behaviour. Whether it moves
+the 33-in-100 hedging rate needs the index and the models, and that is §12's
+work, not this one's.
+
 **The ladder.** member_stated → record → derived → statutory_parameter → *never
 invented*. Ranks 3 and 4 are where the current agent gives up: a retirement date
 derivable from a stated age is not an assumption, and an Article's own normal
