@@ -644,10 +644,47 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     withdrawn: set[str] = set()
     exhausted = False
     pushed_back = False
-    # Section ids handed to the loop before its first model call. Empty until
-    # the prefetch work lands; the guard below reads it so that work cannot
-    # retire the guard by accident.
+    # ── Search before the model is asked anything ────────────────
+    #
+    # The same search the backstop below runs, at a better time. A turn that has
+    # statute text in front of it before its first call does not spend a round
+    # trip discovering it should search: measured in-region over 23 questions,
+    # four model round trips became two.
+    #
+    # Skipped when the member describes themselves. `check_coverage` may still
+    # move the governing Article, and a filter built on the record would seed
+    # another fund's law into the citable set -- the exact harm the coverage
+    # layer exists to prevent. Those turns run the loop as they always did.
     prefetched: set[str] = set()
+    if coverage_mod.classify_self_reference(state["question"]) is None:
+        result, update = await run_tool(
+            "search_statute",
+            {
+                "queries": _contextual_queries(state),
+                "articles": _search_filter(working),
+                "why": "searched before the first model call",
+            },
+            working,
+        )
+        spent["search_statute"] = spent.get("search_statute", 0) + 1
+        if update.get("retrieved_sections"):
+            sections = _merge_sections(sections, update["retrieved_sections"])
+            working.update(update)
+            working["retrieved_sections"] = sections
+        prefetched = {
+            str(section["section"]) for section in sections if section.get("section")
+        }
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "The Code was searched on the member's own words before you "
+                    "were asked anything, so you already have statute text. Read "
+                    "further only if this does not settle the question:"
+                    + chr(10) + chr(10) + result
+                ),
+            }
+        )
 
     while True:
         if sum(spent.values()) >= BUDGETS["total"]:

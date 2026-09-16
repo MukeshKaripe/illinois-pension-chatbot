@@ -57,7 +57,9 @@ async def test_a_loop_that_searches_then_answers(monkeypatch):
 
     out = await loop_mod.investigate({"question": "what is Article 11?", "messages": []})
 
-    assert [name for name, _ in ran] == ["search_statute"]
+    # Two searches now: the prefetch before the first model call, and the one
+    # the model asked for. Both are the loop searching; the count is incidental.
+    assert [name for name, _ in ran] == ["search_statute", "search_statute"]
     assert any(m.get("role") == "tool" for m in out["loop_messages"])
 
 
@@ -167,7 +169,9 @@ async def test_a_malformed_tool_call_does_not_end_the_turn(monkeypatch):
 
     out = await loop_mod.investigate({"question": "q", "messages": []})
 
-    assert ran == [("search_statute", {})]
+    # The prefetch searches first with real arguments; the model's own call is
+    # the one with the broken JSON, and it is the one under test.
+    assert ("search_statute", {}) in ran
     assert out["loop_exhausted"] is False
 
 
@@ -711,16 +715,27 @@ async def test_a_turn_that_searched_is_left_alone(monkeypatch):
         [_turn(("search_statute", {"queries": ["annuity amount"], "why": "x"})),
          _turn(content="Found it.")],
     )
-    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134"}]})
-    await loop_mod.investigate({"question": "how much?", "turn_index": 0})
-    assert sum(1 for name, _ in ran if name == "search_statute") == 1
+    _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134"}]})
+    out = await loop_mod.investigate({"question": "how much?", "turn_index": 0})
+    # The subject is the backstop, which adds a search to a turn that took none.
+    # A prefetched turn has already taken one, so the count moved; what must
+    # still hold is that the backstop did not fire.
+    assert not any(
+        "answered without searching" in str(m.get("content") or "")
+        for m in out["loop_messages"]
+    )
 
 
 async def test_an_exhausted_loop_does_not_search_again(monkeypatch):
     """Worth a call, not an overrun -- the same bound completion carries."""
     _script(monkeypatch, [_turn(("outline", {"article": "11"}))] * 30)
     ran = _tools(monkeypatch)
-    out = await loop_mod.investigate({"question": "q", "turn_index": 0})
+    # A self-description skips the prefetch, so this turn reaches exhaustion
+    # with no search behind it -- which is the only state in which the backstop
+    # has anything to add, and therefore the only one worth testing.
+    out = await loop_mod.investigate(
+        {"question": "i am a park employee, what happens?", "turn_index": 0}
+    )
     assert out["loop_exhausted"] is True
     assert not any(name == "search_statute" for name, _ in ran)
 
