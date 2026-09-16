@@ -95,3 +95,29 @@ def test_turn_input_leaves_the_durable_keys_alone():
 
 def test_turn_input_resets_the_previous_turns_result():
     assert turn_input("q", "s")["calculation_result"] is None
+
+
+def test_the_fact_ledger_survives_a_turn():
+    """The whole point. A value the member gave in turn two is still theirs in
+    turn four, so the assistant does not ask again."""
+    from pension_chat.agent.state import DURABLE_KEYS, PER_TURN_KEYS, turn_input
+
+    assert "fact_ledger" in DURABLE_KEYS
+    assert "fact_ledger" not in PER_TURN_KEYS
+    assert "fact_ledger" not in turn_input("next question", "session-1")
+
+
+def test_the_fact_ledger_starts_empty():
+    from pension_chat.agent.state import initial_state
+
+    assert initial_state("q", "session-1")["fact_ledger"] == {}
+
+
+def test_the_fact_ledger_merges_rather_than_replacing():
+    """Two subjects written on different turns must both survive."""
+    from pension_chat.agent.state import merge_dicts
+
+    first = {"me": {"total_service_years": {"value": 40, "source": "stated", "turn": 1}}}
+    second = {"as_a_firefighter": {"tier": {"value": 1, "source": "stated", "turn": 2}}}
+    merged = merge_dicts(first, second)
+    assert set(merged) == {"me", "as_a_firefighter"}

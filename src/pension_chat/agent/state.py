@@ -93,6 +93,13 @@ class PensionAgentState(TypedDict, total=False):
     scenario_set: Annotated[dict[str, Any], merge_dicts]
     # Sections this conversation has cited and had verified, section -> turn.
     cited_sections: Annotated[dict[str, Any], merge_dicts]
+    # What this conversation has established about each subject, and how it
+    # knows it: {subject: {name: {value, source, turn}}}. Durable because the
+    # member's own words are the best-provenance fact class in this design and
+    # were the only one discarded every turn -- so a member who gave their
+    # service in turn two was asked for it again in turn four. See
+    # `agent/ledger.py` for the precedence rules.
+    fact_ledger: Annotated[dict[str, Any], merge_dicts]
     # Which Article covers this member and on what evidence:
     # {article, basis, record_article, candidates, conflict, described_as}.
     # `basis` is the single thing downstream code reads, so a supposed premise
@@ -243,6 +250,7 @@ DURABLE_KEYS: frozenset[str] = frozenset({
     "assumptions",
     "scenario_set",
     "cited_sections",
+    "fact_ledger",
     # Coverage is durable for the same reason a chosen provision is: the member
     # answered a question about who they are, and an answer that has to be
     # re-established every turn was never really taken. That was the fourth turn
@@ -324,6 +332,7 @@ def initial_state(
         "assumptions": {},
         "scenario_set": {},
         "cited_sections": {},
+        "fact_ledger": {},
         "coverage": None,
         "hypothetical_frame": None,
         "open_question": None,

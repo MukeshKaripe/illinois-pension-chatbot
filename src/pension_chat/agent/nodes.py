@@ -33,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent import guardrails
+from pension_chat.agent import guardrails, ledger
 from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.llm import complete
@@ -374,10 +374,35 @@ def _available_facts(state: PensionAgentState) -> dict:
     calculation input, as a fact an applicability predicate is tested against,
     as a figure the answer may quote, and as a source verification will accept.
     Single-sourced here so those four cannot drift apart.
+
+    What survives the starving is what the member said themselves. A figure is
+    computable exactly when no input is borrowed from a record filed under
+    another Article, and a value they typed is borrowed from no record at all --
+    which is why "if I were a park employee with 25 years and $70,000" has
+    always been answerable where the bare supposition is not. That route existed
+    only for values typed in the current message; the ledger makes it hold for
+    values typed three turns ago.
+
+    The ledger is overlaid rather than consulted first: `member_facts` is
+    rebuilt from the file every turn, so a ledger entry at the record's own rank
+    must not pin a stale copy over a fresher read.
     """
     if not _record_facts_usable(state):
-        return {}
-    return dict(state.get("member_facts") or {})
+        return dict(ledger.stated_only(state.get("fact_ledger") or {}, ledger.SELF))
+    facts = dict(state.get("member_facts") or {})
+    held = state.get("fact_ledger") or {}
+    sources = ledger.provenance(held, ledger.SELF)
+    for name, value in ledger.recall(held, ledger.SELF).items():
+        # Strictly better than the record, or the record does not supply it.
+        # `outranks` is non-strict on purpose -- a later statement replaces an
+        # earlier one -- but here a tie means a ledger copy of the record facing
+        # a fresher read of the same file, and the fresher read wins.
+        if name in facts and ledger.rank(sources.get(name, "")) >= ledger.rank(
+            SOURCE_RECORD
+        ):
+            continue
+        facts[name] = value
+    return facts
 
 
 def _governing_article(state: PensionAgentState) -> int:
@@ -697,6 +722,7 @@ def _input_origins(
     sheet: WorkSheet,
     question: str,
     stand_in: bool = False,
+    held: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Where each resolved input came from, decided here because here it is known.
 
@@ -719,12 +745,53 @@ def _input_origins(
         if name in assumed:
             origins[name] = SOURCE_ASSUMED
         elif name in taken:
-            origins[name] = SOURCE_STATED if _stated_in(taken[name], question) else SOURCE_DERIVED
+            # The ledger first: `_stated_in` only ever saw the current message,
+            # so a figure the member gave three turns ago came back `derived`
+            # and the card told them the assistant had worked out a number they
+            # had typed themselves. A value they stated stays stated until they
+            # supersede it.
+            if (held or {}).get(name) == SOURCE_STATED:
+                origins[name] = SOURCE_STATED
+            else:
+                origins[name] = (
+                    SOURCE_STATED
+                    if _stated_in(taken[name], question)
+                    else SOURCE_DERIVED
+                )
         else:
             fact = sheet.fact(name)
             default = SOURCE_STAND_IN if stand_in else SOURCE_RECORD
             origins[name] = fact.source if fact is not None else default
     return origins
+
+
+def _ledger_update(
+    *,
+    resolved: dict[str, Any],
+    origins: dict[str, str],
+    turn: int,
+) -> dict[str, Any]:
+    """Turn this turn's resolution into something the next turn can read.
+
+    Grouped by source so each group is recorded at its own rank: a value the
+    member stated must not be written at the record's rank simply because both
+    resolved on the same turn. A resolved input with no recorded origin is
+    skipped rather than guessed -- the calculation card shows these, so a guess
+    here is a false claim about the member's own figure.
+    """
+    by_source: dict[str, dict[str, Any]] = {}
+    for name, value in resolved.items():
+        source = origins.get(name)
+        if not source:
+            continue
+        by_source.setdefault(source, {})[name] = value
+
+    update: dict[str, Any] = {}
+    for source, values in by_source.items():
+        written = ledger.remember(update, ledger.SELF, values, source, turn)
+        if written:
+            update = {**update, **written}
+    return update
 
 
 async def resolve_inputs(state: PensionAgentState) -> dict:
@@ -896,15 +963,23 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     assumed, still_missing = apply_assumptions(sheet, filtered, facts, settings_ceiling)
     resolved.update(assumed)
 
+    origins = _input_origins(
+        resolved=resolved,
+        taken=taken,
+        assumed=assumed,
+        sheet=sheet,
+        question=state["question"],
+        stand_in=_stand_ins_allowed(state),
+        held=ledger.provenance(state.get("fact_ledger") or {}, ledger.SELF),
+    )
+
     return {
         "resolved_inputs": resolved,
-        "input_sources": _input_origins(
+        "input_sources": origins,
+        "fact_ledger": _ledger_update(
             resolved=resolved,
-            taken=taken,
-            assumed=assumed,
-            sheet=sheet,
-            question=state["question"],
-            stand_in=_stand_ins_allowed(state),
+            origins=origins,
+            turn=int(state.get("turn_index") or 0),
         ),
         # An input the sheet holds is not missing, and an input it holds but
         # cannot use under this premise is not missing either -- it is withheld,
