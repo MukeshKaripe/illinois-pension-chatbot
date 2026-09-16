@@ -376,6 +376,19 @@ async def run_agent_stream(
     state["guardrail_passed"] = report.passed
     state["guardrail_report"] = report.to_dict()
 
+    # A consequence proportional to the failure. Cutting the one sentence that
+    # named a section nobody retrieved keeps the four beside it that named
+    # sections that were -- and costs no model call, unlike repair.
+    salvaged = guardrails.downgrade(
+        answer, report, lambda text: _verify(state, text, settings)
+    )
+    if salvaged is not None:
+        answer, report = salvaged
+        state["final_answer"] = answer
+        state["guardrail_passed"] = True
+        state["guardrail_report"] = report.to_dict()
+        yield {"type": "replace", "text": answer, "reason": {"excised": True}}
+
     if not report.passed and settings.answer_repair_enabled:
         # One attempt, never a loop. The unverified text has already been
         # streamed, so whatever comes out of this replaces it.

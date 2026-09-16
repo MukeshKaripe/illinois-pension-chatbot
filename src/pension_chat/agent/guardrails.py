@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -213,6 +213,39 @@ _MONEY = re.compile(r"\$\s*([\d,]+(?:\.\d{1,2})?)")
 _PERCENT = re.compile(r"(\d{1,3}(?:\.\d{1,3})?)\s*%")
 
 
+#: What a failure costs, worst first by `_COST`. A report carrying several
+#: failures pays the worst of them.
+RETRACT = "retract"
+REPAIR = "repair"
+EXCISE = "excise"
+
+_COST = {RETRACT: 0, REPAIR: 1, EXCISE: 2}
+
+#: A consequence per failure code. Anything absent retracts: a check added
+#: without an entry here fails safe rather than quietly becoming excisable, and
+#: `test_downgrade_ladder.py` fails until somebody decides which it is.
+CONSEQUENCE: dict[str, str] = {
+    "EMPTY_ANSWER": RETRACT,
+    # The one failure that harms a member, so it is the one that costs
+    # everything. A figure nobody can trace is not improved by deleting the
+    # sentence around it.
+    "UNVERIFIED_FIGURE": RETRACT,
+    # A sentence naming a section nobody retrieved, beside four naming sections
+    # that were. Withdrawing all five is how a sound explanation of teacher
+    # pensions became "I have taken that answer back -- sorry."
+    "UNVERIFIED_CITATION": EXCISE,
+    "UNSUPPORTED_COVERAGE": EXCISE,
+    # Nothing in the answer is wrong; something is missing. Cutting text cannot
+    # add a disclosure, and cannot make a flat statement conditional.
+    "ASSUMPTION_NOT_DISCLOSED": REPAIR,
+    "UNMARKED_HYPOTHETICAL": REPAIR,
+    # Raised by `graph.py`, not here: the stream was stopped mid-sentence, so
+    # the text that survives is truncated rather than wrong. Cutting more out
+    # of it cannot help; it has to be written again.
+    "STREAM_UNGROUNDED": REPAIR,
+}
+
+
 @dataclass
 class GuardrailReport:
     """Outcome of verifying one generated answer."""
@@ -224,9 +257,34 @@ class GuardrailReport:
     unverified_citations: list[str] = field(default_factory=list)
     unverified_numbers: list[str] = field(default_factory=list)
 
-    def fail(self, code: str, message: str):
+    def fail(self, code: str, message: str, spans: Sequence[str] = ()):
+        """Record a hard failure.
+
+        ``spans`` are verbatim substrings of the answer this failure objects
+        to. They have to be verbatim: excision removes a span by string match,
+        so one that does not appear would cut nothing and publish the sentence
+        it objected to under a passing report.
+        """
         self.passed = False
-        self.hard_failures.append({"code": code, "message": message})
+        self.hard_failures.append(
+            {"code": code, "message": message, "spans": list(spans)}
+        )
+
+    @property
+    def consequence(self) -> str:
+        """The worst thing this report's failures cost; "" when it passed.
+
+        An excisable failure that recorded no span is not excisable: knowing a
+        sentence is wrong is not knowing which sentence, so it retracts.
+        """
+        worst = ""
+        for failure in self.hard_failures:
+            cost = CONSEQUENCE.get(failure["code"], RETRACT)
+            if cost == EXCISE and not failure.get("spans"):
+                cost = RETRACT
+            if not worst or _COST[cost] < _COST[worst]:
+                worst = cost
+        return worst
 
     def warn(self, code: str, message: str):
         self.warnings.append({"code": code, "message": message})
@@ -443,6 +501,7 @@ def verify_answer(
             "The answer cites "
             + ", ".join(f"40 ILCS 5/{s}" for s in report.unverified_citations)
             + ", which was not among the sections retrieved for it.",
+            spans=_spans_around(answer, report.unverified_citations),
         )
 
     # 2. Money and percentage figures must trace to evidence.
@@ -518,6 +577,87 @@ _ATTRIBUTED_TO_RECORD = re.compile(
     r"what (?:your|the) (?:record|file) shows|the record (?:says|shows|places))\b",
     re.IGNORECASE,
 )
+
+
+#: Below this, what excision left is a fragment rather than an answer, and the
+#: member is better served by the retraction telling them what happened.
+MIN_EXCISED_WORDS = 25
+
+
+def downgrade(
+    answer: str,
+    report: GuardrailReport,
+    verify: Callable[[str], GuardrailReport],
+) -> tuple[str, GuardrailReport] | None:
+    """The answer with its failing spans cut out, if that is enough to save it.
+
+    ``None`` when it is not, and the caller falls through to repair and then to
+    the fallback exactly as before. Three ways this declines, and each is the
+    conservative direction:
+
+    * the worst failure is not excisable -- an untraceable figure is not fixed
+      by deleting the sentence around it;
+    * too little survives to be an answer, so the member is better told plainly
+      that it was withdrawn;
+    * what survives does not verify on its own, which would publish unverified
+      text under a passing report -- worse than the retraction it replaces.
+
+    ``verify`` is passed in rather than called here because verification needs
+    the turn's whole state, which this module deliberately does not have.
+    """
+    if report.passed or report.consequence != EXCISE:
+        return None
+    spans = [
+        span for failure in report.hard_failures for span in (failure.get("spans") or [])
+    ]
+    trimmed = excise(answer, spans)
+    if not trimmed or len(trimmed.split()) < MIN_EXCISED_WORDS:
+        return None
+    retry = verify(trimmed)
+    if not retry.passed:
+        return None
+    return trimmed, retry
+
+
+def excise(answer: str, spans: Sequence[str]) -> str:
+    """``answer`` with each span removed and the whitespace closed up.
+
+    Longest span first, so a sentence containing another is not left holding a
+    fragment of it. Paragraph breaks survive, because the answer's shape is
+    part of how it reads -- but a paragraph emptied entirely goes with its
+    break, or the cut leaves a hole where a claim used to be.
+
+    No model call. That is what separates this from repair, and it is why the
+    common failure case gets faster rather than slower.
+    """
+    text = answer
+    for span in sorted(spans, key=len, reverse=True):
+        if span:
+            text = text.replace(span, "")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _spans_around(answer: str, needles: Iterable[str]) -> list[str]:
+    """The sentences of ``answer`` containing any of ``needles``, in order.
+
+    Verbatim or not at all. Excision removes a span by string match, so a span
+    that does not appear in the answer would cut nothing and publish the
+    sentence it objected to under a report that now says everything is fine.
+
+    One sentence per offending sentence, not per offence: two bad citations in
+    one sentence are one cut.
+    """
+    found: list[str] = []
+    for needle in needles:
+        for match in re.finditer(re.escape(needle), answer):
+            sentence = _sentence_around(answer, match.start()).strip()
+            if sentence and sentence in answer and sentence not in found:
+                found.append(sentence)
+    return found
 
 
 def _sentence_around(text: str, index: int) -> str:
@@ -609,6 +749,11 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
             "no record for this member and they have not said which fund they are "
             "in. Ask which fund or employer they are under before treating any "
             "Article as theirs.",
+            # Located in the answer rather than in `plain`: excision cuts the
+            # text the member is reading, and `plain` has quoted spans stripped
+            # out of it. Where the asserting words do not survive that
+            # difference there is no span, and the failure retracts.
+            spans=_spans_around(answer, [asserted.group(0)]),
         )
         return
 
@@ -630,6 +775,7 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
             "only on the Article recorded against their file — not on anything they "
             "said or on a coverage test in the Code. Say what the record shows and "
             "what the Code's test is, rather than presenting one as the other.",
+            spans=_spans_around(answer, [asserted.group(0)]),
         )
 
 

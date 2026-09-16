@@ -395,10 +395,35 @@ A boundary needs whitespace after the full stop, because `"2."` followed by
 `"40%"` is a rate arriving in two deltas and releasing eagerly would show the
 member `"2."` as a finished thought.
 
-Still deferred: falling back to *investigation* on a cut, rather than to the
-existing repair-then-fallback path. And the per-block downgrade ladder above
-depends on blocks carrying registers, which §1 dissolved — it needs redesigning
-against claim provenance before it can be built.
+### 8.1 The ladder, shipped 2026-09-16
+
+**The unit is the sentence, and the locator already existed.** This section
+recorded the ladder as blocked: "depends on blocks carrying registers, which §1
+dissolved". Registers were only ever needed to know *which claim class* a span
+belonged to — and the failure already knows that. What was missing was *where*,
+and `guardrails._sentence_around` had been in the file the whole time, used by
+the coverage check to judge attribution in context. The streaming gate settled
+the same question the same way when it chose a sentence boundary. There was no
+register-shaped hole.
+
+`guardrails.CONSEQUENCE` maps each failure code to `RETRACT`, `REPAIR` or
+`EXCISE`; an unrecognised code retracts, and a test over the `.fail()` calls in
+`guardrails.py` *and* `graph.py` keeps the table closed — `STREAM_UNGROUNDED` is
+raised from outside the module and is exactly the entry a table living inside it
+would have missed.
+
+`guardrails.downgrade` cuts the failing spans and re-verifies, at **no model
+call**, so the common failure case got cheaper as well as less destructive. It
+declines in three directions, each conservative: an untraceable figure is never
+salvaged, a remainder under 25 words is not an answer, and a remainder that does
+not verify on its own is refused rather than published under a passing report.
+
+**Done here too:** the record-attribution prose is deleted from `ANSWER_SYSTEM`
+and rendered by `loop._attribution` from `coverage.basis`.
+
+**Still deferred:** falling back to *investigation* on a cut. It means
+re-entering the tool loop mid-stream — a latency cost and a control-flow change
+that wants its own design, not a step at the end of this one.
 
 **A regression this design introduces, and must fix.** `loop.py` pushes back
 once when the model declares itself done having read nothing — the guard that
