@@ -192,6 +192,38 @@ def render_comparison(options: Sequence[Mapping[str, Any]]) -> str:
     return "\n".join([header, *rows])
 
 
+def render_branches(results: Mapping[str, Any]) -> str:
+    """Both provisions, priced, with the condition each one rests on.
+
+    Rendered here rather than described to the model for the reason every other
+    block is: asked to present two conditional figures, a model reaches for the
+    one that looks more like an answer, and the member reads a determination
+    where the Code offers a fork.
+
+    Empty unless at least two branches actually computed. Naming a branch we
+    could not price is the behaviour this replaces.
+    """
+    rows = []
+    for entry in (results or {}).values():
+        branch = (entry or {}).get("branch") or {}
+        base = (entry or {}).get("base") or {}
+        if not branch or not base.get("ok"):
+            continue
+        rows.append(
+            f"| {_label(str(branch.get('fact') or ''))} {branch.get('value')} | "
+            f"{_money(base.get('annual_amount'))} | "
+            f"{_money(base.get('monthly_amount'))} | "
+            f"{entry.get('section') or ''} |"
+        )
+    if len(rows) < 2:
+        return ""
+    header = (
+        "| If you are | Annual pension | Monthly pension | Under |\n"
+        "|---|---:|---:|---|"
+    )
+    return "\n".join([header, *rows])
+
+
 def render_assumptions(sheet: WorkSheet) -> str:
     """What was filled in, and on whose say-so. Empty when nothing was.
 

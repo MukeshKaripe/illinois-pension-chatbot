@@ -23,7 +23,7 @@ import time
 from typing import Any
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent.blocks import render_assumptions, render_thresholds
+from pension_chat.agent.blocks import render_assumptions, render_branches, render_thresholds
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import (
     ANSWER_SYSTEM,
@@ -1054,6 +1054,17 @@ def _assumed(state: dict[str, Any]) -> str:
     return render_assumptions(WorkSheet.from_state(state))
 
 
+def _branched(state: dict[str, Any]) -> str:
+    """Both figures, when a governing gap was priced rather than asked about.
+
+    An unknown tier is two provisions, not a missing number. The transcripts
+    show the agent naming the fork -- "If you are Tier 1... If you are Tier 2..."
+    -- and computing neither, while both figures were available from the
+    registry all along.
+    """
+    return render_branches(state.get("calculation_result") or {})
+
+
 def _borrowed_benefits(state: dict[str, Any]) -> str:
     """What to say when this member's fund takes its benefits from another.
 
@@ -1401,6 +1412,24 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                     "own estimate, so you may quote them. State it plainly beside "
                     "the answer -- do not offer to look into it, and do not close "
                     "with a question:" + chr(10) + chr(10) + cliff
+                ),
+            }
+        )
+
+    if comparison := _branched(state):
+        # The block has to be where the decision is made. A model told only
+        # that the tier is unknown writes the sentence the transcripts show and
+        # stops; handed both figures, it has nothing left to refuse.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "This member's tier is not established, so BOTH provisions "
+                    "were priced by the same engine. Give both figures with the "
+                    "condition on each -- do not pick one, and do not say you "
+                    "could not establish the tier and stop. Say what decides it, "
+                    "so they can tell you which applies:" + chr(10) + chr(10)
+                    + comparison
                 ),
             }
         )

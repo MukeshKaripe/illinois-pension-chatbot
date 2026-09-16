@@ -488,12 +488,30 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     tier = employee["tier"] if employee else None
     facts = _available_facts(state)
 
+    # Tier keys the registry, so an unknown tier is not a missing number -- it
+    # is two provisions. Ask for both and price whichever are genuinely
+    # different, rather than naming the branch and refusing to compute either:
+    # "If you are Tier 1... If you are Tier 2..." followed by no figure is what
+    # the transcripts show, and both figures were available all along.
+    #
+    # Only the registry lookup branches. Derivation reads the statute, not the
+    # member, so running it twice would spend two model calls producing one
+    # recipe.
+    branches: list[int | None] = [tier] if tier is not None else [1, 2]
+
     recipes: dict[str, dict] = {}
     provenance: list[dict] = []
     failures: list[dict] = []
 
-    async def resolve_one(formula_type: str) -> None:
-        row = await lookup_recipe(formula_type, article, tier)
+    async def from_registry(
+        formula_type: str, branch_tier: int | None
+    ) -> tuple[dict, dict, Any] | None:
+        """This tier's registry recipe, its provenance entry, and the row.
+
+        ``None`` when nothing is on file, the statute has moved under what is,
+        or the provision does not reach this member.
+        """
+        row = await lookup_recipe(formula_type, article, branch_tier)
         if row is not None:
             # Reuse only if the statute it was derived from still reads the same.
             # Fetch the recipe's own source sections rather than intersecting
@@ -520,36 +538,67 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
                     )
                 else:
                     recipe["applicability_check"] = applicable.to_dict()
-                    recipes[formula_type] = recipe
-                    provenance.append(
-                        {
-                            "formula_type": formula_type,
-                            "source": "registry",
-                            "formula_id": recipe["formula_id"],
-                            "section": recipe.get("section"),
-                            "subsection": recipe.get("controlling_subsection"),
-                            "status": recipe["status"],
-                            "applicability": recipe.get("applicability"),
-                            "applicability_status": applicable.status,
-                            "selection_basis": recipe.get("selection_basis"),
-                            "alternatives_considered": (
-                                recipe.get("alternatives_considered") or []
-                            )[:5],
-                            "reused": True,
-                        }
-                    )
-                    # Counted where the reuse actually happens. A row that
-                    # `lookup_recipe` returned and freshness then refused has
-                    # not been reused, and counting it there would make the
-                    # column measure lookups rather than load.
-                    note_reuse_later(row)
-                    return
+                    entry = {
+                        "formula_type": formula_type,
+                        "source": "registry",
+                        "formula_id": recipe["formula_id"],
+                        "section": recipe.get("section"),
+                        "subsection": recipe.get("controlling_subsection"),
+                        "status": recipe["status"],
+                        "applicability": recipe.get("applicability"),
+                        "applicability_status": applicable.status,
+                        "selection_basis": recipe.get("selection_basis"),
+                        "alternatives_considered": (
+                            recipe.get("alternatives_considered") or []
+                        )[:5],
+                        "reused": True,
+                    }
+                    return recipe, entry, row
             else:
                 logger.info(
                     "Registry recipe %s is stale (%s); re-deriving",
                     row.formula_id,
                     mismatches,
                 )
+        return None
+
+    async def resolve_one(formula_type: str) -> None:
+        found = [
+            (branch_tier, result)
+            for branch_tier, result in zip(
+                branches,
+                await asyncio.gather(
+                    *(from_registry(formula_type, b) for b in branches)
+                ),
+                strict=True,
+            )
+            if result is not None
+        ]
+
+        # Two branches are only two provisions when they are different rows.
+        # One recipe answering for either tier is one provision, and printing
+        # the same figure twice under two conditions tells the member their
+        # tier matters when it does not.
+        distinct = {result[0]["formula_id"] for _, result in found}
+        branching = len(found) > 1 and len(distinct) > 1
+
+        for branch_tier, (recipe, entry, row) in found:
+            key = formula_type
+            if branching:
+                key = f"{formula_type}@tier{branch_tier}"
+                recipe = {**recipe, "branch": {"fact": "tier", "value": branch_tier}}
+                entry = {**entry, "branch": {"fact": "tier", "value": branch_tier}}
+            recipes[key] = recipe
+            provenance.append(entry)
+            # Counted where the reuse actually happens. A row that
+            # `lookup_recipe` returned and freshness then refused has not been
+            # reused, and counting it there would make the column measure
+            # lookups rather than load.
+            note_reuse_later(row)
+            if not branching:
+                break
+        if found:
+            return
 
         derived = await derive_recipe(formula_type, sections, facts)
         if not derived.ok:
@@ -1431,6 +1480,11 @@ async def execute_calculations(state: PensionAgentState) -> dict:
             "execution_policy": recipe.get("policy"),
             "knowledge_status": recipe.get("status"),
             "risk_tier": (recipe.get("risk") or {}).get("risk_tier"),
+            # Which fork of a governing gap this figure is the answer to, when
+            # the turn is pricing both. Carried from the recipe so the block
+            # that renders the comparison reads it from the engine's own output
+            # rather than from the key it happens to be filed under.
+            "branch": recipe.get("branch"),
             "base": run(base_inputs),
         }
 
