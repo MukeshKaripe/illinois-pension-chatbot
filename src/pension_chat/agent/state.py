@@ -196,6 +196,10 @@ class PensionAgentState(TypedDict, total=False):
     # shows it, so it must be known rather than reconstructed.
     input_sources: dict[str, str]
     missing_inputs: list[dict]
+    # Values the Code itself supplied for a gap, each with the section that
+    # states it. The answer cites these rather than disclosing them as
+    # assumptions -- nobody filled them in, and the member can go and read them.
+    statutory_fills: list[dict]
     # Inputs where the member stated a value their record contradicts
     input_overrides: list[dict]
 
@@ -370,6 +374,7 @@ def initial_state(
         "resolved_inputs": {},
         "input_sources": {},
         "missing_inputs": [],
+        "statutory_fills": [],
         "input_overrides": [],
         "validation_errors": [],
         "validation_warnings": [],

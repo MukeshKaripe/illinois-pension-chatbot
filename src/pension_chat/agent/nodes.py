@@ -59,6 +59,7 @@ from pension_chat.agent.worksheet import (
     SOURCE_RECORD,
     SOURCE_STAND_IN,
     SOURCE_STATED,
+    SOURCE_STATUTORY,
     WorkSheet,
 )
 from pension_chat.calculation.applicability import (
@@ -72,6 +73,7 @@ from pension_chat.calculation.assumption_policy import (
 )
 from pension_chat.calculation.dsl_interpreter import DSLExecutionError, DSLInterpreter
 from pension_chat.calculation.risk_assessor import RiskAssessor
+from pension_chat.calculation.statutory import fills_from as statutory_fills
 from pension_chat.calculation.thresholds import find_thresholds
 from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
@@ -981,9 +983,29 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     )
     filtered = sheet.filter_asks(missing)
     settings_ceiling = settings.assumption_ceiling
-    assumed, filled_origins, still_missing = apply_assumptions(
-        sheet, filtered, facts, settings_ceiling
+
+    # The Code before the guess. A threshold this Article states is already in
+    # the recipe with the section that states it, so it fills a gap at its own
+    # rank rather than spending the assumption ceiling -- and the answer names
+    # the section instead of saying it could not establish the value.
+    statutory = statutory_fills(recipes)
+    cited: dict[str, Any] = {}
+    cited_origins: dict[str, str] = {}
+    outstanding_asks: list[dict[str, Any]] = []
+    for item in filtered:
+        fill = statutory.get(str(item.get("name") or ""))
+        if fill is None:
+            outstanding_asks.append(item)
+            continue
+        sheet.record_fact(fill.name, fill.value, SOURCE_STATUTORY, basis=fill.basis)
+        cited[fill.name] = fill.value
+        cited_origins[fill.name] = SOURCE_STATUTORY
+    resolved.update(cited)
+
+    assumed, assumed_origins, still_missing = apply_assumptions(
+        sheet, outstanding_asks, {**facts, **cited}, settings_ceiling
     )
+    filled_origins = {**cited_origins, **assumed_origins}
     resolved.update(assumed)
 
     origins = _input_origins(
@@ -1009,6 +1031,21 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         # and saying so is the difference between "tell me your age" and "your
         # file has your age, but I am not using it while we talk about Article 12".
         "missing_inputs": _dedupe_missing_inputs(still_missing),
+        # What the Code supplied, so the answer's block can cite it. Only the
+        # fills that were actually used: a parameter that filled nothing is the
+        # recipe's own arithmetic and has no business in a list of the member's
+        # facts.
+        "statutory_fills": [
+            {
+                "name": fill.name,
+                "value": fill.value,
+                "section": fill.section,
+                "subsection": fill.subsection,
+                "basis": fill.basis,
+            }
+            for fill in statutory.values()
+            if fill.name in cited
+        ],
         "input_overrides": overrides,
         **sheet.to_state_update(),
         "timings": {"resolve_inputs": time.perf_counter() - started},
