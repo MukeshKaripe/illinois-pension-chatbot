@@ -1087,6 +1087,17 @@ def _branched(state: dict[str, Any]) -> str:
     return render_branches(state.get("calculation_result") or {})
 
 
+#: Views the model emits by marker and code fills. A table's numbers are the
+#: thing a model can get wrong in a way nothing downstream catches -- two
+#: figures swapped between two branches both trace to engine output, so the
+#: guardrail passes them -- so the model names the table and never writes it.
+#:
+#: ASSUMPTIONS is deliberately absent. `guardrails._check_assumptions_disclosed`
+#: requires the *answer* to disclose an assumption in its own words, and a block
+#: substituted into the stream is not the answer saying anything.
+MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS")
+
+
 def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:
     """The first result entry that actually computed, or None."""
     for entry in (state.get("calculation_result") or {}).values():
@@ -1470,6 +1481,28 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    views = _views(state)
+    if marked := [slot for slot in MARKED_VIEWS if slot in views]:
+        # The model names the table; code writes it. Handing over the rendered
+        # table as text to paraphrase is what lets a number be transposed --
+        # and two figures swapped between two branches both trace to engine
+        # output, so nothing downstream would catch it.
+        #
+        # A marker the model forgets is not lost: `MarkerSubstituter.unused()`
+        # appends the block at the end of the answer.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "These tables are already written and will be inserted for "
+                    "you. Put each marker on a line of its own where the table "
+                    "belongs, and do not write the figures yourself:"
+                    + chr(10) + chr(10)
+                    + chr(10).join(f"<<<{slot}>>>" for slot in marked)
+                ),
+            }
+        )
+
     if provision := _worked_from(state):
         messages.append({"role": "system", "content": provision})
 
@@ -1518,11 +1551,12 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 "role": "system",
                 "content": (
                     "This member's tier is not established, so BOTH provisions "
-                    "were priced by the same engine. Give both figures with the "
-                    "condition on each -- do not pick one, and do not say you "
-                    "could not establish the tier and stop. Say what decides it, "
-                    "so they can tell you which applies:" + chr(10) + chr(10)
-                    + comparison
+                    "were priced by the same engine, and the table below will be "
+                    "inserted at <<<COMPARISON>>>. Do not pick one, and do not "
+                    "say you could not establish the tier and stop. Say what "
+                    "decides it, so they can tell you which applies -- and do "
+                    "not write the figures, the table carries them."
+                    + chr(10) + chr(10) + comparison
                 ),
             }
         )
@@ -1575,7 +1609,6 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
         }
         for s in (state.get("retrieved_sections") or [])
     ]
-    views = _views(state)
     return {
         "answer_messages": messages,
         # Rendered before generation, so they can be sent to the member while
@@ -1583,7 +1616,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
         # something to show. `card.py` has been reading `answer_blocks` for
         # these since the cutover, and nothing has written it since.
         "views": views,
-        "answer_blocks": {},
+        "answer_blocks": {
+            slot: views[slot] for slot in MARKED_VIEWS if slot in views
+        },
         "citations": citations,
         # `select_rung` lives inside `prepare_answer`, which the loop does not
         # run, so every loop answer reported rung 0 -- including answers whose

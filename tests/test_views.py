@@ -116,3 +116,91 @@ async def test_a_turn_with_nothing_to_show_publishes_nothing():
         }
     )
     assert out["views"] == {}
+
+
+# ── The model names the view; code fills it ───────────────────────
+#
+# A block handed over as text to paraphrase is a block whose numbers can be
+# transposed -- and two figures swapped between two branches both trace to
+# engine output, so no guardrail catches it. A marker has no numbers in it.
+
+_BRANCHED = {
+    "retirement_annuity@tier1": {
+        "branch": {"fact": "tier", "value": 1},
+        "section": "11-134",
+        "base": {"ok": True, "annual_amount": "38000.00", "monthly_amount": "3166.67"},
+    },
+    "retirement_annuity@tier2": {
+        "branch": {"fact": "tier", "value": 2},
+        "section": "1-160",
+        "base": {"ok": True, "annual_amount": "31000.00", "monthly_amount": "2583.33"},
+    },
+}
+
+
+async def _composed(state):
+    from pension_chat.agent import loop as loop_mod
+
+    return await loop_mod.compose(
+        {"question": "q", "messages": [], "loop_messages": [], **state}
+    )
+
+
+def _system(out):
+    return [
+        str(m.get("content") or "")
+        for m in out["answer_messages"]
+        if m.get("role") == "system"
+    ]
+
+
+async def test_a_table_is_offered_as_a_marker():
+    out = await _composed({"calculation_result": _BRANCHED})
+    assert out["answer_blocks"].get("COMPARISON")
+    assert any("<<<COMPARISON>>>" in text for text in _system(out))
+
+
+async def test_the_model_is_told_not_to_write_the_figures():
+    out = await _composed({"calculation_result": _BRANCHED})
+    assert "do not write the figures" in " ".join(_system(out)).lower()
+
+
+async def test_the_branch_instruction_survives():
+    """The marker replaces the transcription, not the reasoning: the model
+    still must not pick one branch or refuse for want of a tier."""
+    system = " ".join(_system(await _composed({"calculation_result": _BRANCHED}))).lower()
+    assert "do not pick one" in system
+
+
+async def test_assumptions_stay_prose():
+    """`guardrails._check_assumptions_disclosed` requires the *answer* to
+    disclose an assumption in its own words, and a block substituted into the
+    stream is not the answer saying anything."""
+    out = await _composed(
+        {
+            "calculation_result": _RESULT,
+            "assumptions": {
+                "withdrawal_date": {
+                    "value": "2026-09-16",
+                    "source": "assumed",
+                    "basis": "taken as today",
+                }
+            },
+        }
+    )
+    assert "ASSUMPTIONS" not in out["answer_blocks"]
+    assert out["views"].get("ASSUMPTIONS"), "the drawer still needs its copy"
+
+
+async def test_a_turn_with_no_table_registers_no_blocks():
+    out = await _composed({})
+    assert out["answer_blocks"] == {}
+
+
+async def test_every_registered_block_is_one_the_model_was_asked_for():
+    """A block nobody asked for is appended at the end by `unused()`, which is
+    a backstop rather than a layout."""
+    out = await _composed({"calculation_result": _BRANCHED})
+    system = " ".join(_system(out))
+    for slot in out["answer_blocks"]:
+        assert f"<<<{slot}>>>" in system

@@ -155,6 +155,13 @@ def test_an_ordinary_turn_renders_no_branch_block():
 
 
 async def test_compose_hands_the_model_both_figures_and_forbids_picking():
+    """The figures reach the member through <<<COMPARISON>>>, which code fills.
+
+    They used to reach the member through the model retyping them, which is how
+    Tier 1's amount could arrive under Tier 2 -- both figures trace to engine
+    output, so the guardrail passes the swap. The model still has the table in
+    front of it, because it has to reason about the fork to say what decides it.
+    """
     from pension_chat.agent import loop as loop_mod
 
     out = await loop_mod.compose(
@@ -173,3 +180,5 @@ async def test_compose_hands_the_model_both_figures_and_forbids_picking():
     ]
     assert any("do not pick one" in text.lower() for text in system)
     assert any("38,000" in text for text in system)
+    assert any("<<<COMPARISON>>>" in text for text in system)
+    assert "38,000" in out["answer_blocks"]["COMPARISON"]
