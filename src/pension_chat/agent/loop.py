@@ -1082,6 +1082,31 @@ def _branched(state: dict[str, Any]) -> str:
     return render_branches(state.get("calculation_result") or {})
 
 
+def _attribution(state: dict[str, Any]) -> str:
+    """The line that says the answer is going by the file, or "".
+
+    This was prose in the answer prompt with a prose condition -- "Where an
+    answer rests on what their file says rather than on anything they told you,
+    say so" -- which asked the model to work out both when to say it and how.
+    `coverage.basis` already knows: `record` is exactly the case where nothing
+    the member said established which Article covers them.
+
+    The invitation to correct is not politeness. A member who has just
+    described their job and is answered as though they had not is entitled to
+    know which of the two voices was used, and to say so.
+    """
+    coverage = state.get("coverage") or {}
+    if coverage.get("basis") != coverage_mod.BASIS_RECORD:
+        return ""
+    article = coverage.get("article")
+    if not article:
+        return ""
+    return (
+        f"I'm going by your record, which places you in Article {article} "
+        "— tell me if that's not right."
+    )
+
+
 def _borrowed_benefits(state: dict[str, Any]) -> str:
     """What to say when this member's fund takes its benefits from another.
 
@@ -1429,6 +1454,22 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                     "own estimate, so you may quote them. State it plainly beside "
                     "the answer -- do not offer to look into it, and do not close "
                     "with a question:" + chr(10) + chr(10) + cliff
+                ),
+            }
+        )
+
+    if attribution := _attribution(state):
+        # Deleted from the answer prompt, where it was prose with a prose
+        # condition asking the model to police itself. `coverage.basis` decides
+        # it; the sentence is handed over ready to use.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Nothing this member said established which Article covers "
+                    "them, so this answer rests on their file. Include this "
+                    "line, in your own words or as written:"
+                    + chr(10) + chr(10) + attribution
                 ),
             }
         )
