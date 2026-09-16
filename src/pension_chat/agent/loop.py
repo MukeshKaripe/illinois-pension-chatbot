@@ -391,6 +391,33 @@ def _bind_open_question(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _contextual_queries(state: dict[str, Any]) -> list[str]:
+    """What to search when the member's own words are the query.
+
+    "what are the things needed, please list them" names nothing, and searched
+    alone it returned the Code's rules for pension fund investment advisers --
+    a precise answer to a question nobody asked. The previous message is what
+    says which "things".
+
+    Both queries are kept rather than merged into one: the bare question is
+    still searched on its own, so a turn that was already specific is not
+    diluted by whatever preceded it. Only the member's own messages are used --
+    searching what the assistant said would turn its own guess into the next
+    turn's evidence.
+    """
+    question = str(state.get("question") or "")
+    queries = [question]
+    earlier = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    previous = next((text for text in reversed(earlier[:-1]) if text.strip()), "")
+    if previous and previous.strip() != question.strip():
+        queries.append(f"{previous} {question}".strip())
+    return queries
+
+
 def _search_filter(state: dict[str, Any]) -> list[str]:
     """Which Articles the fallback search reads, and why that is not the whole Code.
 
@@ -722,7 +749,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         result, update = await run_tool(
             "search_statute",
             {
-                "queries": [state["question"]],
+                "queries": _contextual_queries(state),
                 "articles": _search_filter(working),
                 "why": "nothing was searched this turn",
             },
