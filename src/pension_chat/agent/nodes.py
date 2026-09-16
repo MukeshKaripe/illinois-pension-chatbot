@@ -374,10 +374,35 @@ def _available_facts(state: PensionAgentState) -> dict:
     calculation input, as a fact an applicability predicate is tested against,
     as a figure the answer may quote, and as a source verification will accept.
     Single-sourced here so those four cannot drift apart.
+
+    What survives the starving is what the member said themselves. A figure is
+    computable exactly when no input is borrowed from a record filed under
+    another Article, and a value they typed is borrowed from no record at all --
+    which is why "if I were a park employee with 25 years and $70,000" has
+    always been answerable where the bare supposition is not. That route existed
+    only for values typed in the current message; the ledger makes it hold for
+    values typed three turns ago.
+
+    The ledger is overlaid rather than consulted first: `member_facts` is
+    rebuilt from the file every turn, so a ledger entry at the record's own rank
+    must not pin a stale copy over a fresher read.
     """
     if not _record_facts_usable(state):
-        return {}
-    return dict(state.get("member_facts") or {})
+        return dict(ledger.stated_only(state.get("fact_ledger") or {}, ledger.SELF))
+    facts = dict(state.get("member_facts") or {})
+    held = state.get("fact_ledger") or {}
+    sources = ledger.provenance(held, ledger.SELF)
+    for name, value in ledger.recall(held, ledger.SELF).items():
+        # Strictly better than the record, or the record does not supply it.
+        # `outranks` is non-strict on purpose -- a later statement replaces an
+        # earlier one -- but here a tie means a ledger copy of the record facing
+        # a fresher read of the same file, and the fresher read wins.
+        if name in facts and ledger.rank(sources.get(name, "")) >= ledger.rank(
+            SOURCE_RECORD
+        ):
+            continue
+        facts[name] = value
+    return facts
 
 
 def _governing_article(state: PensionAgentState) -> int:
