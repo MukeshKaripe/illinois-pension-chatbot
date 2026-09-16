@@ -310,7 +310,11 @@ async def test_completion_prefers_what_the_most_sections_lean_on(monkeypatch):
 
 async def test_completion_does_not_run_when_the_budget_is_gone(monkeypatch):
     """An exhausted loop has already spent what it had. Completing evidence is
-    worth a few calls, not an overrun."""
+    worth a few calls, not an overrun.
+
+    Asked as a self-description so the prefetch is skipped: a prefetched turn
+    stops after one round and never reaches exhaustion, which would make this
+    test about the cap rather than about the budget."""
     _script(monkeypatch, [_turn(("get_section", {"section": "11-134"})) for _ in range(60)])
     fetched: list[str] = []
 
@@ -324,7 +328,9 @@ async def test_completion_does_not_run_when_the_budget_is_gone(monkeypatch):
 
     monkeypatch.setattr(loop_mod, "run_tool", fake_run)
 
-    out = await loop_mod.investigate({"question": "q", "messages": []})
+    out = await loop_mod.investigate(
+        {"question": "i am a park employee, what happens?", "messages": []}
+    )
 
     assert out["loop_exhausted"] is True
     assert out["unread_references"] == ["11-216"], "reported instead, so compose can say so"
@@ -337,11 +343,16 @@ async def test_a_tool_sees_what_earlier_tools_found(monkeypatch):
     original state, so a calculation ran against an empty corpus and reported
     'no calculation ran' -- with the sections sitting right there in the loop.
     """
+    # Both in one round. A prefetched turn gets one tool round, and what this
+    # is about is that the second call sees what the first found -- which the
+    # loop threads through `working` within a round as well as between them.
     _script(
         monkeypatch,
         [
-            _turn(("search_statute", {"queries": ["annuity"]})),
-            _turn(("compute_benefit", {"benefit": "retirement_annuity"})),
+            _turn(
+                ("search_statute", {"queries": ["annuity"]}),
+                ("compute_benefit", {"benefit": "retirement_annuity"}),
+            ),
             _turn(content="Here."),
         ],
     )

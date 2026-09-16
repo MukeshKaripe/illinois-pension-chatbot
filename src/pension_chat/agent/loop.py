@@ -727,7 +727,23 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
+    # One tool round, once the evidence arrived complete. This is what makes a
+    # prefetched turn two model round trips rather than four.
+    #
+    # Conditional on the prefetch, and that condition is load-bearing. The three
+    # questions that collapsed to one or two citations in measurement were
+    # exactly the three where `classify_self_reference` fires and the prefetch is
+    # skipped: capped as well, they had neither evidence nor the chance to get
+    # any. A turn nobody handed anything to keeps every iteration it ever had.
+    rounds_allowed = 1 if prefetched else 0
+    rounds_taken = 0
+
     while True:
+        if rounds_allowed and rounds_taken >= rounds_allowed:
+            # Not exhaustion. `compose` tells the member what an exhausted turn
+            # could not reach, and that would be a false account of this one.
+            logger.info("Loop stopping after %d round on closed evidence", rounds_taken)
+            break
         if sum(spent.values()) >= BUDGETS["total"]:
             logger.info("Loop spent its total budget of %d calls", BUDGETS["total"])
             exhausted = True
@@ -754,6 +770,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+        rounds_taken += 1
         turn = await call_with_tools(
             node="investigate",
             messages=messages,
