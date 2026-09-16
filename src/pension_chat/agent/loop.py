@@ -73,6 +73,12 @@ LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
 #: section naming a dozen others cannot flood the answer's context.
 MAX_COMPLETION_FETCHES = 3
 
+#: How far the prefetch closes the evidence before the first model call. Wider
+#: than `MAX_COMPLETION_FETCHES` because this runs once, in parallel, and is
+#: what lets the loop stop after one tool round: at this width the measured
+#: citation count rose from 12 to 13 against the uncapped loop.
+MAX_PREFETCH_CLOSURE = 6
+
 INVESTIGATE_SYSTEM = """You are researching one member's question about the Illinois
 Pension Code (40 ILCS 5/). You are not writing the answer yet -- you are finding
 out what the Code says, and you will write the answer yourself once you have.
@@ -391,6 +397,33 @@ def _bind_open_question(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _contextual_queries(state: dict[str, Any]) -> list[str]:
+    """What to search when the member's own words are the query.
+
+    "what are the things needed, please list them" names nothing, and searched
+    alone it returned the Code's rules for pension fund investment advisers --
+    a precise answer to a question nobody asked. The previous message is what
+    says which "things".
+
+    Both queries are kept rather than merged into one: the bare question is
+    still searched on its own, so a turn that was already specific is not
+    diluted by whatever preceded it. Only the member's own messages are used --
+    searching what the assistant said would turn its own guess into the next
+    turn's evidence.
+    """
+    question = str(state.get("question") or "")
+    queries = [question]
+    earlier = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    previous = next((text for text in reversed(earlier[:-1]) if text.strip()), "")
+    if previous and previous.strip() != question.strip():
+        queries.append(f"{previous} {question}".strip())
+    return queries
+
+
 def _search_filter(state: dict[str, Any]) -> list[str]:
     """Which Articles the fallback search reads, and why that is not the whole Code.
 
@@ -617,12 +650,100 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     withdrawn: set[str] = set()
     exhausted = False
     pushed_back = False
-    # Section ids handed to the loop before its first model call. Empty until
-    # the prefetch work lands; the guard below reads it so that work cannot
-    # retire the guard by accident.
+    # ── Search before the model is asked anything ────────────────
+    #
+    # The same search the backstop below runs, at a better time. A turn that has
+    # statute text in front of it before its first call does not spend a round
+    # trip discovering it should search: measured in-region over 23 questions,
+    # four model round trips became two.
+    #
+    # Skipped when the member describes themselves. `check_coverage` may still
+    # move the governing Article, and a filter built on the record would seed
+    # another fund's law into the citable set -- the exact harm the coverage
+    # layer exists to prevent. Those turns run the loop as they always did.
     prefetched: set[str] = set()
+    if coverage_mod.classify_self_reference(state["question"]) is None:
+        result, update = await run_tool(
+            "search_statute",
+            {
+                "queries": _contextual_queries(state),
+                "articles": _search_filter(working),
+                "why": "searched before the first model call",
+            },
+            working,
+        )
+        spent["search_statute"] = spent.get("search_statute", 0) + 1
+        if update.get("retrieved_sections"):
+            sections = _merge_sections(sections, update["retrieved_sections"])
+            working.update(update)
+            working["retrieved_sections"] = sections
+        prefetched = {
+            str(section["section"]) for section in sections if section.get("section")
+        }
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "The Code was searched on the member's own words before you "
+                    "were asked anything, so you already have statute text. Read "
+                    "further only if this does not settle the question:"
+                    + chr(10) + chr(10) + result
+                ),
+            }
+        )
+
+        # Every section that text leans on, read before the model decides.
+        # `_unread_references` is computed rather than judged -- "you relied on
+        # 11-134, which computes on service as defined in 11-216, and you never
+        # read 11-216" is a checkable statement about what is missing. The same
+        # fetch already runs after the loop; running it first is what lets the
+        # model settle the question in one call instead of browsing to find it.
+        weights = _reference_weights(sections)
+        targets = sorted(
+            _unread_references(sections),
+            key=lambda section: (-weights.get(section, 0), section),
+        )[:MAX_PREFETCH_CLOSURE]
+        closed: list[str] = []
+        for target, fetched in zip(targets, await _read_sections(targets, working)):
+            if fetched is None:
+                continue
+            text, update = fetched
+            if update.get("retrieved_sections"):
+                sections = _merge_sections(sections, update["retrieved_sections"])
+                working["retrieved_sections"] = sections
+            closed.append(f"Section {target}:{chr(10)}{text}")
+        if closed:
+            prefetched = {
+                str(section["section"]) for section in sections if section.get("section")
+            }
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Every section that text leans on by cross-reference has "
+                        "also been read for you, so the evidence is closed:"
+                        + chr(10) + chr(10) + (chr(10) * 2).join(closed)
+                    ),
+                }
+            )
+
+    # One tool round, once the evidence arrived complete. This is what makes a
+    # prefetched turn two model round trips rather than four.
+    #
+    # Conditional on the prefetch, and that condition is load-bearing. The three
+    # questions that collapsed to one or two citations in measurement were
+    # exactly the three where `classify_self_reference` fires and the prefetch is
+    # skipped: capped as well, they had neither evidence nor the chance to get
+    # any. A turn nobody handed anything to keeps every iteration it ever had.
+    rounds_allowed = 1 if prefetched else 0
+    rounds_taken = 0
 
     while True:
+        if rounds_allowed and rounds_taken >= rounds_allowed:
+            # Not exhaustion. `compose` tells the member what an exhausted turn
+            # could not reach, and that would be a false account of this one.
+            logger.info("Loop stopping after %d round on closed evidence", rounds_taken)
+            break
         if sum(spent.values()) >= BUDGETS["total"]:
             logger.info("Loop spent its total budget of %d calls", BUDGETS["total"])
             exhausted = True
@@ -649,6 +770,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+        rounds_taken += 1
         turn = await call_with_tools(
             node="investigate",
             messages=messages,
@@ -722,7 +844,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         result, update = await run_tool(
             "search_statute",
             {
-                "queries": [state["question"]],
+                "queries": _contextual_queries(state),
                 "articles": _search_filter(working),
                 "why": "nothing was searched this turn",
             },

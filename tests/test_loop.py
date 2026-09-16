@@ -57,7 +57,9 @@ async def test_a_loop_that_searches_then_answers(monkeypatch):
 
     out = await loop_mod.investigate({"question": "what is Article 11?", "messages": []})
 
-    assert [name for name, _ in ran] == ["search_statute"]
+    # Two searches now: the prefetch before the first model call, and the one
+    # the model asked for. Both are the loop searching; the count is incidental.
+    assert [name for name, _ in ran] == ["search_statute", "search_statute"]
     assert any(m.get("role") == "tool" for m in out["loop_messages"])
 
 
@@ -167,7 +169,9 @@ async def test_a_malformed_tool_call_does_not_end_the_turn(monkeypatch):
 
     out = await loop_mod.investigate({"question": "q", "messages": []})
 
-    assert ran == [("search_statute", {})]
+    # The prefetch searches first with real arguments; the model's own call is
+    # the one with the broken JSON, and it is the one under test.
+    assert ("search_statute", {}) in ran
     assert out["loop_exhausted"] is False
 
 
@@ -306,7 +310,11 @@ async def test_completion_prefers_what_the_most_sections_lean_on(monkeypatch):
 
 async def test_completion_does_not_run_when_the_budget_is_gone(monkeypatch):
     """An exhausted loop has already spent what it had. Completing evidence is
-    worth a few calls, not an overrun."""
+    worth a few calls, not an overrun.
+
+    Asked as a self-description so the prefetch is skipped: a prefetched turn
+    stops after one round and never reaches exhaustion, which would make this
+    test about the cap rather than about the budget."""
     _script(monkeypatch, [_turn(("get_section", {"section": "11-134"})) for _ in range(60)])
     fetched: list[str] = []
 
@@ -320,7 +328,9 @@ async def test_completion_does_not_run_when_the_budget_is_gone(monkeypatch):
 
     monkeypatch.setattr(loop_mod, "run_tool", fake_run)
 
-    out = await loop_mod.investigate({"question": "q", "messages": []})
+    out = await loop_mod.investigate(
+        {"question": "i am a park employee, what happens?", "messages": []}
+    )
 
     assert out["loop_exhausted"] is True
     assert out["unread_references"] == ["11-216"], "reported instead, so compose can say so"
@@ -333,11 +343,16 @@ async def test_a_tool_sees_what_earlier_tools_found(monkeypatch):
     original state, so a calculation ran against an empty corpus and reported
     'no calculation ran' -- with the sections sitting right there in the loop.
     """
+    # Both in one round. A prefetched turn gets one tool round, and what this
+    # is about is that the second call sees what the first found -- which the
+    # loop threads through `working` within a round as well as between them.
     _script(
         monkeypatch,
         [
-            _turn(("search_statute", {"queries": ["annuity"]})),
-            _turn(("compute_benefit", {"benefit": "retirement_annuity"})),
+            _turn(
+                ("search_statute", {"queries": ["annuity"]}),
+                ("compute_benefit", {"benefit": "retirement_annuity"}),
+            ),
             _turn(content="Here."),
         ],
     )
@@ -711,16 +726,27 @@ async def test_a_turn_that_searched_is_left_alone(monkeypatch):
         [_turn(("search_statute", {"queries": ["annuity amount"], "why": "x"})),
          _turn(content="Found it.")],
     )
-    ran = _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134"}]})
-    await loop_mod.investigate({"question": "how much?", "turn_index": 0})
-    assert sum(1 for name, _ in ran if name == "search_statute") == 1
+    _tools(monkeypatch, update={"retrieved_sections": [{"section": "11-134"}]})
+    out = await loop_mod.investigate({"question": "how much?", "turn_index": 0})
+    # The subject is the backstop, which adds a search to a turn that took none.
+    # A prefetched turn has already taken one, so the count moved; what must
+    # still hold is that the backstop did not fire.
+    assert not any(
+        "answered without searching" in str(m.get("content") or "")
+        for m in out["loop_messages"]
+    )
 
 
 async def test_an_exhausted_loop_does_not_search_again(monkeypatch):
     """Worth a call, not an overrun -- the same bound completion carries."""
     _script(monkeypatch, [_turn(("outline", {"article": "11"}))] * 30)
     ran = _tools(monkeypatch)
-    out = await loop_mod.investigate({"question": "q", "turn_index": 0})
+    # A self-description skips the prefetch, so this turn reaches exhaustion
+    # with no search behind it -- which is the only state in which the backstop
+    # has anything to add, and therefore the only one worth testing.
+    out = await loop_mod.investigate(
+        {"question": "i am a park employee, what happens?", "turn_index": 0}
+    )
     assert out["loop_exhausted"] is True
     assert not any(name == "search_statute" for name, _ in ran)
 
@@ -1074,6 +1100,10 @@ async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetc
 
     `_engine_provisions` asks the registry, which needs nothing the completion
     step gathers -- so the two waits are one wait.
+
+    The budget carries a third wait that is serial by design: the prefetch
+    closes the evidence before the first model call, and the model cannot
+    decide without it. 0.2s of what is measured here is that.
     """
     import asyncio
     import time
@@ -1103,4 +1133,6 @@ async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetc
     await loop_mod.investigate({"question": "q", "messages": []})
     elapsed = time.perf_counter() - started
 
-    assert elapsed < 0.35, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"
+    # 0.2s prefetch closure, then provisions and completion overlapping in
+    # 0.2s rather than queueing for 0.4s.
+    assert elapsed < 0.55, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"
