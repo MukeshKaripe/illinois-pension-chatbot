@@ -33,6 +33,7 @@ from pension_chat.sse import (
     sse_replace,
     sse_status,
     sse_token,
+    sse_view,
 )
 
 logger = logging.getLogger("pension_chat.api.sessions")
@@ -447,6 +448,8 @@ async def send_message(
                 kind = event["type"]
                 if kind == "status":
                     yield sse_status(event["stage"])
+                elif kind == "view":
+                    yield sse_view(event["slot"], event["markdown"])
                 elif kind == "token":
                     answer_parts.append(event["text"])
                     yield sse_token(event["text"])

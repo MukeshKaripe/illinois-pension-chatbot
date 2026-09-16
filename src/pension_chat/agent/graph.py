@@ -287,6 +287,13 @@ async def run_agent_stream(
         }
         return
 
+    # Every view was rendered from state that existed before generation began,
+    # so there is nothing to wait for. Riding on `done` puts each table behind
+    # the whole answer *and* its verification -- the 5-10s lag before the
+    # calculation card and citations appear.
+    for slot, markdown in (state.get("views") or {}).items():
+        yield {"type": "view", "slot": slot, "markdown": markdown}
+
     yield {"type": "status", "stage": "answering", "node": "generate_answer"}
 
     chunks: list[str] = []

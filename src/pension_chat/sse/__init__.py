@@ -77,6 +77,16 @@ def sse_status(stage: str) -> str:
     return sse_event("status", {"stage": stage})
 
 
+def sse_view(slot: str, markdown: str) -> str:
+    """Emit one code-rendered table, as soon as it exists.
+
+    Views are built before generation starts, so they need not wait for it.
+    Sending them on `done` put every table behind the whole answer and its
+    verification.
+    """
+    return sse_event("view", {"slot": slot, "markdown": markdown})
+
+
 def sse_token(delta: str) -> str:
     """Emit a single answer token."""
     return sse_event("token", {"delta": delta})
