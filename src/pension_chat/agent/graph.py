@@ -47,6 +47,7 @@ from pension_chat.agent.checkpointer import (
     thread_has_state,
 )
 from pension_chat.agent.facts import aliases_of
+from pension_chat.agent.grounding import StreamGate
 from pension_chat.agent.llm import begin_usage
 from pension_chat.agent.llm import stream as stream_llm
 from pension_chat.agent.loop import compose, investigate
@@ -291,18 +292,41 @@ async def run_agent_stream(
     chunks: list[str] = []
     first_token_at: float | None = None
     substituter = MarkerSubstituter(state.get("answer_blocks") or {})
+    # A citation is checkable the instant it appears -- set membership against
+    # what was retrieved, no model call. Holding each sentence until its
+    # citations clear costs a fraction of a second and means an ungrounded
+    # claim is never sent, rather than being sent and replaced at `done`.
+    #
+    # Sections earlier turns cited and had verified stay available, for the
+    # reason `verify_answer` keeps them: a follow-up retrieves on its own words
+    # and need not surface the provision it is asking about.
+    gate = StreamGate(
+        {
+            str(section.get("section"))
+            for section in (state.get("retrieved_sections") or [])
+            if section.get("section")
+        }
+        | {str(section) for section in (state.get("cited_sections") or {})}
+    )
+    ungrounded: str | None = None
     try:
         async for delta in stream_llm(
             node="generate_answer",
             messages=messages,
             reasoning_effort=settings.reasoning_effort_answer,
         ):
-            if first_token_at is None:
-                first_token_at = time.perf_counter() - started
-            text = substituter.feed(delta)
+            text, broken = gate.feed(substituter.feed(delta))
             if text:
+                # The first token *released*, not the first delta received:
+                # what the member can read is what time-to-first-grounded-token
+                # means.
+                if first_token_at is None:
+                    first_token_at = time.perf_counter() - started
                 chunks.append(text)
                 yield {"type": "token", "text": text}
+            if broken:
+                ungrounded = broken
+                break
     except Exception as exc:
         logger.exception("Answer generation failed")
         yield {
@@ -315,9 +339,17 @@ async def run_agent_stream(
         }
         return
 
-    if tail := substituter.flush():
-        chunks.append(tail)
-        yield {"type": "token", "text": tail}
+    if ungrounded is None:
+        for pending in (substituter.flush(), None):
+            tail, broken = (
+                gate.feed(pending) if pending is not None else gate.flush()
+            )
+            if tail:
+                chunks.append(tail)
+                yield {"type": "token", "text": tail}
+            if broken:
+                ungrounded = broken
+                break
 
     # A block whose marker never arrived is appended rather than lost. The
     # member must never be short a table because the model forgot to ask for it.
@@ -330,6 +362,17 @@ async def run_agent_stream(
     state["final_answer"] = answer
 
     report = _verify(state, answer, settings)
+
+    if ungrounded is not None:
+        # The stream was cut at the sentence that named this, so the text now in
+        # `answer` no longer contains it and would verify clean. Failing
+        # explicitly is what sends this turn down the repair-then-fallback path
+        # rather than delivering a silently truncated answer.
+        report.fail(
+            "STREAM_UNGROUNDED",
+            f"The answer began citing 40 ILCS 5/{ungrounded}, which was not among "
+            "the sections retrieved for it. The stream was stopped there.",
+        )
     state["guardrail_passed"] = report.passed
     state["guardrail_report"] = report.to_dict()
 

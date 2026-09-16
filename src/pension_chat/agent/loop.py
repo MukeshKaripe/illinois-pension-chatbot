@@ -540,6 +540,24 @@ def _leave_hypothetical(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _read_beyond_prefetch(
+    *, sections: list[dict[str, Any]], prefetched: set[str]
+) -> list[str]:
+    """Section ids this loop found for itself, rather than being handed.
+
+    The pushback guard asks whether the model read anything before declaring
+    itself done. Once a turn's evidence is prefetched before the first model
+    call, `sections` is never empty and that question stops being the one worth
+    asking -- a model that ignored everything it was given looks exactly like
+    one that went and found it.
+    """
+    return [
+        str(section["section"])
+        for section in sections
+        if section.get("section") and str(section["section"]) not in prefetched
+    ]
+
+
 async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """Search, read, reconsider, and stop when there is enough.
 
@@ -599,6 +617,10 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     withdrawn: set[str] = set()
     exhausted = False
     pushed_back = False
+    # Section ids handed to the loop before its first model call. Empty until
+    # the prefetch work lands; the guard below reads it so that work cannot
+    # retire the guard by accident.
+    prefetched: set[str] = set()
 
     while True:
         if sum(spent.values()) >= BUDGETS["total"]:
@@ -643,7 +665,9 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             #
             # One push back, then it is let go: arguing spends the budget on a
             # fight, and `compose` can say what it consulted instead.
-            if not sections and not pushed_back:
+            if not _read_beyond_prefetch(
+                sections=sections, prefetched=prefetched
+            ) and not pushed_back:
                 pushed_back = True
                 messages.append(
                     {
