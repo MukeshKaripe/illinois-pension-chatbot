@@ -334,9 +334,24 @@ it is the one that harms a member.
 **Incremental, during the stream.** A citation is checkable the instant it
 appears — set membership, no model call, microseconds. Buffer to a sentence
 boundary; if a citation names a section outside the retrieved set, stop the
-stream and fall back to investigation. That bounds the damage to one unsent
-sentence rather than a retracted answer, and it enforces grounding at the moment
-it becomes checkable.
+stream. That bounds the damage to one unsent sentence rather than a retracted
+answer, and it enforces grounding at the moment it becomes checkable.
+
+**Built and measured, 2026-09-16** (`agent/grounding.py`). The buffering cost is
+below run-to-run noise: **8.69s p50 against a 9.71s baseline on the same five
+questions**, in-region. And it fired on live traffic — one stream in ten was cut
+at a citation that had never been retrieved, on a question that passed on its
+second run. That is model variance, and it is exactly the case the gate exists
+for: before this, the whole answer streamed and was retracted at `done`.
+
+A boundary needs whitespace after the full stop, because `"2."` followed by
+`"40%"` is a rate arriving in two deltas and releasing eagerly would show the
+member `"2."` as a finished thought.
+
+Still deferred: falling back to *investigation* on a cut, rather than to the
+existing repair-then-fallback path. And the per-block downgrade ladder above
+depends on blocks carrying registers, which §1 dissolved — it needs redesigning
+against claim provenance before it can be built.
 
 **A regression this design introduces, and must fix.** `loop.py` pushes back
 once when the model declares itself done having read nothing — the guard that
