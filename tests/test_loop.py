@@ -1089,6 +1089,10 @@ async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetc
 
     `_engine_provisions` asks the registry, which needs nothing the completion
     step gathers -- so the two waits are one wait.
+
+    The budget carries a third wait that is serial by design: the prefetch
+    closes the evidence before the first model call, and the model cannot
+    decide without it. 0.2s of what is measured here is that.
     """
     import asyncio
     import time
@@ -1118,4 +1122,6 @@ async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetc
     await loop_mod.investigate({"question": "q", "messages": []})
     elapsed = time.perf_counter() - started
 
-    assert elapsed < 0.35, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"
+    # 0.2s prefetch closure, then provisions and completion overlapping in
+    # 0.2s rather than queueing for 0.4s.
+    assert elapsed < 0.55, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"
