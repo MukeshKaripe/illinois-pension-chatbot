@@ -33,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent import guardrails
+from pension_chat.agent import guardrails, ledger
 from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import build_member_facts
 from pension_chat.agent.llm import complete
@@ -727,6 +727,35 @@ def _input_origins(
     return origins
 
 
+def _ledger_update(
+    *,
+    resolved: dict[str, Any],
+    origins: dict[str, str],
+    turn: int,
+) -> dict[str, Any]:
+    """Turn this turn's resolution into something the next turn can read.
+
+    Grouped by source so each group is recorded at its own rank: a value the
+    member stated must not be written at the record's rank simply because both
+    resolved on the same turn. A resolved input with no recorded origin is
+    skipped rather than guessed -- the calculation card shows these, so a guess
+    here is a false claim about the member's own figure.
+    """
+    by_source: dict[str, dict[str, Any]] = {}
+    for name, value in resolved.items():
+        source = origins.get(name)
+        if not source:
+            continue
+        by_source.setdefault(source, {})[name] = value
+
+    update: dict[str, Any] = {}
+    for source, values in by_source.items():
+        written = ledger.remember(update, ledger.SELF, values, source, turn)
+        if written:
+            update = {**update, **written}
+    return update
+
+
 async def resolve_inputs(state: PensionAgentState) -> dict:
     """Assemble the values each recipe needs, and report what is missing.
 
@@ -896,15 +925,22 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     assumed, still_missing = apply_assumptions(sheet, filtered, facts, settings_ceiling)
     resolved.update(assumed)
 
+    origins = _input_origins(
+        resolved=resolved,
+        taken=taken,
+        assumed=assumed,
+        sheet=sheet,
+        question=state["question"],
+        stand_in=_stand_ins_allowed(state),
+    )
+
     return {
         "resolved_inputs": resolved,
-        "input_sources": _input_origins(
+        "input_sources": origins,
+        "fact_ledger": _ledger_update(
             resolved=resolved,
-            taken=taken,
-            assumed=assumed,
-            sheet=sheet,
-            question=state["question"],
-            stand_in=_stand_ins_allowed(state),
+            origins=origins,
+            turn=int(state.get("turn_index") or 0),
         ),
         # An input the sheet holds is not missing, and an input it holds but
         # cannot use under this premise is not missing either -- it is withheld,
