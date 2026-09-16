@@ -78,3 +78,81 @@ def test_every_code_the_guardrail_can_raise_has_a_consequence():
     raised = set(re.findall(r'\.fail\(\s*"([A-Z_]+)"', source))
     assert raised, "no failure codes found -- the pattern has drifted"
     assert raised <= set(CONSEQUENCE), f"no consequence for {raised - set(CONSEQUENCE)}"
+
+
+# ── Where the answer went wrong, not just that it did ─────────────
+#
+# A span is a verbatim substring of the answer. It has to be: excision removes
+# it by string match, and a span that does not appear is a cut that would
+# silently do nothing -- publishing the bad sentence under a passing report.
+
+from pension_chat.agent.guardrails import verify_answer  # noqa: E402
+
+SECTIONS = [{"section": "11-134", "text": "The annuity is computed as follows."}]
+
+
+def test_a_bad_citation_records_the_sentence_it_is_in():
+    answer = (
+        "Your annuity is computed under [40 ILCS 5/11-134]. "
+        "The service rule lives in [40 ILCS 5/7-109]. "
+        "That is the whole of it."
+    )
+    report = verify_answer(answer, retrieved_sections=SECTIONS, check_numbers=False)
+
+    spans = report.hard_failures[0]["spans"]
+    assert len(spans) == 1
+    assert "7-109" in spans[0]
+    assert "11-134" not in spans[0], "the good sentence must survive"
+    assert spans[0] in answer, "a span must be verbatim, or excision cuts nothing"
+
+
+def test_two_bad_citations_in_one_sentence_record_it_once():
+    answer = "Sections [40 ILCS 5/7-109] and [40 ILCS 5/7-110] apply to you."
+    report = verify_answer(answer, retrieved_sections=SECTIONS, check_numbers=False)
+    assert len(report.hard_failures[0]["spans"]) == 1
+
+
+def test_a_bad_citation_is_excisable_once_it_has_a_span():
+    answer = (
+        "Your annuity is computed under [40 ILCS 5/11-134]. "
+        "The service rule lives in [40 ILCS 5/7-109]."
+    )
+    report = verify_answer(answer, retrieved_sections=SECTIONS, check_numbers=False)
+    assert report.consequence == EXCISE
+
+
+def test_a_clean_answer_records_no_spans():
+    report = verify_answer(
+        "Your annuity is computed under [40 ILCS 5/11-134].",
+        retrieved_sections=SECTIONS,
+        check_numbers=False,
+    )
+    assert report.passed
+    assert report.consequence == ""
+
+
+def test_an_unsupported_coverage_claim_records_its_own_sentence():
+    """The claim goes; the law around it stays. An answer explaining Article 11
+    correctly must not be withdrawn because one clause called it the member's."""
+    answer = (
+        "Section [40 ILCS 5/11-134] sets out how the annuity is computed. "
+        "You are covered by Article 11. "
+        "The reduction applies before age 60."
+    )
+    report = verify_answer(
+        answer,
+        retrieved_sections=SECTIONS,
+        check_numbers=False,
+        coverage={
+            "basis": "unresolved",
+            "article": "11",
+            "record_article": None,
+            "described_as": "",
+        },
+    )
+    failure = next(
+        f for f in report.hard_failures if f["code"] == "UNSUPPORTED_COVERAGE"
+    )
+    assert failure["spans"], "an unsupported claim must say which sentence made it"
+    assert all(span in answer for span in failure["spans"])
+    assert "11-134" not in " ".join(failure["spans"])

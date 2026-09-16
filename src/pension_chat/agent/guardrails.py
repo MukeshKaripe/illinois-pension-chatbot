@@ -497,6 +497,7 @@ def verify_answer(
             "The answer cites "
             + ", ".join(f"40 ILCS 5/{s}" for s in report.unverified_citations)
             + ", which was not among the sections retrieved for it.",
+            spans=_spans_around(answer, report.unverified_citations),
         )
 
     # 2. Money and percentage figures must trace to evidence.
@@ -572,6 +573,25 @@ _ATTRIBUTED_TO_RECORD = re.compile(
     r"what (?:your|the) (?:record|file) shows|the record (?:says|shows|places))\b",
     re.IGNORECASE,
 )
+
+
+def _spans_around(answer: str, needles: Iterable[str]) -> list[str]:
+    """The sentences of ``answer`` containing any of ``needles``, in order.
+
+    Verbatim or not at all. Excision removes a span by string match, so a span
+    that does not appear in the answer would cut nothing and publish the
+    sentence it objected to under a report that now says everything is fine.
+
+    One sentence per offending sentence, not per offence: two bad citations in
+    one sentence are one cut.
+    """
+    found: list[str] = []
+    for needle in needles:
+        for match in re.finditer(re.escape(needle), answer):
+            sentence = _sentence_around(answer, match.start()).strip()
+            if sentence and sentence in answer and sentence not in found:
+                found.append(sentence)
+    return found
 
 
 def _sentence_around(text: str, index: int) -> str:
@@ -663,6 +683,11 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
             "no record for this member and they have not said which fund they are "
             "in. Ask which fund or employer they are under before treating any "
             "Article as theirs.",
+            # Located in the answer rather than in `plain`: excision cuts the
+            # text the member is reading, and `plain` has quoted spans stripped
+            # out of it. Where the asserting words do not survive that
+            # difference there is no span, and the failure retracts.
+            spans=_spans_around(answer, [asserted.group(0)]),
         )
         return
 
@@ -684,6 +709,7 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
             "only on the Article recorded against their file — not on anything they "
             "said or on a coverage test in the Code. Say what the record shows and "
             "what the Code's test is, rather than presenting one as the other.",
+            spans=_spans_around(answer, [asserted.group(0)]),
         )
 
 
