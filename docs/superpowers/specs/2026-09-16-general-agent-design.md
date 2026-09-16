@@ -1,5 +1,14 @@
 # Design: a general assistant with registers
 
+> **Superseded by `2026-09-16-rag-first-agent-design.md`.** The register
+> abstraction was dissolved: its eight values turned out to encode only claim
+> provenance, subject nature and capability contracts, all of which the design
+> already had, and it was model-declared where those are not. Two later
+> measurements moved more than that — the question mix is about half
+> figure-seeking rather than explanation-dominated, and explanation turns were
+> the *slower* class because nothing terminated them. Kept for §13, whose
+> measurements and negative results the successor builds on.
+
 *2026-09-16*
 
 ## The principle
