@@ -295,12 +295,20 @@ class WorkSheet:
             if fact.source in USABLE_SOURCES and fact.value is not None
         }
 
+    def facts_at(self, source: str) -> dict[str, Fact]:
+        """Everything the sheet holds at one rank.
+
+        The answer accounts for the three fill ranks separately, because they
+        are three different claims: the Code states this, we worked this out
+        from what you told us, and we filled this in. Collapsing them tells a
+        member we guessed at a value we cited.
+        """
+        return {name: fact for name, fact in self.facts.items() if fact.source == source}
+
     def assumed_facts(self) -> dict[str, Fact]:
-        return {
-            name: fact
-            for name, fact in self.facts.items()
-            if fact.source == SOURCE_ASSUMED
-        }
+        """Only what nobody supplied. This is the set the ceiling counts and
+        the guardrail requires the answer to disclose."""
+        return self.facts_at(SOURCE_ASSUMED)
 
     # ── Figures and dependencies ─────────────────────────────────
 

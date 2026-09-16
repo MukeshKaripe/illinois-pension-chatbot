@@ -19,7 +19,12 @@ from typing import Any
 
 from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.presentation import STATUS_LABELS
-from pension_chat.agent.worksheet import WorkSheet
+from pension_chat.agent.worksheet import (
+    SOURCE_ASSUMED,
+    SOURCE_DERIVED,
+    SOURCE_STATUTORY,
+    WorkSheet,
+)
 
 #: Placeholders the model emits where a computed block belongs.
 MARKERS = {
@@ -224,25 +229,40 @@ def render_branches(results: Mapping[str, Any]) -> str:
     return "\n".join([header, *rows])
 
 
+#: The three fill ranks, best evidence first, with the heading each is
+#: accounted for under. They are three different claims and used to be
+#: rendered as one: a member reading an age cited to Section 11-134 under
+#: "What I assumed" is told the opposite of the truth, and told to distrust
+#: the strongest thing in the answer.
+_FILL_HEADINGS = (
+    ("What the Code sets", SOURCE_STATUTORY),
+    ("What I worked out", SOURCE_DERIVED),
+    ("What I assumed", SOURCE_ASSUMED),
+)
+
+
 def render_assumptions(sheet: WorkSheet) -> str:
-    """What was filled in, and on whose say-so. Empty when nothing was.
+    """How each filled value was arrived at. Empty when nothing was filled.
 
     One line per *quantity*, not per input name. `withdrawal_date` and
     `annuity_start_date` are one choice wearing two names -- the ask side
     already collapses them in `_dedupe_missing_inputs` -- and disclosing it
     twice reads as two separate guesses about two separate things.
     """
-    assumed = sheet.assumed_facts()
-    if not assumed:
-        return ""
-    lines: list[str] = []
-    covered: set[str] = set()
-    for name, fact in assumed.items():
-        if name in covered:
+    sections = []
+    for heading, source in _FILL_HEADINGS:
+        held = sheet.facts_at(source)
+        if not held:
             continue
-        covered |= aliases_of(name)
-        lines.append(f"- {fact.basis or fact.name}")
-    return "**What I assumed**\n\n" + "\n".join(lines)
+        lines: list[str] = []
+        covered: set[str] = set()
+        for name, fact in held.items():
+            if name in covered:
+                continue
+            covered |= aliases_of(name)
+            lines.append(f"- {fact.basis or fact.name}")
+        sections.append(f"**{heading}**\n\n" + "\n".join(lines))
+    return "\n\n".join(sections)
 
 
 def render_thresholds(thresholds: Sequence[Mapping[str, Any]] | None) -> str:

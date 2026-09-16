@@ -68,6 +68,10 @@ const SOURCE_LABELS: Record<string, string> = {
   hypothetical: "Scenario",
   assumed: "Assumed",
   derived: "Derived",
+  // Not an assumption: the Code states it, and the evidence drawer has the
+  // section. Labelling it "Assumed" told a member to distrust the most
+  // checkable number on the card.
+  statutory_parameter: "Set by the Code",
   withheld: "On file, not used",
   stand_in: "Your value, standing in",
 };

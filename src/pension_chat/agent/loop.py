@@ -1038,20 +1038,37 @@ work from it and from nothing else. Write the answer itself -- no preamble about
 having searched, and no account of how you went about it."""
 
 
+def _has_figure(state: dict[str, Any]) -> bool:
+    return any(
+        (entry or {}).get("base", {}).get("ok")
+        for entry in (state.get("calculation_result") or {}).values()
+    )
+
+
 def _assumed(state: dict[str, Any]) -> str:
-    """What the answer must disclose, or "" when there is nothing to disclose.
+    """How each filled value was arrived at, or "" when nothing was filled.
 
     Only beside a figure. The rule `guardrails` enforces is "a figure resting on
     a value nobody supplied must say so"; with no figure nothing rests on
     anything, and the disclosure reads as a hedge about an answer that never
     needed one.
     """
-    if not any(
-        (entry or {}).get("base", {}).get("ok")
-        for entry in (state.get("calculation_result") or {}).values()
-    ):
+    if not _has_figure(state):
         return ""
     return render_assumptions(WorkSheet.from_state(state))
+
+
+def _must_disclose(state: dict[str, Any]) -> bool:
+    """Whether anything in this figure was actually invented.
+
+    The block now accounts for three ranks, and only one of them is a value
+    nobody supplied. Telling the model a figure "rests on values nobody
+    supplied" when every fill was cited to the Code makes it apologise for the
+    strongest evidence in the answer.
+    """
+    return _has_figure(state) and bool(
+        WorkSheet.from_state(state).assumed_facts()
+    )
 
 
 def _branched(state: dict[str, Any]) -> str:
@@ -1445,11 +1462,24 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "role": "system",
                 "content": (
-                    "The figure you are about to quote rests on values nobody "
-                    "supplied. You must say so, in your own words, beside the "
-                    "figure:" + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
-                    + "An estimate whose assumptions are not stated will be "
-                    "withdrawn before the member sees it."
+                    (
+                        "The figure you are about to quote rests on values "
+                        "nobody supplied. You must say so, in your own words, "
+                        "beside the figure:"
+                        if _must_disclose(state)
+                        else "Account for how the figure's inputs were arrived "
+                        "at, in your own words. Values the Code sets are "
+                        "citable -- name the section rather than hedging about "
+                        "them, and do not call them assumptions:"
+                    )
+                    + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
+                    + (
+                        "An estimate whose assumptions are not stated will be "
+                        "withdrawn before the member sees it."
+                        if _must_disclose(state)
+                        else "Nothing here was invented, so nothing here needs "
+                        "an apology."
+                    )
                 ),
             }
         )

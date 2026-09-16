@@ -59,7 +59,7 @@ class StatutoryFill:
         return f"the age this Article sets for a full annuity, stated in {where}"
 
 
-def fills_from(recipes: dict[str, dict]) -> dict[str, StatutoryFill]:
+def fills_from(recipes: dict[str, dict[str, Any]]) -> dict[str, StatutoryFill]:
     """Member facts the resolved recipes' own cited parameters can supply.
 
     First one wins, so which section the answer cites does not depend on the
