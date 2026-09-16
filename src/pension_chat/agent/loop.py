@@ -23,7 +23,12 @@ import time
 from typing import Any
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent.blocks import render_assumptions, render_branches, render_thresholds
+from pension_chat.agent.blocks import (
+    render_assumptions,
+    render_branches,
+    render_thresholds,
+    render_worked_steps,
+)
 from pension_chat.agent.llm import call_with_tools
 from pension_chat.agent.nodes import (
     ANSWER_SYSTEM,
@@ -1082,6 +1087,36 @@ def _branched(state: dict[str, Any]) -> str:
     return render_branches(state.get("calculation_result") or {})
 
 
+def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:
+    """The first result entry that actually computed, or None."""
+    for entry in (state.get("calculation_result") or {}).values():
+        if ((entry or {}).get("base") or {}).get("ok"):
+            return dict(entry)
+    return None
+
+
+def _views(state: dict[str, Any]) -> dict[str, str]:
+    """Every table this turn can show, keyed by slot.
+
+    Rendered here because here is before generation. A view built from state
+    that already exists can be sent to the member while the prose is still
+    being written, and can be filled into the answer by marker so the model
+    never transcribes a number into it.
+
+    Only non-empty renders are recorded: a slot carrying "" is a blank panel in
+    the calculation drawer, which reads to a member as something having gone
+    wrong rather than as nothing to say.
+    """
+    first = _first_figure(state)
+    rendered = {
+        "WORKED_STEPS": render_worked_steps(first["base"]) if first else "",
+        "COMPARISON": render_branches(state.get("calculation_result") or {}),
+        "ASSUMPTIONS": _assumed(state),
+        "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
+    }
+    return {slot: text for slot, text in rendered.items() if text.strip()}
+
+
 def _attribution(state: dict[str, Any]) -> str:
     """The line that says the answer is going by the file, or "".
 
@@ -1540,8 +1575,14 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
         }
         for s in (state.get("retrieved_sections") or [])
     ]
+    views = _views(state)
     return {
         "answer_messages": messages,
+        # Rendered before generation, so they can be sent to the member while
+        # the prose is still being written -- and so the calculation drawer has
+        # something to show. `card.py` has been reading `answer_blocks` for
+        # these since the cutover, and nothing has written it since.
+        "views": views,
         "answer_blocks": {},
         "citations": citations,
         # `select_rung` lives inside `prepare_answer`, which the loop does not

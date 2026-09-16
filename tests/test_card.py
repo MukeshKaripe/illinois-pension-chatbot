@@ -36,7 +36,11 @@ def _state(*, policy: str = "estimate", ok: bool = True) -> dict:
                 ],
             }
         },
-        "answer_blocks": {
+        # `views`, not `answer_blocks`: the drawer wants every table the turn
+        # rendered, where `answer_blocks` holds only the ones the model emits by
+        # marker. `answer_blocks` had had no writer at all since the cutover, so
+        # this fixture was the only place these blocks existed.
+        "views": {
             "WORKED_STEPS": "| Step | Amount |",
             "ASSUMPTIONS": "- Retirement date: today",
             "STATUS": "Estimate",
@@ -119,6 +123,8 @@ def test_a_stated_value_is_found_under_its_alias() -> None:
 
 
 def test_the_drawer_gets_only_the_calculation_blocks() -> None:
+    """Still the same claim -- the drawer filters to its own slots -- against
+    the key that now carries them."""
     card = _card(_state())
     assert card is not None
     assert set(card["blocks"]) == {"WORKED_STEPS", "ASSUMPTIONS"}
