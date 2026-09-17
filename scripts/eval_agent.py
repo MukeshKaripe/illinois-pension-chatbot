@@ -48,8 +48,10 @@ import sys
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -617,6 +619,56 @@ def check(result: dict, earlier: list[dict]) -> list[str]:
 # ── Reporting ─────────────────────────────────────────────────────
 
 
+def _percentile(ordered: list[float], fraction: float) -> float:
+    """The value at ``fraction`` through an already-sorted list.
+
+    Nearest-rank, not interpolated: every number reported is one a turn
+    actually took, so a figure in the report can be traced back to a case.
+
+    Indexed on ``fraction * n`` rather than ``fraction * (n - 1)``, which is the
+    convention the run's own median already used (``timed[len(timed) // 2]``)
+    and the one that makes p90 do its job: with nine fast turns and one slow
+    one, indexing on ``n - 1`` returns a fast turn and hides the tail the
+    percentile exists to show.
+    """
+    if not ordered:
+        return 0.0
+    return ordered[min(len(ordered) - 1, int(fraction * len(ordered)))]
+
+
+def latency_by_class(cases: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, float]]:
+    """Time to first token per category, as a distribution.
+
+    Spec §12 asks for latency "reported as a distribution, not an average", and
+    §3 is why: the finding that made this architecture robust was that two
+    classes of question cost the same. One median cannot say that, and cannot
+    show it ceasing to be true after a change that helps one class only.
+
+    A turn with no `ttft` never streamed -- it errored, or it was declined
+    without a model call -- and is left out rather than counted as instant,
+    which would make a broken run look fast.
+    """
+    pools: dict[str, list[float]] = {}
+    for case in cases:
+        category = str(case.get("category") or "uncategorised")
+        for turn in case.get("turns") or []:
+            if (ttft := turn.get("ttft")) is not None:
+                pools.setdefault(category, []).append(float(ttft))
+
+    stats: dict[str, dict[str, float]] = {}
+    for category, timings in pools.items():
+        if not timings:
+            continue
+        ordered = sorted(timings)
+        stats[category] = {
+            "p50": _percentile(ordered, 0.5),
+            "p90": _percentile(ordered, 0.9),
+            "max": ordered[-1],
+            "n": len(ordered),
+        }
+    return stats
+
+
 def _print_case(
     case: dict,
     turns: list[dict],
@@ -767,9 +819,24 @@ async def main() -> int:
     turns_run = [t for case in report for t in case["turns"]]
     timed = sorted(t["ttft"] for t in turns_run if t["ttft"])
     if timed:
+        # Per class, because §3's finding was that two classes of question cost
+        # the same -- which one median cannot say, and cannot show ceasing to be
+        # true after a change that helps one class only.
+        #
+        # `under_2s` is gone: the KPI is time to first *grounded* token under
+        # five seconds, and reporting against a threshold nobody holds makes
+        # every run look like a failure.
+        print("\nTTFT by class")
+        for category, stats in sorted(
+            latency_by_class(report).items(), key=lambda kv: -kv[1]["p50"]
+        ):
+            print(
+                f"  {category:<20} p50={stats['p50']:6.2f}s  p90={stats['p90']:6.2f}s  "
+                f"max={stats['max']:6.2f}s  n={int(stats['n'])}"
+            )
         print(
-            f"\nTTFT  median={timed[len(timed) // 2]:.2f}s  min={timed[0]:.2f}s  "
-            f"max={timed[-1]:.2f}s  under_2s={sum(1 for t in timed if t < 2.0)}/{len(timed)}"
+            f"  {'ALL':<20} p50={timed[len(timed) // 2]:6.2f}s  "
+            f"min={timed[0]:6.2f}s  max={timed[-1]:6.2f}s  n={len(timed)}"
         )
     total_tokens = sum(t["tokens"].get("total_tokens", 0) for t in turns_run)
     print(
