@@ -146,6 +146,13 @@ class PensionAgentState(TypedDict, total=False):
     unresolved: list[dict[str, Any]]
     # When part of the message is outside the Pension Code, the part that is in it.
     answerable_part: str
+    # A recommendation this turn made and that arithmetic accepted:
+    # {choice, objective, prose, candidates}. Deliberately per-turn: a
+    # recommendation carried forward would have `compose` render its disclaimer
+    # on a later turn that recommended nothing, which is the bug the assumptions
+    # block already had -- a retirement date assumed on turn 1 was still owed
+    # disclosure on turn 3, where the question was about survivor annuities.
+    recommendation: dict | None
     # Figures an earlier turn worked out whose inputs this turn contradicted.
     # Non-empty means the calculation branch runs whatever words were used.
     stale_figures: list[str]
@@ -370,6 +377,7 @@ def initial_state(
         "intent": "",
         "unresolved": [],
         "answerable_part": "",
+        "recommendation": None,
         "stale_figures": [],
         "employee_record": None,
         "pinned_record": None,

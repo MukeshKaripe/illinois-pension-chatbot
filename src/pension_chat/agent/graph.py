@@ -61,7 +61,7 @@ from pension_chat.agent.nodes import (
     triage,
 )
 from pension_chat.agent.state import CLEAR, PensionAgentState, initial_state, turn_input
-from pension_chat.agent.worksheet import WorkSheet
+from pension_chat.agent.worksheet import NOW_LABEL, SUPERSEDED_MARK, WorkSheet
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.graph")
@@ -620,7 +620,7 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         # superseded result is kept under its own name instead.
         previous = state.get("scenario_set") or {}
         superseded = {
-            f"{label}{_SUPERSEDED}{was['turn']})": was
+            f"{label}{SUPERSEDED_MARK}{was['turn']})": was
             for label, was in previous.items()
             if label in recorded
             and str(was.get("annual_amount")) != str(recorded[label]["annual_amount"])
@@ -689,9 +689,8 @@ async def _record_turn(config: dict, state: dict) -> dict[str, Any]:
 
 #: The label `turn_record` files an unscenarioed figure under. A figure, not a
 #: scenario the member built, so the chip leaves it out.
-NOW_LABEL = "if you retire now"
+
 #: What `turn_record` appends to a label whose figure the member corrected.
-_SUPERSEDED = " (before the correction on turn "
 
 
 def active_scenarios(scenario_set: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -708,7 +707,7 @@ def active_scenarios(scenario_set: Mapping[str, Any]) -> list[dict[str, Any]]:
             "monthly_amount": entry.get("monthly_amount"),
         }
         for label, entry in scenario_set.items()
-        if label != NOW_LABEL and _SUPERSEDED not in label and isinstance(entry, Mapping)
+        if label != NOW_LABEL and SUPERSEDED_MARK not in label and isinstance(entry, Mapping)
     ]
 
 
@@ -746,7 +745,7 @@ async def forget_scenarios(
         keep = {
             name: entry
             for name, entry in current.items()
-            if name != label and not name.startswith(f"{label}{_SUPERSEDED}")
+            if name != label and not name.startswith(f"{label}{SUPERSEDED_MARK}")
         }
     await active_graph().aupdate_state(config, {"scenario_set": CLEAR})
     if keep:

@@ -24,6 +24,15 @@ from typing import Any
 from pension_chat.agent.facts import FRAMING_DEFAULTS, aliases_of
 from pension_chat.calculation.assumption_policy import rule_for
 
+#: The label every calculation files its as-of-today figure under. Not a
+#: scenario: the member did not ask for it, so it is a figure the answer may
+#: quote and not an option they are choosing between.
+NOW_LABEL = "if you retire now"
+#: Marks the copy kept when a member corrects an input. History, not something
+#: in play -- shown nowhere, kept so a correction can be compared against what
+#: it replaced.
+SUPERSEDED_MARK = " (before the correction on turn "
+
 SOURCE_RECORD = "record"
 SOURCE_STATED = "stated"
 SOURCE_HYPOTHETICAL = "hypothetical"

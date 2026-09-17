@@ -588,6 +588,57 @@ contract. The core agent does not change when one is added.
 
 ### 11.1 Recommendation
 
+**Shipped 2026-09-17.** `agent/objectives.py`, `agent/recommend.py`, the
+`recommend` tool, and `loop._recommended`.
+
+**Nothing here prices anything.** The candidates are `scenario_set` — filled by
+`compute_benefit`, carried across turns by the checkpointer, every figure
+already produced by the interpreter and already provenanced. Recommendation
+turned out to be a decision layer over machinery that was complete.
+
+**The objective vocabulary is closed** (`highest_annual`, `highest_monthly`,
+`soonest`, `eligibility`). An objective from free text is a sentence about a
+preference; one from a closed set is a predicate the arithmetic can check. A
+test holds every entry to reading a field a candidate actually carries, because
+an objective needing something outside the corpus could only be evaluated by
+inventing it.
+
+**`EXCLUDED` is named, not omitted.** Life expectancy, tax, investment return,
+health and risk appetite each carry the reason they cannot be weighed, and the
+disclaimer lists them. An answer that quietly leaves them out reads as though
+they were considered.
+
+**The recommendation is a tool result, never parsed from prose.** Reading the
+choice back out of the answer would be a regex deciding what the *assistant*
+meant, and a recommendation caught after generation is one the member has
+already read. The refusal names the option that does satisfy the objective and
+its figure, so the model corrects while it still has the turn.
+
+**`recommend` is the fourth kind of tool the loop may hold.** The
+`find_provision` guard's rule was "retrieve, compute, or settle coverage — none
+of which can stand in for having read the law". `recommend` does none of the
+three, and is admissible because it is *unreachable* until the reading has
+happened: its candidates come from `compute_benefit`, which needs a recipe,
+which needs retrieved text. Called early it returns "compute the options first"
+and nothing else. `test_loop.py` holds that clause shut with its own test.
+
+**The third dead renderer.** `blocks.render_comparison` had never run on the
+live path, after `render_worked_steps` (§9) and everything `prepare_answer`
+filled. A member who built three scenarios across three turns had been told
+about them one at a time and never shown them together. A tier branch still
+wins the one `COMPARISON` slot: which provision applies outranks which date to
+pick, because a member who does not know their tier cannot act on a date.
+
+**`recommendation` is per-turn, not durable** — carried forward, it would render
+its disclaimer on a later turn that recommended nothing, which is the bug the
+assumptions block already had.
+
+---
+
+#### The original design
+
+
+
 A first-class capability, because decision support is a core use case — not a
 register and not a fixed workflow.
 
