@@ -114,7 +114,18 @@ cases:
   - q: I am 56 years old with 21.5 years of service and earn $72,000 per year. Calculate my retirement
       benefit under the applicable provision. Identify any missing inputs and explain exactly why they
       are required.
-    expect: {}
+    # Ran with `expect: {}` from the day it was written, so it has reported a
+    # pass on every run without anything looking at it. Found by
+    # `tests/test_evals.py`, not by a failure.
+    #
+    # Conservative on purpose: these two are structural and true of the case's
+    # own subject -- the Article 11 annuity provision, answered out of Article
+    # 11 -- rather than guesses at what a run will produce. Whether it computes
+    # here depends on the gap contract in spec §7, and the first run after this
+    # is what settles that.
+    expect:
+      cites: ["11-134"]
+      answers_from_article: "11"
 - id: '11'
   name: Adversarial formula
   category: adversarial
