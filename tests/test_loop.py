@@ -677,8 +677,16 @@ def test_no_tool_can_be_called_instead_of_reading():
 
     Neither harm yielded to prose. The shape was the problem: a tool that can
     be called instead of reading will be. Every tool the loop is offered must
-    either put statute text in front of it, compute through the engine, or
-    settle coverage -- none of which can stand in for having read the law.
+    either put statute text in front of it, compute through the engine, settle
+    coverage, or -- `recommend`, the fourth kind -- be *unreachable* until the
+    reading has happened.
+
+    `recommend` neither retrieves nor computes, so it is the shape this guard
+    watches for. What makes it admissible is that it cannot stand in for
+    reading: its candidates are `scenario_set`, which only `compute_benefit`
+    fills, which needs a recipe, which needs retrieved text. Called early it
+    returns "compute the options first" and nothing else, so it cannot satisfy
+    a turn the way `find_provision` did. The test below holds that shut.
     """
     offered = {t["function"]["name"] for t in loop_mod.LOOP_TOOLS}
     assert offered == {
@@ -688,8 +696,25 @@ def test_no_tool_can_be_called_instead_of_reading():
         "related_sections",
         "compute_benefit",
         "check_coverage",
+        "recommend",
     }
     assert "find_provision" not in offered
+
+
+async def test_the_recommend_tool_cannot_stand_in_for_reading():
+    """The clause that earns `recommend` its place in the set above.
+
+    With nothing computed it must return a refusal and no state -- so a turn
+    that reached for it first is no closer to an answer than before, which is
+    exactly what `find_provision` was not.
+    """
+    from pension_chat.agent.tools import run_tool
+
+    text, update = await run_tool(
+        "recommend", {"choice": "at age 60", "objective": "highest_annual"}, {}
+    )
+    assert update == {}
+    assert "one option" in text or "nothing to recommend" in text
 
 
 async def test_a_turn_that_only_browsed_still_searches_before_answering(monkeypatch):

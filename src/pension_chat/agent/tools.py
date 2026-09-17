@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any
 
-from pension_chat.agent import corpus, gaps, memory
+from pension_chat.agent import corpus, gaps, memory, recommend
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
     BENEFIT_TYPES,
@@ -34,8 +34,14 @@ from pension_chat.agent.nodes import (
     resolve_recipes,
     validate_recipes,
 )
+from pension_chat.agent.objectives import OBJECTIVES, objective_for
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
-from pension_chat.agent.worksheet import SOURCE_STAND_IN, SOURCE_STATED, WorkSheet
+from pension_chat.agent.worksheet import (
+    SOURCE_STAND_IN,
+    SOURCE_STATED,
+    SUPERSEDED_MARK,
+    WorkSheet,
+)
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.tools")
@@ -309,9 +315,54 @@ COVERAGE_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+RECOMMENDATION_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "recommend",
+            "description": (
+                "Check a recommendation against the options already computed, "
+                "before you write it. Say which option you want to put forward "
+                "and what the member is trying to achieve; this compares the "
+                "figures and either confirms it or tells you which option "
+                "actually meets that objective. It prices nothing -- compute "
+                "the options first with compute_benefit. Use it whenever you "
+                "are about to single out one option as better: a recommendation "
+                "the figures do not support reads exactly like one they do."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "choice": {
+                        "type": "string",
+                        "description": (
+                            "The option you want to recommend, named exactly as "
+                            "it was computed -- 'at age 60', 'if you retire now'."
+                        ),
+                    },
+                    "objective": {
+                        "type": "string",
+                        "enum": list(OBJECTIVES),
+                        "description": (
+                            "What the member is trying to achieve. Use what they "
+                            "said where they said it; where they did not, pick "
+                            "the one your answer is actually arguing for and say "
+                            "so in the answer. Life expectancy, tax, investment "
+                            "return, health and risk appetite are not here "
+                            "because the Code does not settle them."
+                        ),
+                    },
+                },
+                "required": ["choice", "objective"],
+            },
+        },
+    },
+]
+
+
 TOOL_NAMES = tuple(
     tool["function"]["name"]
-    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
+    for tool in RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS + RECOMMENDATION_TOOLS
 )
 
 
@@ -1134,7 +1185,55 @@ async def _find_provision(arguments: dict[str, Any], state: dict) -> tuple[str, 
     return chr(10).join(lines), update
 
 
+async def _recommend(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
+    """Check a recommendation against the options already priced.
+
+    The candidates are `scenario_set`, filtered the way the comparison table
+    filters it: a figure the member corrected is history, and recommending it
+    would recommend a number they have already said is wrong.
+
+    A refusal is returned as text, not raised, and it names what would be right
+    -- so the model can correct itself on this turn rather than having the
+    answer taken back after the member has read it.
+    """
+    choice = str(arguments.get("choice") or "")
+    objective = str(arguments.get("objective") or "")
+    if not choice or not objective:
+        return (
+            "recommend needs both a choice and an objective. Compute the options "
+            "first, then say which one you want to put forward and why.",
+            {},
+        )
+
+    candidates = {
+        label: dict(entry)
+        for label, entry in (state.get("scenario_set") or {}).items()
+        if SUPERSEDED_MARK not in label and isinstance(entry, dict)
+    }
+    verdict = recommend.check(
+        choice=choice, objective=objective, candidates=candidates
+    )
+    if not verdict.ok:
+        return verdict.reason, {}
+
+    wanted = objective_for(objective)
+    prose = wanted.prose if wanted else objective
+    return (
+        f"That holds: of the options computed, {choice!r} gives {prose}. Say "
+        "what it rests on, and leave the decision with the member.",
+        {
+            "recommendation": {
+                "choice": choice,
+                "objective": objective,
+                "prose": prose,
+                "candidates": candidates,
+            }
+        },
+    )
+
+
 _HANDLERS = {
+    "recommend": _recommend,
     "search_statute": _search,
     "check_coverage": _check_coverage,
     "compute_benefit": _compute,

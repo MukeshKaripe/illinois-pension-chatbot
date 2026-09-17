@@ -50,6 +50,7 @@ from pension_chat.agent.retrieval import (
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
     COVERAGE_TOOLS,
+    RECOMMENDATION_TOOLS,
     RETRIEVAL_TOOLS,
     run_tool,
 )
@@ -70,13 +71,19 @@ BUDGETS: dict[str, int] = {
     "related_sections": 6,
     "compute_benefit": 4,
     "check_coverage": 3,
+    # Two, so a refusal can be acted on once and not argued with. The refusal
+    # names the option that does meet the objective, so a second call is a
+    # correction rather than another guess.
+    "recommend": 2,
 }
 
 #: Everything the loop may reach for. Retrieval, calculation and coverage
 #: together, because a member asking "how much would I get" is asking one
 #: question -- and "if I were a Chicago police officer, what would I get?" is
 #: still one question, with all three in it.
-LOOP_TOOLS = RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS
+LOOP_TOOLS = (
+    RETRIEVAL_TOOLS + CALCULATION_TOOLS + COVERAGE_TOOLS + RECOMMENDATION_TOOLS
+)
 
 #: How many cross-referenced sections to read before answering. Bounded so one
 #: section naming a dozen others cannot flood the answer's context.
