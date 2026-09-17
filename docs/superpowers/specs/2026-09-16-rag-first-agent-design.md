@@ -572,6 +572,43 @@ all, would bring the largest remaining class of turns onto the two-trip path.
    what regresses silently; wall-clock is its shadow.
 2. `bench_ttft.py --budget`, reported **per query class**, not as one average.
 
+### 10.2 Re-measured 2026-09-17, after §7–§12: the number moved backward
+
+`bench_ttft.py` run twice as a Container App Job against the deployed
+`83bb508` image — same five questions, same in-region methodology as §10.1 —
+after the assumption ladder (§7), the downgrade ladder (§8), views and
+progress (§9), recommendation (§11) and the evaluation suites (§12) all
+landed.
+
+| | run 1 (n=15) | run 2 (n=15) | combined (n=30) |
+|---|---|---|---|
+| **median TFGT** | 6.89s | 5.59s | **6.12s** |
+| p25 | 5.97s | 5.16s | 5.51s |
+| p75 | 7.48s | 6.16s | 6.87s |
+| max | 47.12s (one deployment stall) | 6.71s | 47.12s |
+
+**This is worse than the 5.39s shipped 2026-09-16, on the same questions,
+measured the same way.** Not a regression this document can wave away with
+"still under baseline" — under-five was the stated goal and neither run
+reached it, including the fastest quarter of turns (p25 5.51s).
+
+**Where it went, from the bench's own breakdown, not a guess:**
+`investigate` alone runs p50 4.4–4.9s across both runs — most of the 5s budget
+is spent before `compose` even opens the answer stream. §10.1's 5.39s figure
+predates the ledger provenance widening (statutory parameters, the gap
+classifier, `resolve_recipes` branching), the guardrail consequence ladder,
+and the view/progress rendering added since — each cheap alone, and now
+sequential inside the same loop that closure and the cap were built to keep
+short. The 47.12s outlier in run 1 did not recur in run 2 (max 6.71s),
+confirming it as the model-deployment tail §14 already named, not a code
+regression — and excluding it moves the combined median from 6.12s to only
+6.08s, since a median is already robust to one tail point.
+
+**Disclaimer:** 30 turns across two runs is enough to say the gap is real and
+stable, not enough to hang a firm decimal on it. Shipped 2026-09-17 anyway
+(pilot infrastructure, trial expiring the same day) with this gap recorded as
+known follow-up rather than silently accepted — see §14.
+
 ## 11. Capabilities
 
 A capability is a tool, a structured result with provenance, and a validation
@@ -703,6 +740,42 @@ estimate from 52% to 13% and surfaced the hedging rate, so **it earns its place
 as a recurring product test rather than a one-off** — and the next run should be
 on real member questions, which is the one input this test has never had.
 
+### 12.1 Run live, 2026-09-17
+
+The four new suites above, run against the deployed image before shipping:
+
+| suite | result | note |
+|---|---|---|
+| understanding | 7/7 | first live run |
+| continuity | 3/6 → **6/6** | found a real bug (below), fixed, re-run confirmed |
+| grounding | 3/5 → **5/5** | the two "failures" were wrong expectations of the author's own writing, corrected, re-run confirmed |
+| retrieval | **6/6** | first live run ever — never executed until today |
+| reasoning (pre-existing) | 7/7 | no regression |
+| fund_smoke (pre-existing) | 12/14 | both misses were request timeouts under self-inflicted concurrent load from another eval run at the same time, not agent failures |
+
+**The bug continuity caught:** a member said "I actually have 25 years of
+service, not what your records say"; two turns later the annuity computed on
+the record's 21.5 anyway. Three narrow scopes were each responsible —
+`resolve_inputs` only read the conversation for an input missing *from the
+record*, the extraction catalogue excluded exactly the input being corrected,
+and both the acceptance guard and the provenance label asked whether the value
+appeared *in this message*, discarding a two-turn-old correction. Fixed in
+`83bb508`.
+
+**Not run this session:** the full 122-case / 188-turn suite to completion —
+started twice, interrupted once by an apparent-throttling investigation that
+turned out to be contention from a concurrent eval run (see §10.2's discipline
+about not running anything else against the endpoint while measuring it), and
+not re-attempted given the trial's closing window. Also not re-run: the
+100-question product test from §12 (last run 2026-09-16, predates §7–§12).
+Both are the natural next runs once there is a non-trial environment to run
+them against without a clock on it.
+
+Also found and left as a standing lesson rather than a fix: `level1_regression`
+case 9 has run with `expect: {}` since it was written, passing vacuously every
+time — the reason `test_a_case_carries_no_key_the_loader_ignores` and its
+three siblings exist now (Task 1 above).
+
 ## 13. Sequencing
 
 Dependencies are real, not preferences.
@@ -740,6 +813,17 @@ cream" costs two round trips and cites fourteen sections to refuse, against
 calculation and transcripts collected to show failures. The flatness of the
 sensitivity curve is what makes the architecture robust to that, not the point
 estimate.
+
+**Median TFGT regressed from 5.39s to ~6.1s between 2026-09-16 and
+2026-09-17**, measured identically both times (§10.2). Correctness work
+landed in between — the ledger provenance widening, the guardrail consequence
+ladder, views/progress, recommendation — and each piece is individually cheap
+inside `investigate`'s own loop, but they are sequential and additive, and
+nothing in §10's guard (round-trip count) catches latency added *within* a
+round trip rather than by adding one. Shipped anyway on 2026-09-17 given the
+trial's closing window; the guard in §10.1 needs a second form — a budget on
+`investigate`'s own wall-clock, not just its round-trip count — before the
+next feature lands on top of it.
 
 ## 15. What the numbers rest on
 
