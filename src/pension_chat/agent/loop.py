@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from langgraph.config import get_stream_writer
@@ -28,6 +29,7 @@ from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.blocks import (
     render_assumptions,
     render_branches,
+    render_comparison,
     render_thresholds,
     render_worked_steps,
 )
@@ -51,7 +53,7 @@ from pension_chat.agent.tools import (
     RETRIEVAL_TOOLS,
     run_tool,
 )
-from pension_chat.agent.worksheet import WorkSheet
+from pension_chat.agent.worksheet import SUPERSEDED_MARK, WorkSheet
 from pension_chat.config import get_settings
 from pension_chat.funds import FUNDS
 
@@ -1156,6 +1158,47 @@ def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _live_options(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The options the member is actually choosing between.
+
+    The same filtering `graph.active_scenarios` applies to the composer chip,
+    and for the same reasons: the as-of-today figure is a figure rather than
+    something they asked for, and a superseded copy is history kept so a
+    correction can be compared, not an option still in play.
+
+    `NOW_LABEL` is kept here where the chip drops it, because "stop now" is a
+    real choice a member weighs against waiting -- it is not a *what-if* they
+    built, which is what the chip lists.
+    """
+    return {
+        label: dict(entry)
+        for label, entry in (state.get("scenario_set") or {}).items()
+        if SUPERSEDED_MARK not in label and isinstance(entry, Mapping)
+    }
+
+
+def _options_table(state: dict[str, Any]) -> str:
+    """The options side by side, or "" when there is nothing to compare.
+
+    One option is not a comparison: the answer is simply the answer, and a
+    one-row table implies a choice nobody offered.
+    """
+    options = _live_options(state)
+    if len(options) < 2:
+        return ""
+    return render_comparison(
+        [
+            {
+                "label": label,
+                "service_years": entry.get("service_years", ""),
+                "annual": entry.get("annual_amount"),
+                "monthly": entry.get("monthly_amount"),
+            }
+            for label, entry in options.items()
+        ]
+    )
+
+
 def _views(state: dict[str, Any]) -> dict[str, str]:
     """Every table this turn can show, keyed by slot.
 
@@ -1171,7 +1214,12 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
     first = _first_figure(state)
     rendered = {
         "WORKED_STEPS": render_worked_steps(first["base"]) if first else "",
-        "COMPARISON": render_branches(state.get("calculation_result") or {}),
+        # Which provision applies outranks which date to pick: a member
+        # who does not know their tier cannot act on a date.
+        "COMPARISON": (
+            render_branches(state.get("calculation_result") or {})
+            or _options_table(state)
+        ),
         "ASSUMPTIONS": _assumed(state),
         "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
     }

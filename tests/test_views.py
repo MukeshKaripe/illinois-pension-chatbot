@@ -204,3 +204,62 @@ async def test_every_registered_block_is_one_the_model_was_asked_for():
     system = " ".join(_system(out))
     for slot in out["answer_blocks"]:
         assert f"<<<{slot}>>>" in system
+
+
+# ── The options a member built, side by side ──────────────────────
+#
+# `render_comparison` is the third renderer found dead on the live path, after
+# `render_worked_steps` and everything `prepare_answer` used to fill. A member
+# who built three scenarios across three turns has been told about them one at
+# a time and never shown them together.
+
+_SCENARIOS = {
+    "if you retire now": {"annual_amount": "31000.00", "monthly_amount": "2583.33"},
+    "at age 60": {"annual_amount": "38000.00", "monthly_amount": "3166.67"},
+}
+
+
+def test_the_options_a_member_built_are_shown_together():
+    views = _views({"calculation_result": _RESULT, "scenario_set": _SCENARIOS})
+    assert "31,000" in views["COMPARISON"]
+    assert "38,000" in views["COMPARISON"]
+    assert "at age 60" in views["COMPARISON"]
+
+
+def test_one_option_is_not_a_comparison():
+    views = _views(
+        {
+            "calculation_result": _RESULT,
+            "scenario_set": {"at age 60": {"annual_amount": "38000.00"}},
+        }
+    )
+    assert "COMPARISON" not in views
+
+
+def test_a_superseded_option_is_not_offered():
+    """A figure the member corrected is history, not something in play -- the
+    same rule `active_scenarios` applies to the composer chip."""
+    views = _views(
+        {
+            "calculation_result": _RESULT,
+            "scenario_set": {
+                **_SCENARIOS,
+                "at age 60 (before the correction on turn 2)": {
+                    "annual_amount": "99999.00"
+                },
+            },
+        }
+    )
+    assert "99,999" not in views["COMPARISON"]
+
+
+def test_a_tier_branch_still_wins_the_slot():
+    """Both are comparisons and there is one slot. Which provision applies
+    outranks which date to pick: a member who does not know their tier cannot
+    act on a date."""
+    views = _views({"calculation_result": _BRANCHED, "scenario_set": _SCENARIOS})
+    assert "Tier 1" in views["COMPARISON"]
+    # By label, not by figure: the branch and the scenario fixtures share an
+    # amount, so an assertion on the number would pass for the wrong reason.
+    assert "if you retire now" not in views["COMPARISON"]
+    assert "If you are" in views["COMPARISON"], "the branch table's own header"
