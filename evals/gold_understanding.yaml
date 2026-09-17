@@ -1,0 +1,102 @@
+# General understanding: the questions a member asks that are not calculations.
+#
+# Why this suite did not exist, and why it had to. The benchmark was
+# calculation-shaped -- 46% of its turns expect a figure -- and spec §3's
+# finding was that explanation, not calculation, was the slow and hedging class:
+# at n=100 the two cost the same (10.56s against 10.89s), and nine of the ten
+# worst turns did no calculation at all. A suite that barely contains the class
+# cannot notice it regressing.
+#
+# None of these expects a figure. What they check is that the answer rests on
+# the Code -- a section cited, this member's own Article, and nothing computed
+# where nothing was asked.
+
+category: understanding
+
+cases:
+  - id: U01
+    name: What an Article is
+    employee: article-11-standard
+    turns:
+      - q: What is Article 11?
+        expect:
+          # The loop answered this from memory once -- "the Municipal Employees'
+          # fund", where 11 is the Laborers' -- and the guardrail passed it,
+          # because an answer with no citations has nothing to verify. So the
+          # check is that it cited anything at all from the right Article.
+          answers_from_article: "11"
+          no_calculation: true
+          no_figures: true
+
+  - id: U02
+    name: One section, in plain terms
+    employee: article-11-standard
+    turns:
+      - q: Explain Section 11-134 in plain terms. Do not calculate anything.
+        expect:
+          cites: ["11-134"]
+          no_figures: true
+
+  - id: U03
+    name: The difference between two Articles
+    employee: article-11-standard
+    turns:
+      - q: >-
+          What is the difference between Article 11 and Article 12? I am not
+          asking which one covers me.
+        expect:
+          # Both must be named. `cites_outside` is the structural form of "it
+          # reached beyond its own Article on purpose", and it is legitimate
+          # here for the same reason it is in G02.
+          cites: ["11-134|11-101"]
+          cites_outside: "11"
+          no_figures: true
+
+  - id: U04
+    name: How subsections relate
+    employee: article-11-standard
+    turns:
+      - q: >-
+          In Section 11-134, how do the subsections relate to each other? Does a
+          later one qualify an earlier one?
+        expect:
+          cites: ["11-134"]
+          no_figures: true
+
+  - id: U05
+    name: A term the Code defines elsewhere
+    employee: article-11-standard
+    turns:
+      - q: What does "creditable service" actually mean for my fund?
+        expect:
+          # Defined across the basis of service credit and its computation, so
+          # either is a right answer -- demanding one tests phrasing.
+          cites: ["11-216|11-164|11-215"]
+          no_figures: true
+
+  - id: U06
+    name: What has to be consulted before a figure exists
+    employee: article-11-standard
+    turns:
+      - q: >-
+          Which sections must be consulted before my retirement benefit can be
+          calculated? List them; do not calculate.
+        expect:
+          # Here deliberately. Spec §14 records this question dropping from 19
+          # citations to 6 and losing its guardrail under the conditional cap --
+          # a known-weak case that is not in the suite is a regression nobody
+          # will see.
+          answers_from_article: "11"
+          cites: ["11-134"]
+          no_figures: true
+
+  - id: U07
+    name: A cross-cutting Article that governs everyone
+    employee: article-11-standard
+    turns:
+      - q: What is Tier 2, and does it change anything for me?
+        expect:
+          # §1-160 is Tier 2 and lives in a cross-cutting Article, so citing it
+          # is not reaching into another fund's law.
+          cites: ["1-160"]
+          coverage_basis: record

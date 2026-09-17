@@ -113,3 +113,60 @@ def test_a_parked_case_says_why_it_is_parked():
             assert case.get("blocked_by"), (
                 f"{filename}:{case['id']} is blocked with no reason recorded"
             )
+
+
+#: Keys a case may carry. `source` is added by the loader, not written in YAML.
+CASE_KEYS = {
+    "id",
+    "name",
+    "category",
+    "critical",
+    "status",
+    "blocked_by",
+    # The counterpart of `blocked_by`, for `status: expected_fail`: what the
+    # system is known not to do yet. Read by people, not by the loader, which
+    # is exactly why it has to be listed -- otherwise the rule below would
+    # delete four pieces of recorded reasoning.
+    "gap",
+    "employee",
+    "turns",
+}
+
+
+def test_documentation_keys_are_only_on_the_cases_they_document():
+    """`gap` and `blocked_by` are prose for a reader. A case carrying one while
+    running normally is a case whose note nobody will ever see."""
+    for filename, _document, case in _cases():
+        if case.get("gap"):
+            assert case.get("status") == "expected_fail", (
+                f"{filename}:{case['id']} records a gap but is not expected_fail"
+            )
+        if case.get("blocked_by"):
+            assert case.get("status") == "blocked", (
+                f"{filename}:{case['id']} records a blocker but is not blocked"
+            )
+
+
+def test_a_case_carries_no_key_the_loader_ignores():
+    """The other half of the same silent failure.
+
+    `anon: true` looks like it makes a case run unauthenticated. The loader
+    reads `employee: anon` and ignores anything else, so the case would have run
+    as a member with a full record while asserting it had none -- and passed or
+    failed for a reason nobody wrote down.
+    """
+    stray: dict[str, list[str]] = {}
+    for filename, _document, case in _cases():
+        for key in case:
+            if key not in CASE_KEYS:
+                stray.setdefault(key, []).append(f"{filename}:{case['id']}")
+    assert not stray, f"case keys the loader ignores: {stray}"
+
+
+def test_a_turn_carries_no_key_the_runner_ignores():
+    for filename, _document, case in _cases():
+        for index, turn in enumerate(case.get("turns") or []):
+            stray = set(turn) - {"q", "expect"}
+            assert not stray, (
+                f"{filename}:{case['id']} turn {index} carries {sorted(stray)}"
+            )
