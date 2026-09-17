@@ -26,6 +26,7 @@ from typing import Any
 from langgraph.config import get_stream_writer
 
 from pension_chat.agent import coverage as coverage_mod
+from pension_chat.agent import objectives
 from pension_chat.agent.blocks import (
     render_assumptions,
     render_branches,
@@ -1233,6 +1234,55 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
     return {slot: text for slot, text in rendered.items() if text.strip()}
 
 
+def _recommended(state: dict[str, Any]) -> str:
+    """What the recommendation served, what it rests on, and what it cannot weigh.
+
+    Rendered here rather than asked of the model because the member asked for
+    the disclaimer and a disclaimer the model is asked to remember is one that
+    goes missing. The content comes from the same state `recommend.check`
+    wrote, so what the member reads is what the arithmetic accepted.
+
+    The excluded factors are named rather than omitted. A member choosing a
+    retirement date is weighing their health, their tax position and how long
+    they expect to draw a pension, and an answer that quietly leaves those out
+    reads as though they had been considered.
+    """
+    recommendation = state.get("recommendation") or {}
+    choice = recommendation.get("choice")
+    if not choice:
+        return ""
+
+    candidates = recommendation.get("candidates") or {}
+    sections = sorted(
+        {
+            str((entry or {}).get("section"))
+            for entry in candidates.values()
+            if (entry or {}).get("section")
+        }
+    )
+    lines = [
+        # Neutral about whose objective it is. The member may have stated it or
+        # the answer may have inferred it, and `compose` tells the model to say
+        # which -- a heading assuming they said it makes the inferred case a
+        # small lie.
+        "**Which option that points to**",
+        "",
+        f"Of the options worked out, **{choice}** gives "
+        f"{recommendation.get('prose') or 'what you asked for'}.",
+    ]
+    if sections:
+        subject = "They rest on" if len(candidates) > 2 else "Both rest on"
+        lines.append(subject + " " + ", ".join(f"Section {s}" for s in sections) + ".")
+    lines += [
+        "",
+        "This is a comparison of what the Code pays, not advice. It cannot "
+        "weigh "
+        + ", ".join(sorted(objectives.EXCLUDED))
+        + " — none of which the Pension Code settles. The decision is yours.",
+    ]
+    return chr(10).join(lines)
+
+
 def _attribution(state: dict[str, Any]) -> str:
     """The line that says the answer is going by the file, or "".
 
@@ -1627,6 +1677,23 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                     "own estimate, so you may quote them. State it plainly beside "
                     "the answer -- do not offer to look into it, and do not close "
                     "with a question:" + chr(10) + chr(10) + cliff
+                ),
+            }
+        )
+
+    if recommendation := _recommended(state):
+        # Checked by arithmetic before it got here: `recommend.check` refused
+        # anything the figures do not support, so what is left is a claim the
+        # numbers carry. What it must not become is a push.
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Arithmetic has accepted this recommendation. Include it, "
+                    "and do not press it past what the objective supports — "
+                    "the decision is theirs, and you are comparing what the "
+                    "Code pays rather than advising:"
+                    + chr(10) + chr(10) + recommendation
                 ),
             }
         )
