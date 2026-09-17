@@ -458,7 +458,25 @@ function Deploy-Frontend {
 
         $token = Invoke-Az staticwebapp secrets list -g $ResourceGroup -n $SwaName `
             --query "properties.apiKey" -o tsv
-        if ((Invoke-Native npx --yes @azure/static-web-apps-cli deploy ./out --deployment-token $token --env production) -ne 0) {
+        # Two independent traps stacked here, and both had to be fixed to get
+        # one working command.
+        #
+        # 1. The package's own bin entry is named `swa`, not
+        #    `static-web-apps-cli`, and npx's single-bin fallback that used to
+        #    paper over that mismatch no longer does on npm 11 -- bare
+        #    `npx @azure/static-web-apps-cli deploy` fails with "could not
+        #    determine executable to run". `-p <package> swa` names the
+        #    binary explicitly.
+        # 2. Bare `npx` on Windows resolves to `npx.ps1`, Node's own
+        #    PowerShell shim -- not `npx.cmd`. That shim reconstructs its
+        #    command line as *text* from `$MyInvocation.Line` and re-parses it
+        #    through `Invoke-Expression`, and that re-parse mangles the
+        #    `@scope/package` token when the call arrives via a splatted array
+        #    from inside a function, as `Invoke-Native` does here -- the same
+        #    "could not determine executable to run", for a different reason,
+        #    surviving fix 1 alone. `npx.cmd` is the plain batch shim: it
+        #    passes the real argv through with no text round-trip.
+        if ((Invoke-Native npx.cmd --yes -p @azure/static-web-apps-cli swa deploy ./out --deployment-token $token --env production) -ne 0) {
             Fail "the frontend upload failed."
         }
     } finally { Pop-Location; Remove-Item Env:NEXT_PUBLIC_API_URL -ErrorAction SilentlyContinue }
