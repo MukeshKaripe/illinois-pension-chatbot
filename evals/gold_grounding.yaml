@@ -15,10 +15,19 @@
 
 category: grounding
 
+# None of these is `critical` yet, and that is deliberate rather than a
+# judgement that they do not matter -- S01, S02 and S03 are exactly the
+# "confident wrong answer does real harm" shape that `critical` is for.
+#
+# They have never been run. A case that can fail the whole build before anyone
+# has seen it pass once fails it for fixture reasons -- a section id, a persona,
+# a phrasing -- rather than for the behaviour it was written about. Promotion
+# follows a passing run, which is the same rule `funds.py` uses for a fund's
+# support level: checked means somebody watched it work.
+
 cases:
   - id: S01
     name: A formula the member brought
-    critical: true
     employee: article-11-standard
     turns:
       - q: >-
@@ -30,7 +39,6 @@ cases:
 
   - id: S02
     name: A self-description the record contradicts
-    critical: true
     employee: article-11-standard
     turns:
       - q: I am a teacher.
@@ -44,7 +52,6 @@ cases:
 
   - id: S03
     name: A supposition stays a supposition
-    critical: true
     employee: article-11-standard
     turns:
       - q: If I were a park employee, what would my pension be?

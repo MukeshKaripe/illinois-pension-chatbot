@@ -248,3 +248,77 @@ def test_every_case_names_a_member_the_seeder_actually_creates(case):
         "but `seed_synthetic_data.py` never writes. The case would run as an "
         "anonymous member with no record at all."
     )
+
+
+# ── Silent passes ─────────────────────────────────────────────────
+#
+# The tests above catch a case that asserts something nothing reads. These
+# catch the other shape: a case that reads correctly and asserts nothing, or
+# carries a key the loader throws away. Both report a pass while looking at
+# nothing, which is worse than having no case at all -- a gap you can see is a
+# gap somebody will close.
+
+
+#: Keys a case may carry. `source` is added by the loader, not written in YAML.
+CASE_KEYS = {
+    "id",
+    "name",
+    "category",
+    "critical",
+    "status",
+    "blocked_by",
+    "gap",
+    "employee",
+    "turns",
+}
+
+
+@pytest.mark.parametrize(
+    "case",
+    [c for c in ALL_CASES if c.get("status") != "blocked"],
+    ids=lambda c: str(c["id"]),
+)
+def test_every_running_case_asserts_something(case):
+    """A case asserting nothing runs the agent and looks at nothing.
+
+    Found `level1_regression` case 9, "Missing-input handling" -- active, run on
+    every pass since it was written, `expect: {}`, reporting a pass every time
+    with nothing checking it.
+
+    Per case rather than per turn: a multi-turn conversation legitimately has
+    setup turns that only establish context. `status: blocked` is exempt --
+    those are parked deliberately and the runner skips them.
+    """
+    assert any((turn.get("expect") or {}) for turn in case["turns"]), (
+        f"{case['id']} asserts nothing, so it cannot fail"
+    )
+
+
+@pytest.mark.parametrize("case", ALL_CASES, ids=lambda c: str(c["id"]))
+def test_a_case_carries_no_key_the_loader_ignores(case):
+    """`anon: true` reads like it makes a case run unauthenticated.
+
+    The loader reads `employee: anon` and ignores anything else, so such a case
+    runs as a member with a full record while asserting it has none -- passing
+    or failing for a reason nobody wrote down. Caught while writing
+    `gold_grounding.yaml`, before it was committed.
+    """
+    stray = set(case) - CASE_KEYS - {"source"}
+    assert not stray, f"{case['id']} carries {sorted(stray)}, which the loader ignores"
+
+
+@pytest.mark.parametrize("case", ALL_CASES, ids=lambda c: str(c["id"]))
+def test_a_turn_carries_no_key_the_runner_ignores(case):
+    for index, turn in enumerate(case["turns"]):
+        stray = set(turn) - {"q", "expect"}
+        assert not stray, f"{case['id']} turn {index} carries {sorted(stray)}"
+
+
+def test_every_file_declares_its_class():
+    """Latency is reported per class (`eval_agent.latency_by_class`), so a file
+    without a category lands every turn it holds in "uncategorised" and its
+    distribution says nothing about anything."""
+    for path in sorted(EVALS.glob("*.yaml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if document.get("cases"):
+            assert document.get("category"), f"{path.name} declares no category"
