@@ -833,7 +833,7 @@ def _input_origins(
     taken: dict[str, Any],
     filled_origins: dict[str, str],
     sheet: WorkSheet,
-    question: str,
+    spoken: str,
     stand_in: bool = False,
     held: dict[str, str] | None = None,
 ) -> dict[str, str]:
@@ -844,8 +844,11 @@ def _input_origins(
       held, `statutory_parameter` for one the Code states, `assumed` only for
       one nobody supplied.
     - Read out of the conversation by the model: `stated` when the member wrote
-      that value in this message, otherwise `derived` -- "I am 60" states an
-      age; the months before 60 are worked out from it.
+      that value anywhere in the recent conversation, otherwise `derived` --
+      "I am 60" states an age; the months before 60 are worked out from it.
+      Scoped to the current message this labelled a correction made two turns
+      ago as something the assistant had worked out, and the calculation card
+      then told the member so.
     - Otherwise it came through the facts layer: the sheet's own label when it
       has one (a framing default is `assumed`, an earlier statement `stated`),
       else `record`.
@@ -871,7 +874,7 @@ def _input_origins(
             else:
                 origins[name] = (
                     SOURCE_STATED
-                    if _stated_in(taken[name], question)
+                    if _stated_in(taken[name], spoken)
                     else SOURCE_DERIVED
                 )
         else:
@@ -879,6 +882,22 @@ def _input_origins(
             default = SOURCE_STAND_IN if stand_in else SOURCE_RECORD
             origins[name] = fact.source if fact is not None else default
     return origins
+
+
+def _member_words(state: PensionAgentState) -> str:
+    """Everything the member themselves has typed in this conversation.
+
+    Their words only. The assistant's are not evidence about the member, and
+    treating them as such would let a figure the assistant offered come back as
+    something the member had stated.
+    """
+    said = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    said.append(str(state.get("question") or ""))
+    return "\n".join(said)
 
 
 def _ledger_update(
@@ -951,14 +970,49 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # purpose; answering from the record and ignoring what they said produces a
     # confidently wrong answer to a question they did not ask.
     question_has_figures = bool(re.search(r"\d", state["question"]))
-    if outstanding or question_has_figures:
+
+    # A member who corrected the record on an earlier turn must not have to say
+    # it again on the turn that computes.
+    #
+    # `outstanding` is measured against the *record*, so when the file covers
+    # every input the conversation was never read at all -- and a correction
+    # made two turns ago was silently ignored while the figure was worked from
+    # the file. Found by `gold_continuity.yaml` C05: "I actually have 25 years
+    # of service, not what your records say", then an annuity computed on 21.5.
+    #
+    # Bounded twice, because this puts a model call on the critical path. It
+    # runs only when the conversation actually holds a number, and only while
+    # the ledger has nothing stated for a declared input -- once a value is
+    # written down it is read from there, so the cost is paid once rather than
+    # on every calculating turn.
+    stated_already = set(ledger.stated_only(state.get("fact_ledger") or {}, ledger.SELF))
+    # What the member has actually typed, this turn and before it.
+    #
+    # Built from their own messages rather than from `_history`, which renders
+    # a transcript for a prompt: it pairs turns and drops an unpaired one, so a
+    # value stated in the very message the assistant has not yet answered is
+    # invisible to it. The provenance question here is only "did the member
+    # write this down", and their messages are where.
+    spoken = _member_words(state)
+    history_has_figures = bool(re.search(r"\d", spoken))
+    unheard = history_has_figures and not (set(declared) & stated_already)
+
+    if outstanding or question_has_figures or unheard:
         catalogue = [
             {
                 "name": spec["name"],
                 "type": spec.get("type"),
                 "description": spec.get("description", ""),
             }
-            for spec in (outstanding if not question_has_figures else declared.values())
+            # Everything declared, not just what the record could not supply:
+            # the point of reading the conversation here is to hear a value
+            # that contradicts the file, and an input the file answered is
+            # exactly the one being contradicted.
+            for spec in (
+                declared.values()
+                if (question_has_figures or unheard)
+                else outstanding
+            )
         ]
         try:
             raw = await complete(
@@ -985,7 +1039,16 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         for name, value in extracted.items():
             if name not in declared or value is None:
                 continue
-            if name in from_record and not _stated_in(value, state["question"]):
+            # Written by the member *anywhere in the conversation*, not only in
+            # this message. The guard's purpose is that the model may fill a
+            # gap but may not quietly replace a value the record supplied
+            # unless the member actually typed it -- it read "I am 56" and
+            # supplied months_before_age_60 = 48 where the record gives 44.
+            #
+            # Scoped to the current message, it also threw away a correction
+            # made two turns earlier, which is a member being ignored rather
+            # than a model being caught.
+            if name in from_record and not _stated_in(value, spoken):
                 # The extraction step may fill a gap, but it may not quietly
                 # replace a value the facts layer computed from the record
                 # unless the member actually wrote that value down. Left
@@ -1106,7 +1169,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         taken=taken,
         filled_origins=filled_origins,
         sheet=sheet,
-        question=state["question"],
+        spoken=spoken,
         stand_in=_stand_ins_allowed(state),
         held=ledger.provenance(state.get("fact_ledger") or {}, ledger.SELF),
     )

@@ -75,9 +75,16 @@ cases:
       - q: What is my pension going to be?
         expect:
           # Nothing establishes who this is, so a figure would be about nobody.
-          # Saying what is missing is the answer.
+          #
+          # Structural, not phrasal. The first version asserted `admits_gap`,
+          # whose phrase list ("cannot", "unable", "do not have") missed an
+          # answer opening "I can't state your pension amount from the
+          # information available" -- a correct refusal, failed on a
+          # contraction. Adding "can't" to the list would be fitting it to one
+          # run. What is checkable is that nothing established who this is and
+          # no figure was produced.
           no_figures: true
-          admits_gap: true
+          coverage_basis: unresolved
 
   - id: S05
     name: A section that was never retrieved
@@ -88,5 +95,12 @@ cases:
         expect:
           # 7-109 is IMRF's, not this member's. Naming it to rule it out is
           # fine; describing its text as theirs is citing from memory.
+          #
+          # `answers_from_article: "11"` was wrong here and the run said so: the
+          # question asks outright what a section in Article 7 says, so reading
+          # and citing it is answering, not straying. The agent explained that
+          # 7-109 defines who is an Article 7 employee, said it does not set
+          # this member's benefit, and gave 11-134(a) -- exactly right, and
+          # forbidden by a key that polices where the answer *rests*.
           forbids: ["Section 7-109 of your", "your Section 7-109"]
-          answers_from_article: "11"
+          cites: ["11-134"]

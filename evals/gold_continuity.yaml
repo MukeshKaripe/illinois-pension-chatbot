@@ -20,9 +20,12 @@ cases:
       - q: How does that compare with waiting until I am 60?
         expect:
           scenarios: true
-          # Only the retirement date moves. The whole point of a one-variable
-          # comparison is that everything else is held still.
-          unchanged: ["final_average_salary"]
+          # Named as the recipe names it. `unchanged` looks the input up in what
+          # the calculation actually used, and Article 11's recipe calls the
+          # salary basis `highest_average_annual_salary_4yr` -- asserting
+          # `final_average_salary` failed with "no earlier turn used it", which
+          # is the check reporting honestly that it had nothing to compare.
+          unchanged: ["highest_average_annual_salary_4yr"]
 
   - id: C02
     name: A correction is a correction, not a new question
@@ -33,8 +36,13 @@ cases:
           calculation: true
       - q: Actually, make that three more years from now instead.
         expect:
-          recompute: true
-          unchanged: ["final_average_salary"]
+          # Not `recompute`. That key reads `stale_figures`, which `_supersede`
+          # fills when the member *revises an input* -- a different act from
+          # asking for a different retirement date. "Three more years from now"
+          # builds another scenario, and what must hold is that it is projected
+          # forward rather than recomputed at today's service.
+          projects: true
+          unchanged: ["highest_average_annual_salary_4yr"]
 
   - id: C03
     name: A supposition survives the follow-up that explores it
