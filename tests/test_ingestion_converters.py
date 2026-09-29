@@ -11,9 +11,9 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import nsdecls
 
 from pension_chat.ingestion.converters import (
-    ConversionFailed,
-    NoTextLayer,
-    UnsupportedFormat,
+    ConversionFailedError,
+    NoTextLayerError,
+    UnsupportedFormatError,
     to_text,
 )
 from pension_chat.ingestion.sources import SourceFile
@@ -51,7 +51,7 @@ def test_md_is_stripped_of_markup() -> None:
 
 
 def test_unknown_extension_is_refused_by_name() -> None:
-    with pytest.raises(UnsupportedFormat, match="scan.tiff"):
+    with pytest.raises(UnsupportedFormatError, match="scan.tiff"):
         to_text(_file("scan.tiff", b"..."))
 
 
@@ -106,7 +106,7 @@ def test_docx_text_the_walker_cannot_reach_fails_the_file() -> None:
         )
         doc.element.body.insert(0, sdt)
 
-    with pytest.raises(ConversionFailed, match="characters"):
+    with pytest.raises(ConversionFailedError, match="characters"):
         to_text(_file("a.docx", _docx(build)))
 
 
@@ -132,5 +132,5 @@ def test_pdf_lines_come_back_joined_and_without_furniture() -> None:
 
 
 def test_pdf_without_a_text_layer_is_refused() -> None:
-    with pytest.raises(NoTextLayer, match="scan.pdf"):
+    with pytest.raises(NoTextLayerError, match="scan.pdf"):
         to_text(_file("scan.pdf", make_pdf([[], [], ["(40 ILCS 5/8-101)"]])))

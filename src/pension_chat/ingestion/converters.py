@@ -31,15 +31,15 @@ class IngestionError(Exception):
     """A file or Article that must be refused, with a reason a person can act on."""
 
 
-class UnsupportedFormat(IngestionError):
+class UnsupportedFormatError(IngestionError):
     pass
 
 
-class ConversionFailed(IngestionError):
+class ConversionFailedError(IngestionError):
     pass
 
 
-class NoTextLayer(ConversionFailed):
+class NoTextLayerError(ConversionFailedError):
     pass
 
 
@@ -55,7 +55,7 @@ def to_text(file: SourceFile) -> str:
     elif ext == ".pdf":
         raw = _pdf_text(file)
     else:
-        raise UnsupportedFormat(f"{file.name}: no converter for '{ext or '(no extension)'}'")
+        raise UnsupportedFormatError(f"{file.name}: no converter for '{ext or '(no extension)'}'")
     return normalise(raw)
 
 
@@ -82,7 +82,7 @@ def _docx_text(file: SourceFile) -> str:
     source_chars = sum(len(re.sub(r"\s", "", t.text or "")) for t in doc.element.body.iter(qn("w:t")))
     output_chars = len(re.sub(r"\s", "", text))
     if source_chars != output_chars:
-        raise ConversionFailed(
+        raise ConversionFailedError(
             f"{file.name}: the document holds {source_chars} characters of text but "
             f"{output_chars} were extracted — some text sits where the converter does not read"
         )
@@ -120,7 +120,7 @@ def _pdf_text(file: SourceFile) -> str:
 
     thin = sum(1 for page in pages if len("".join(page).strip()) < 50)
     if not pages or thin * 2 > len(pages):
-        raise NoTextLayer(
+        raise NoTextLayerError(
             f"{file.name}: {thin} of {len(pages)} pages have no extractable text — "
             "it looks scanned and needs OCR, which this pipeline does not do"
         )

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from pension_chat.ingestion.checks import (
-    FileRejected,
+    FileRejectedError,
     check_file_text,
     duplicate_record_ids,
     header_title_mismatches,
@@ -28,7 +28,10 @@ def test_an_article_heading_mid_line_is_not_a_section_header() -> None:
 
 
 def test_header_followed_by_its_own_title_passes() -> None:
-    text = "(40 ILCS 5/8-230.1)\n\n(Text of Section before amendment by P.A. 104-457)\nSec. 8-230.1. Right to contribute."
+    text = (
+        "(40 ILCS 5/8-230.1)\n\n(Text of Section before amendment by P.A. 104-457)\n"
+        "Sec. 8-230.1. Right to contribute."
+    )
     assert header_title_mismatches(text) == []
 
 
@@ -68,7 +71,7 @@ def test_header_at_the_very_end_fails() -> None:
 
 
 def test_check_file_text_names_the_file_and_the_problems() -> None:
-    with pytest.raises(FileRejected, match=r"art8\.pdf.*8-101"):
+    with pytest.raises(FileRejectedError, match=r"art8\.pdf.*8-101"):
         check_file_text("art8.pdf", "(40 ILCS 5/8-101)\nSec. 8-102. Wrong.")
 
 
@@ -121,5 +124,5 @@ def test_a_missing_index_counts_as_empty(monkeypatch) -> None:  # type: ignore[n
 
 def test_any_other_listing_error_fails_closed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setattr(indexer, "get_search_client", lambda: _FakeSearch(error=HttpResponseError("503")))
-    with pytest.raises(indexer.IndexListingFailed, match="Article 8"):
+    with pytest.raises(indexer.IndexListingError, match="Article 8"):
         indexer.list_indexed_sections("8")

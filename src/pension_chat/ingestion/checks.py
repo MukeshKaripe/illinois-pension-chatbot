@@ -30,7 +30,7 @@ _BETWEEN_HEADER_AND_TITLE_RE = re.compile(
 )
 
 
-class FileRejected(IngestionError):
+class FileRejectedError(IngestionError):
     pass
 
 
@@ -72,7 +72,7 @@ def check_file_text(name: str, text: str) -> None:
     problems = headers_not_at_line_start(text) + header_title_mismatches(text)
     if problems:
         more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
-        raise FileRejected(f"{name}: " + "; ".join(problems[:5]) + more)
+        raise FileRejectedError(f"{name}: " + "; ".join(problems[:5]) + more)
 
 
 def duplicate_record_ids(records: list[IndexRecord]) -> list[str]:

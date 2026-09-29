@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pension_chat.ingestion.checks import check_file_text, duplicate_record_ids
 from pension_chat.ingestion.chunker import IndexRecord, chunk_sections
 from pension_chat.ingestion.converters import IngestionError, to_text
-from pension_chat.ingestion.indexer import IndexListingFailed
+from pension_chat.ingestion.indexer import IndexListingError
 from pension_chat.ingestion.parser import ParsedSection, parse_statute_text
 from pension_chat.ingestion.selection import one_hop_references
 from pension_chat.ingestion.sources import Source, SourceFile
@@ -204,7 +204,7 @@ async def run(
         produced = {s.section_id for s in parsed}
         try:
             indexed = sinks.list_indexed_sections(str(article))
-        except IndexListingFailed as exc:
+        except IndexListingError as exc:
             refuse(str(exc))
             continue
         result.added, result.missing = sorted(produced - indexed), sorted(indexed - produced)

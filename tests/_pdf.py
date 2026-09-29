@@ -6,10 +6,10 @@ from __future__ import annotations
 def make_pdf(pages: list[list[str]]) -> bytes:
     """One Helvetica text line per string, top to bottom, one list per page.
     An empty list makes a page with no text layer."""
+    kids = " ".join(f"{4 + 2 * i} 0 R" for i in range(len(pages)))
     objs: list[bytes] = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        ("<< /Type /Pages /Kids [%s] /Count %d >>" % (
-            " ".join(f"{4 + 2 * i} 0 R" for i in range(len(pages))), len(pages))).encode(),
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode(),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
     for i, lines in enumerate(pages):

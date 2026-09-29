@@ -17,11 +17,11 @@ _SECTION_RE = re.compile(r"^\(40 ILCS 5/(\d+[A-Z]?)-")
 _ANY_ACT_RE = re.compile(r"^\((\d+)\s+ILCS\s+(\d+)/")
 
 
-class UnsupportedAct(IngestionError):
+class UnsupportedActError(IngestionError):
     pass
 
 
-class UnsupportedArticle(IngestionError):
+class UnsupportedArticleError(IngestionError):
     pass
 
 
@@ -34,7 +34,7 @@ def split_by_article(text: str) -> dict[int, str]:
         s = line.strip()
         act = _ANY_ACT_RE.match(s)
         if act and (act.group(1), act.group(2)) != ("40", "5"):
-            raise UnsupportedAct(
+            raise UnsupportedActError(
                 f"{act.group(1)} ILCS {act.group(2)} is not the Pension Code (40 ILCS 5); "
                 "only the Pension Code can be ingested"
             )
@@ -56,7 +56,7 @@ def split_by_article(text: str) -> dict[int, str]:
 
 def _article_number(raw: str) -> int:
     if not raw.isdigit():
-        raise UnsupportedArticle(
+        raise UnsupportedArticleError(
             f"Article {raw}: letter-suffixed Articles cannot be recorded "
             "(pension_articles.article_number is an integer)"
         )

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from pension_chat.ingestion.splitter import UnsupportedAct, UnsupportedArticle, split_by_article
+from pension_chat.ingestion.splitter import UnsupportedActError, UnsupportedArticleError, split_by_article
 
 STATUTE_DIR = Path(__file__).resolve().parents[1] / "data" / "statutes"
 
@@ -52,12 +52,12 @@ def test_a_division_heading_stays_with_its_article() -> None:
 
 
 def test_another_act_is_refused_by_name() -> None:
-    with pytest.raises(UnsupportedAct, match="5 ILCS 375"):
+    with pytest.raises(UnsupportedActError, match="5 ILCS 375"):
         split_by_article(_join("(5 ILCS 375/6)", "Sec. 6. Something else."))
 
 
 def test_a_letter_suffixed_article_is_refused() -> None:
-    with pytest.raises(UnsupportedArticle, match="22A"):
+    with pytest.raises(UnsupportedArticleError, match="22A"):
         split_by_article(_join("(40 ILCS 5/22A-101)", "Sec. 22A-101. Short title."))
 
 

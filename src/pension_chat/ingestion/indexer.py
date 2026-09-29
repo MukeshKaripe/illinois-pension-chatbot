@@ -298,7 +298,7 @@ def prune_stale_records(article: str, keep_ids: set[str], batch_size: int = 100)
     return deleted
 
 
-class IndexListingFailed(Exception):
+class IndexListingError(Exception):
     """The index could not be listed, so a shrink cannot be ruled out."""
 
 
@@ -318,4 +318,4 @@ def list_indexed_sections(article: str) -> set[str]:
     except ResourceNotFoundError:
         return set()
     except Exception as exc:
-        raise IndexListingFailed(f"could not list Article {article}'s indexed sections: {exc}") from exc
+        raise IndexListingError(f"could not list Article {article}'s indexed sections: {exc}") from exc

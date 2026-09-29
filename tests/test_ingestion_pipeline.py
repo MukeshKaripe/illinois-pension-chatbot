@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from pension_chat.ingestion.chunker import IndexRecord
-from pension_chat.ingestion.indexer import IndexListingFailed
+from pension_chat.ingestion.indexer import IndexListingError
 from pension_chat.ingestion.pipeline import Corpus, Sinks, run
 from pension_chat.ingestion.sources import SourceFile
 
@@ -49,7 +49,7 @@ class _Sinks:
 
     def list_indexed_sections(self, article: str) -> set[str]:
         if self.listing_error:
-            raise IndexListingFailed(f"could not list Article {article}")
+            raise IndexListingError(f"could not list Article {article}")
         return set(self.indexed.get(article, set()))
 
     def embed(self, records: list[IndexRecord]) -> list[IndexRecord]:

@@ -59,7 +59,8 @@ def test_broken_lines_are_joined_only_when_unambiguous() -> None:
         "lower case after a full stop stays on its own line",
     ])
     assert join_broken_lines(text).split("\n") == [
-        "Sec. 8-101. Creation of fund. The fund shall be administered by the board for the benefit of employees of the city.",
+        "Sec. 8-101. Creation of fund. The fund shall be administered by the board "
+        "for the benefit of employees of the city.",
         "(a) Never joined onto the line above, even though it follows a sentence",
         "(40 ILCS 5/8-102) never joined either",
         "Ends with a full stop.",
