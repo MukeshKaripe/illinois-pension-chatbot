@@ -129,6 +129,26 @@ Read 2026-09-29: structure, lookup codes and aggregate counts only.
 - **Exists:** the current design.
 - **New:** Tiers 0 and 3 (MEABF has both; schema `CHECK (tier IN (1,2))`, `derive_tier`, recipe keys, and recipes for each); Article 13 promoted from `experimental` when MWRD comes into scope; the engine checked against PBMS's own estimates.
 
+### 4.7 Missing or unclear data: ask the user, or ask the client
+
+**The mechanism exists.** When a calculation needs a value the record does not have, `compute_benefit` returns it as a missing input — never a plausible substitute — and the answer names it and asks. What the user states is kept for the rest of the conversation (never asked twice), recorded as the input's origin (`input_sources`), shown on the calculation card, and accepted by verification as provenance from "the user's own messages". A figure resting on a stated value says so ("based on the 22 years of service you gave"), never presenting itself as the fund's official figure. A stated value that contradicts the record overrides it with a note. The existing limits apply: `clarification_budget` (3 questions per conversation) and `assumption_ceiling` (2 assumed values per figure).
+
+**It fits a fact about one employee that the employer knows or can check** — and not a gap in what the data *means*:
+
+| Gap | Resolved by | Why |
+|---|---|---|
+| Hire date missing (q.27) | **the user**, in chat | HR usually knows it; the engine derives tier from it. |
+| One employee's status ("she retired in 2023") | **the user** | A fact about that person. |
+| A missing or doubtful salary year | **the user** | Same. |
+| Service credit not stored (q.29) | **the user, as a fallback** | See below. |
+| What "Debit 1–9" and blank statuses mean (q.25–26) | **the client, once, in code** | Internal PBMS codes an employer has no reason to know; asking would stop every conversation about 140,470 people at the same question. |
+| Tier (q.28) | **never asked** | Fixed by law from dates, easy to get wrong, and it selects the formula. Ask for the date instead and derive it — the rule `derive_tier` already follows. |
+| Current row, employer ownership, who sees whom (q.30, 31, 33) | **the client, in code** | Access rules; nothing a user types may decide which employees they can see. |
+
+**Service credit (q.29) moves from blocker to dependency.** Without an authoritative figure, the assistant asks for service on most calculations. That works, at two costs: figures are only as good as the employer's number — legal service credit includes purchased service, leaves, transfers and reciprocal service, and "about 22 years" against the fund's 21.4 can change the pension or eligibility — and most calculation turns gain a step. Still worth asking the client; no longer required before building.
+
+**Consequence:** the MEABF read layer is buildable now. Unmapped codes and missing values surface as "not available", missing values the user can supply become questions, and only code meanings and access rules wait on the client. Active Tier 1 and Tier 2 members can be tested end to end meanwhile.
+
 ## 5. Phases
 
 Each phase gets its own spec. Phase 1 blocks almost everything; 2 and 3 can overlap once 1's data model is fixed.
@@ -137,7 +157,7 @@ Each phase gets its own spec. Phase 1 blocks almost everything; 2 and 3 can over
 
 **Phase 1 — Data foundation (MEABF first).**
 - New employee record: the shape the agent reads (today built from our `employees` table) built instead from PBMS per turn — PBMS keys, employer, department, title, dates, status, tier (0–3), salary per year, service, reciprocal service. Our `employees` table no longer holds members; persona/account/email/password columns go.
-- A **read layer for MEABF only** over `PbsMeabDev`: fixed parameterised queries for one employee (record, salary per year, service, estimates), with the current-row rule, hire-date fallback, status-code mapping (including Debit 1–9 and blanks), the agreed service figure, the field allow-list and sentinel-year filtering applied in one place. Fails loudly on an unmapped code rather than guessing.
+- A **read layer for MEABF only** over `PbsMeabDev`: fixed parameterised queries for one employee (record, salary per year, service, estimates), with the current-row rule, hire-date fallback, status-code mapping (including Debit 1–9 and blanks), the agreed service figure, the field allow-list and sentinel-year filtering applied in one place. Fails loudly on an unmapped code rather than guessing. **Buildable before the client answers §8.7** (§4.7): gaps become "not available" or a question to the user; the mappings are filled in as answers arrive.
 - No sync and no precompute: nothing about members is stored on our side beyond the conversation itself (which is deleted on close).
 - The LABF/CEABF/MWRD mapping follows once the client answers §8 — a second mapping into the same model, not a second model.
 
@@ -246,12 +266,15 @@ Each question says why it matters and what we will assume if it stays unanswered
 
 ### 8.7 MEABF data (needed now — MEABF is the current focus)
 
+§4.7 says which of these the assistant can instead ask the user in chat. **Must come from the client:** 25, 26, 28, 30, 31, 33. **Asked of the user meanwhile:** 27, and 29 as a fallback. **Testing only:** 32.
+
 25. **What do statuses "Debit 1" to "Debit 9" mean?** They cover 140,470 employee rows — more than Active and Inactive together. Which are retirees, which are deferred or vested inactive members, which are refunded or withdrawn?
     *Why:* status decides whether a figure is a projection, a benefit in payment, or nothing. *If unanswered:* those employees are shown as "status not mapped" and no figure is worked for them.
 26. **58,089 employee rows have a blank status.** What are they, and should they be visible to employers at all?
 27. **Hire date is missing on 49% of rows (4,633 active members).** Is `First_Payroll_Date` the correct substitute, or is membership/participation date (`EligibleMemberDate`) the right date for service and tier?
 28. **Tier 0 and Tier 3.** What does Tier 0 mean (5,045 rows), and which statutory provision governs Tier 3 (32,237 rows; PBMS settings: minimum age 60 with 10 years, unreduced at 65)?
 29. **Service credit.** Per-year service is stored for only 8,688 people (`T_SerSalByYear`). Which figure is authoritative for everyone else — the latest estimate's `MEAB_Svc`, a stored procedure that computes it on demand, or should we derive it from payroll following PBMS's rules?
+    *Meanwhile:* the assistant asks the user for service when the record has none, and labels the figure as resting on their number (§4.7).
 30. **Several employee rows per person** (57,942 people). Which row is current — the latest `Effective_Date`, the one with status Active, or another rule? When a person has rows under two employers (e.g. City then Board of Education), which employer "owns" them for access purposes?
 31. **Employer codes `O`, `D` and `X`** have no description (3,799 rows between them). What are they?
 32. **Names:** 34,383 active City and Board of Education members share an exact first and last name with a colleague at the same employer. Is this copy masked? If it is, can we have a masked copy that keeps realistic name distributions, so name lookup can be tested honestly?
