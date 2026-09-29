@@ -23,8 +23,8 @@ venv/
 *.swp
 *.swo
 
-# Data (statute text not committed)
-data/statutes/*.txt
+# Data: statute text and client-supplied documents are never committed.
+data/
 
 # OS
 .DS_Store
