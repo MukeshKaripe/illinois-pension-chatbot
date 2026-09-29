@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     azure_search_endpoint: str
     azure_search_index_name: str = "pension-code-dev"
 
+    # ── Azure Blob (statute documents supplied by the client) ─────
+    # Optional: only ingestion with `--source blob` reads them.
+    azure_storage_connection_string: str | None = None
+    azure_storage_container: str | None = None
+
     # ── Database (Postgres) ───────────────────────────────────────
     pghost: str
     pguser: str
