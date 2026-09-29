@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +52,7 @@ def to_text(file: SourceFile) -> str:
     elif ext == ".md":
         raw = strip_markdown(_decode(file))
     elif ext == ".docx":
-        raw = _docx_text(file)
+        return _mirror_docx_nesting(normalise(_docx_text(file)))
     elif ext == ".pdf":
         raw = _pdf_text(file)
     else:
@@ -87,6 +88,47 @@ def _docx_text(file: SourceFile) -> str:
             f"{output_chars} were extracted — some text sits where the converter does not read"
         )
     return text
+
+
+#: A list marker at the start of a line: (a), (1), (ii), (a-5).
+_LIST_MARKER_RE = re.compile(r"^\([a-z0-9]+(?:-\d+)?\)\s")
+
+
+def _mirror_docx_nesting(text: str) -> str:
+    """Carry a Word document's indentation into the convention ILGA's text uses.
+
+    ILGA's .txt writes a nested list item "* (a) ...", and the parser, seeing the
+    asterisk, keeps it inside its parent rather than opening a subsection. A
+    Word rendering of the same statute has no asterisk; it indents the item
+    deeper than the body instead (the client's Article 8: 4 spaces for the body,
+    8 for nested items — 76 of 79 nested lines agree with ILGA's asterisks).
+    So an item indented deeper than the document's usual body indent gets ILGA's
+    marker. And a marker on an *unindented* line is a list inside a sentence that
+    wrapped ("...for which he received" / "(i) a disability benefit ..., or (ii)
+    ..."), so it is joined back onto the line it came from. With both, the
+    client's Article 8 parses record for record like ILGA's (measured
+    2026-09-29), where without them five sections flattened nested items into
+    subsections and §8-226 gained a subsection "(i)" the statute does not have.
+    """
+    lines = text.split("\n")
+    indents = [len(line) - len(line.lstrip(" ")) for line in lines if line.strip()]
+    if not indents:
+        return text
+    body = Counter(indents).most_common(1)[0][0]
+
+    out: list[str] = []
+    for line in lines:
+        s = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if s and _LIST_MARKER_RE.match(s):
+            if indent < body and any(o.strip() for o in out):
+                last = max(i for i, o in enumerate(out) if o.strip())
+                out[last] = out[last].rstrip() + " " + s
+                continue
+            if indent > body:
+                line = " " * body + "* " + s
+        out.append(line)
+    return "\n".join(out)
 
 
 def _walk(container: Any, parent: Any, lines: list[str]) -> None:

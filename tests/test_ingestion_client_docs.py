@@ -48,45 +48,29 @@ def test_same_sections_as_ilga(client_text: str) -> None:
     assert len(client) == 211
 
 
-_ASTERISKED_MARKER_RE = re.compile(r"^\* \(([a-z](?:-\d+)?)\) ")
-
-
-def _asterisked_sections() -> dict[str, list[str]]:
-    """Sections whose ILGA text prefixes subsection markers with "* ", and those markers.
-
-    The existing parser does not read "* (d) ..." as a subsection, so ILGA's own
-    .txt indexes these sections as one undivided record. The client's document
-    carries no asterisks and parses them into their subsections — the *reference*
-    is the one short here, not the conversion.
-    """
-    found: dict[str, list[str]] = {}
-    current = None
-    for line in TXT.read_text(encoding="utf-8-sig").split("\n"):
-        header = re.match(r"^\(40 ILCS 5/(8-[\d.]+[a-z]?)\)", line.strip())
-        if header:
-            current = header.group(1)
-        marker = _ASTERISKED_MARKER_RE.match(line)
-        if marker and current:
-            found.setdefault(current, []).append(f"({marker.group(1)})")
-    return found
-
-
-def test_same_records_except_the_known_differences(client_text: str) -> None:
-    asterisked = _asterisked_sections()
-    assert set(asterisked) == {"8-114", "8-154", "8-158", "8-167", "8-226"}
-    skip = set(asterisked) | {KNOWN_DIFFERENCE}
-
+def test_same_records_as_ilga_except_the_known_difference(client_text: str) -> None:
+    # ILGA's .txt marks nested list items "* (a)"; the client's document indents
+    # them instead. The converter maps that indentation to ILGA's marker, so both
+    # renderings nest the same items inside the same parents — no exceptions
+    # beyond 8-230.1.
     def ids(sections):  # type: ignore[no-untyped-def]
-        return {r.id for r in chunk_sections(sections) if r.section not in skip}
+        return {r.id for r in chunk_sections(sections) if r.section != KNOWN_DIFFERENCE}
 
     assert ids(parse_statute_text(client_text, 8)) == ids(parse_statute_file(str(TXT), 8))
 
 
-def test_asterisked_sections_get_exactly_the_subsections_ilga_marks(client_text: str) -> None:
-    client = {s.section_id: [x.subsection_id for x in s.subsections] for s in parse_statute_text(client_text, 8)}
-    for section_id, markers in _asterisked_sections().items():
-        # Every asterisked marker is a subsection the client's text yields.
-        assert set(markers) <= set(client[section_id]), section_id
+def test_record_counts_differ_only_by_ilgas_second_text_of_8_230_1(client_text: str) -> None:
+    # Measured 2026-09-29: 366 against 367. Before indentation was read, the
+    # client's document gave 381 — nested items flattened into subsections.
+    assert len(chunk_sections(parse_statute_text(client_text, 8))) == 366
+    assert len(chunk_sections(parse_statute_file(str(TXT), 8))) == 367
+
+
+def test_a_list_inside_a_sentence_is_not_a_subsection(client_text: str) -> None:
+    # "(d) ... for which he received (i) a disability benefit ..., or (ii) ...":
+    # the document wraps "(i)" onto its own line.
+    section = next(s for s in parse_statute_text(client_text, 8) if s.section_id == "8-226")
+    assert "(i)" not in [x.subsection_id for x in section.subsections]
 
 
 def test_every_client_word_is_in_the_ilga_text_in_order(client_text: str) -> None:

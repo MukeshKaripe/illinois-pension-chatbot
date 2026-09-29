@@ -156,3 +156,63 @@ def test_a_blank_cover_and_end_page_are_allowed() -> None:
         [],
     ])
     assert "(40 ILCS 5/8-101)" in to_text(_file("with-cover.pdf", pdf))
+
+
+NBSP4 = "\xa0" * 4
+
+
+def _cells_docx(*paragraphs: str) -> bytes:
+    """Paragraphs laid out the way the client's document is: one per table cell,
+    indented with non-breaking spaces."""
+    def build(doc):  # type: ignore[no-untyped-def]
+        for text in paragraphs:
+            doc.add_table(rows=1, cols=1).cell(0, 0).paragraphs[0].text = text
+    return _docx(build)
+
+
+def test_docx_items_indented_deeper_than_the_body_are_marked_nested() -> None:
+    # The client's document indents nested list items 8 spaces against a 4-space
+    # body — where ILGA's text writes "* (a)". Marked the same way, they stay
+    # inside their parent instead of becoming top-level subsections.
+    data = _cells_docx(
+        f"{NBSP4}(40 ILCS 5/8-154)\n{NBSP4}Sec. 8-154. Maximum annuities.",
+        f"{NBSP4}(1) The annuities are subject to the following limitations:",
+        f"{NBSP4}{NBSP4}(a) No annuity in excess of 60% of the highest salary.",
+        f"{NBSP4}{NBSP4}(b) No annuity to a widow in excess of 40%.",
+        "(Source: Laws 1963, p. 161.)",
+    )
+    assert _nonblank(to_text(_file("a.docx", data))) == [
+        "(40 ILCS 5/8-154)",
+        "Sec. 8-154. Maximum annuities.",
+        "(1) The annuities are subject to the following limitations:",
+        "* (a) No annuity in excess of 60% of the highest salary.",
+        "* (b) No annuity to a widow in excess of 40%.",
+        "(Source: Laws 1963, p. 161.)",
+    ]
+
+
+def test_docx_top_level_subsections_are_left_alone() -> None:
+    data = _cells_docx(
+        f"{NBSP4}(40 ILCS 5/8-115)\n{NBSP4}Sec. 8-115. Future entrant.",
+        f"{NBSP4}(a) Any employee who first enters service.",
+        f"{NBSP4}(b) Any person who becomes an employee later.",
+    )
+    assert _nonblank(to_text(_file("a.docx", data)))[2:] == [
+        "(a) Any employee who first enters service.",
+        "(b) Any person who becomes an employee later.",
+    ]
+
+
+def test_docx_marker_wrapped_onto_an_unindented_line_is_joined_back() -> None:
+    # "(d) ... for which he received" / "(i) a disability benefit ..., or (ii) ...":
+    # a list inside a sentence, wrapped onto a new, unindented line. Left alone
+    # the parser reads "(i)" as a subsection after (d).
+    data = _cells_docx(
+        f"{NBSP4}(40 ILCS 5/8-226)\n{NBSP4}Sec. 8-226. Computation of service.",
+        f"{NBSP4}(d) Any period of disability for which he received\n"
+        "(i) a disability benefit under this Article, or (ii) a temporary total disability benefit.",
+    )
+    assert _nonblank(to_text(_file("a.docx", data)))[2:] == [
+        "(d) Any period of disability for which he received (i) a disability benefit under this "
+        "Article, or (ii) a temporary total disability benefit.",
+    ]
