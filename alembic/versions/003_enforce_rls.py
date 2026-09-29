@@ -91,7 +91,26 @@ def upgrade() -> None:
         """)
 
     # The grant that made all of the above decoration.
-    op.execute("ALTER ROLE CURRENT_USER NOBYPASSRLS")
+    #
+    # Guarded: PostgreSQL 16+ refuses ALTER ROLE on your own role, and the app
+    # role on the client's server (PostgreSQL 18) is created without BYPASSRLS,
+    # so there is nothing to drop. A role that *does* bypass and cannot drop it
+    # fails the migration loudly — otherwise every policy above is decoration.
+    op.execute("""
+        DO $$
+        BEGIN
+            IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+                BEGIN
+                    ALTER ROLE CURRENT_USER NOBYPASSRLS;
+                EXCEPTION WHEN insufficient_privilege THEN
+                    RAISE EXCEPTION
+                        'role % has BYPASSRLS and cannot drop it itself (PostgreSQL 16+); '
+                        'run migrations and the app as a role created NOBYPASSRLS', current_user;
+                END;
+            END IF;
+        END
+        $$
+    """)
 
 
 def downgrade() -> None:
