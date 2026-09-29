@@ -4,7 +4,7 @@ Usage:
     uv run python scripts/ingest_articles.py --corpus meabf --dry-run
     uv run python scripts/ingest_articles.py --corpus meabf
     uv run python scripts/ingest_articles.py --corpus meabf --source blob
-    uv run python scripts/ingest_articles.py                        # ilga-all, as before
+    uv run python scripts/ingest_articles.py --corpus ilga-all      # every integer Article, as before
 
 Always run --dry-run first: it converts, checks and parses everything and
 prints what each Article would add or remove, without embedding or writing.
@@ -129,7 +129,9 @@ def index_exists() -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--corpus", choices=sorted(CORPORA), default="ilga-all")
+    # Required, not defaulted: a bare run against the client's index would widen
+    # it to all 24 Articles and replace the client's Article 8 with ILGA's.
+    parser.add_argument("--corpus", choices=sorted(CORPORA), required=True)
     parser.add_argument("--source", choices=["local", "blob"], default="local",
                         help="where the corpus's primary documents come from (ILGA texts are always local)")
     parser.add_argument("--dry-run", action="store_true", help="convert, check and parse; change nothing")
