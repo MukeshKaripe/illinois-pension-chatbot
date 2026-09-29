@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import ResourceNotFoundError
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
@@ -295,3 +296,26 @@ def prune_stale_records(article: str, keep_ids: set[str], batch_size: int = 100)
             raise
     logger.info("✓ Deleted %d stale document(s) for Article %s", deleted, article)
     return deleted
+
+
+class IndexListingFailed(Exception):
+    """The index could not be listed, so a shrink cannot be ruled out."""
+
+
+def list_indexed_sections(article: str) -> set[str]:
+    """Section ids currently indexed for one Article.
+
+    Fails closed, unlike `prune_stale_records`: the shrink guard asks "would this
+    run delete sections?", and "I could not look" must refuse the run rather than
+    answer "no". A missing index is the one honest empty answer — a first
+    ingestion cannot shrink anything.
+    """
+    try:
+        results = get_search_client().search(
+            search_text="*", filter=f"article eq '{article}'", select=["section"], top=100000
+        )
+        return {doc["section"] for doc in results}
+    except ResourceNotFoundError:
+        return set()
+    except Exception as exc:
+        raise IndexListingFailed(f"could not list Article {article}'s indexed sections: {exc}") from exc

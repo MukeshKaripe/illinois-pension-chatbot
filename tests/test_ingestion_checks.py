@@ -89,3 +89,37 @@ def test_every_ilga_file_passes_the_file_checks(path: Path) -> None:
     text = path.read_text(encoding="utf-8-sig")
     assert headers_not_at_line_start(text) == []
     assert header_title_mismatches(text) == []
+
+
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError  # noqa: E402
+
+from pension_chat.ingestion import indexer  # noqa: E402
+
+
+class _FakeSearch:
+    def __init__(self, docs=None, error=None):  # type: ignore[no-untyped-def]
+        self.docs, self.error, self.calls = docs or [], error, []
+
+    def search(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return iter(self.docs)
+
+
+def test_indexed_sections_are_listed_per_article(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    fake = _FakeSearch(docs=[{"section": "9-101"}, {"section": "9-101"}, {"section": "9-102"}])
+    monkeypatch.setattr(indexer, "get_search_client", lambda: fake)
+    assert indexer.list_indexed_sections("9") == {"9-101", "9-102"}
+    assert fake.calls[0]["filter"] == "article eq '9'"
+
+
+def test_a_missing_index_counts_as_empty(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(indexer, "get_search_client", lambda: _FakeSearch(error=ResourceNotFoundError("no index")))
+    assert indexer.list_indexed_sections("8") == set()
+
+
+def test_any_other_listing_error_fails_closed(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(indexer, "get_search_client", lambda: _FakeSearch(error=HttpResponseError("503")))
+    with pytest.raises(indexer.IndexListingFailed, match="Article 8"):
+        indexer.list_indexed_sections("8")
