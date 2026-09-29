@@ -148,3 +148,44 @@ async def test_an_article_that_parses_to_nothing_is_refused_and_left_validating(
     report = await run(corpus, _Source({"client.txt": "(40 ILCS 5/Art. 8 heading)"}), _Source(ILGA), fakes.sinks())
     assert _by_article(report)[8].outcome == "refused"
     assert fakes.status == [(8, "validating")]
+
+
+async def test_a_write_that_raises_refuses_that_article_and_the_run_continues() -> None:
+    fakes = _Sinks()
+
+    def failing_embed(records: list[IndexRecord]) -> list[IndexRecord]:
+        if records and records[0].article == "1":
+            raise RuntimeError("429 Too Many Requests")
+        return records
+
+    sinks = fakes.sinks()
+    sinks.embed = failing_embed
+    report = await run(CORPUS, _Source({"client.txt": CLIENT_ART8}), _Source(ILGA), sinks)
+
+    one = _by_article(report)[1]
+    assert one.outcome == "refused" and "429" in one.reason
+    assert (1, "validating") in fakes.status and (1, "ingested") not in fakes.status
+    assert _by_article(report)[20].outcome == "ingested"     # later Articles still run
+    assert report.failed
+
+
+async def test_a_short_upload_refuses_and_does_not_prune() -> None:
+    fakes = _Sinks()
+    sinks = fakes.sinks()
+    sinks.upload = lambda records: len(records) - 1
+    report = await run(CORPUS, _Source({"client.txt": CLIENT_ART8}), _Source(ILGA), sinks)
+    assert {a.outcome for a in report.articles} == {"refused"}
+    assert fakes.pruned == []
+
+
+async def test_a_citation_to_another_act_is_reported_and_never_ingested() -> None:
+    client = "\n".join([
+        "(40 ILCS 5/Art. 8 heading)",
+        _sec("8-101", "As defined in Section 9-103 of the Code of Civil Procedure; see Section 9-101."),
+    ])
+    fakes = _Sinks()
+    corpus = Corpus("t", primary=("client.txt",), whole_articles=(), one_hop=True)
+    report = await run(corpus, _Source({"client.txt": client}), _Source(ILGA), fakes.sinks())
+    assert report.other_acts == ["9-103"]
+    assert _by_article(report)[9].sections == 1                     # 9-101 only
+    assert not any(r.startswith("9-103") for r in fakes.uploaded)

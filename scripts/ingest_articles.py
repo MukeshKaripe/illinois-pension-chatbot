@@ -150,6 +150,8 @@ def print_report(report: RunReport) -> None:
         print(line + (f"\n           reason: {a.reason}" if a.reason else ""))
     if report.unavailable:
         print(f"  Cited but not available: {', '.join(sorted(report.unavailable))}")
+    if report.other_acts:
+        print(f"  Cited from other Acts (not the Pension Code; not ingested): {', '.join(report.other_acts)}")
     print(f"=== {'FAILED' if report.failed else 'OK'}")
 
 

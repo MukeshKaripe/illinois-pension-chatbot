@@ -134,3 +134,25 @@ def test_pdf_lines_come_back_joined_and_without_furniture() -> None:
 def test_pdf_without_a_text_layer_is_refused() -> None:
     with pytest.raises(NoTextLayerError, match="scan.pdf"):
         to_text(_file("scan.pdf", make_pdf([[], [], ["(40 ILCS 5/8-101)"]])))
+
+
+def test_a_scanned_page_in_the_middle_refuses_the_pdf() -> None:
+    # One scanned page in four is below any majority threshold, and on a first
+    # ingestion nothing in the index would notice the section it held going missing.
+    pdf = make_pdf([
+        ["(40 ILCS 5/8-101)", "Sec. 8-101. Creation of fund. " + LONG],
+        ["Sec. 8-101 continued. " + LONG],
+        [],
+        ["(40 ILCS 5/8-103)", "Sec. 8-103. Fund. " + LONG],
+    ])
+    with pytest.raises(NoTextLayerError, match="page 3"):
+        to_text(_file("partly-scanned.pdf", pdf))
+
+
+def test_a_blank_cover_and_end_page_are_allowed() -> None:
+    pdf = make_pdf([
+        [],
+        ["(40 ILCS 5/8-101)", "Sec. 8-101. Creation of fund. " + LONG],
+        [],
+    ])
+    assert "(40 ILCS 5/8-101)" in to_text(_file("with-cover.pdf", pdf))

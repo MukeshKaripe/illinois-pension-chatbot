@@ -118,10 +118,21 @@ def _pdf_text(file: SourceFile) -> str:
     with pdfplumber.open(io.BytesIO(file.data)) as pdf:
         pages = [(page.extract_text() or "").split("\n") for page in pdf.pages]
 
-    thin = sum(1 for page in pages if len("".join(page).strip()) < 50)
-    if not pages or thin * 2 > len(pages):
+    # A page without a text layer between pages that have one is text we cannot
+    # see — and on a first ingestion nothing in the index would notice it gone.
+    # Only blank pages before the first and after the last text page (a cover,
+    # an end sheet) are allowed.
+    has_text = [len("".join(page).strip()) >= 50 for page in pages]
+    if not any(has_text):
         raise NoTextLayerError(
-            f"{file.name}: {thin} of {len(pages)} pages have no extractable text — "
+            f"{file.name}: none of its {len(pages)} pages has extractable text — "
             "it looks scanned and needs OCR, which this pipeline does not do"
+        )
+    first, last = has_text.index(True), len(has_text) - 1 - has_text[::-1].index(True)
+    interior_blank = [i + 1 for i in range(first, last + 1) if not has_text[i]]
+    if interior_blank:
+        raise NoTextLayerError(
+            f"{file.name}: page {', '.join(map(str, interior_blank))} has no extractable text "
+            "between pages that do — likely scanned; OCR is not done here, so the file is refused"
         )
     return join_broken_lines("\n".join(remove_page_furniture(pages)))

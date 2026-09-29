@@ -16,7 +16,7 @@ from pension_chat.ingestion.chunker import IndexRecord, chunk_sections
 from pension_chat.ingestion.converters import IngestionError, to_text
 from pension_chat.ingestion.indexer import IndexListingError
 from pension_chat.ingestion.parser import ParsedSection, parse_statute_text
-from pension_chat.ingestion.selection import one_hop_references
+from pension_chat.ingestion.selection import one_hop_references, other_act_references
 from pension_chat.ingestion.sources import Source, SourceFile
 from pension_chat.ingestion.splitter import split_by_article
 
@@ -68,6 +68,7 @@ class RunReport:
     articles: list[ArticleResult] = field(default_factory=list)
     file_errors: list[tuple[str, str]] = field(default_factory=list)
     unavailable: list[str] = field(default_factory=list)
+    other_acts: list[str] = field(default_factory=list)   # cited as another Act's; never ingested
 
     @property
     def failed(self) -> bool:
@@ -151,9 +152,9 @@ async def run(
 
     # 3. One hop: the other Articles' sections the primary documents cite.
     if corpus.one_hop:
-        cited = one_hop_references(
-            [s for a in primary_articles for s in sections.get(a, [])], primary_articles
-        )
+        primary_sections = [s for a in primary_articles for s in sections.get(a, [])]
+        cited = one_hop_references(primary_sections, primary_articles)
+        report.other_acts = sorted(other_act_references(primary_sections, primary_articles))
         for article, wanted in sorted(cited.items()):
             if article in texts:
                 continue            # already ingested whole
@@ -224,11 +225,18 @@ async def run(
 
         if result.scope == "whole":
             await sinks.record_status(article, "validating")
-        uploaded = sinks.upload(sinks.embed(records))
-        if uploaded < len(records):
-            refuse(f"uploaded {uploaded} of {len(records)} records; status left at 'validating'")
+        # A failure while writing one Article (a 429 from the embedder, an upload
+        # batch rejected) refuses that Article and leaves it at 'validating'; the
+        # run goes on, so the report still reaches the operator.
+        try:
+            uploaded = sinks.upload(sinks.embed(records))
+            if uploaded < len(records):
+                refuse(f"uploaded {uploaded} of {len(records)} records; status left at 'validating'")
+                continue
+            sinks.prune(str(article), {r.id for r in records})
+        except Exception as exc:
+            refuse(f"write failed: {exc}; status left at 'validating'")
             continue
-        sinks.prune(str(article), {r.id for r in records})
         if result.scope == "whole":
             await sinks.record_status(article, "ingested")
         result.outcome = "ingested"
