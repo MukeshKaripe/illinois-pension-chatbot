@@ -33,6 +33,8 @@ uv run alembic revision -m "description"           # migrations are hand-written
 uv run python scripts/ingest_articles.py --corpus meabf --dry-run   # then without --dry-run; --corpus is required
 uv run python scripts/seed_synthetic_data.py         # seed synthetic employees for the pilot
 uv run python scripts/run_evals.py --changed         # evals for what this branch touched (--tier smoke|full)
+uv run python scripts/pbms_discover.py timing        # PBMS read timings (counts and timings only)
+uv run pytest -m pbms                                # on-demand live PBMS smoke test (never in CI)
 ```
 
 ```bash
@@ -111,6 +113,26 @@ Two rules that are easy to get backwards. **A conflict in a routing field (`arti
 The one way out is the member offering their own values, and the invitation is **corroborated, not trusted**: `compute_benefit`'s `stand_in_facts` means "they asked for their salary and service to be used under the supposed job", the model decides whether they did, and `tools._invited_stand_ins` checks the words are really in their message or in the premise they set up. Left to schema prose, the flag got set on "if I were a park employee, how would my pension be calculated?" and quoted a whole Article 11 salary history through Article 12's formula.
 
 The clarification budget (`config.clarification_budget`, default 3) is enforced: at the cap the agent proceeds on the record and says what it assumed. The fast exit matters as much as the feature — a turn where nobody described themselves costs no search and no model call.
+
+### PBMS read layer and people in context (`pbms/`, `agent/people.py`)
+
+**Where records come from.** `RECORD_SOURCE=pbms` installs `PbmsProvider` process-wide (`records.set_default_provider`). It reads employee records live from the fund's SQL Server. Evals keep `FixtureProvider`, or `NamedFixtureProvider` for cases that declare `people:`. Default `postgres` is the old profile path, unchanged.
+
+**The guard** (`pbms/connection.py`, `pbms/queries.py`). Only named statements from `queries.REGISTRY` can run, and there is no method that takes SQL. Every statement is checked read-only and against a column allow-list at import, so no SSN, `CC*`, address or phone column can be named. Connections are `ApplicationIntent=ReadOnly` and `READ UNCOMMITTED`. Each connection keeps one prepared cursor per statement, and `warm()` runs at startup, because pyodbc's per-cursor prepare doubles every read.
+
+**Salary** is read through `T_Pen_Ded_Master` (person, year) and never by filtering `T_Pen_Ded_Detail` on the person: that column is unindexed across 46.7M rows. Salary is gross pay per calendar year, and service is months with a pension deduction ÷ 12. The spec (§6.2) records how these were settled against PBMS's own per-year basis.
+
+**Names, not IDs.** Employees are found by first and last name. `pbms/names.py` matches a message against an in-memory directory of active members' names, refreshed every 6 hours, and PBMS is asked only on a hit. The MEAB ID is the internal key (`ref`), never shown to the user.
+
+**Who a turn is about** is deterministic (`people.decide`, spec §4.2):
+- names already in the conversation need no query;
+- a new name is a *choice turn*, and a shared name is never chosen for the user (department first above 12);
+- no name continues with the previous turn's people;
+- a singular pronoun after a comparison asks which.
+
+The session keeps at most 4 people (`sessions.subjects`, migration 009). The `people` SSE event updates the header chips before the answer streams.
+
+**One loop for several people.** Records load in parallel (`_fetch_people`), and the first person also fills the single-member keys, so one-person turns are unchanged. `compute_benefit(person=…)` runs the engine on that person's record only. The `PEOPLE` view is a code-rendered comparison table, and each person gets their own card.
 
 ### Guardrails (`agent/guardrails.py`)
 

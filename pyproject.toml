@@ -74,6 +74,8 @@ select = ["E", "F", "I", "N", "W", "UP"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["pbms: reads the client's PBMS live; run on demand with -m pbms"]
+addopts = "-m 'not pbms'"
 
 [tool.mypy]
 python_version = "3.12"
