@@ -29,7 +29,7 @@ from typing import Any
 
 from azure.search.documents.models import VectorizedQuery
 
-from pension_chat.agent import corpus
+from pension_chat.agent import corpus, instrument
 from pension_chat.agent.llm import get_async_search_client, get_llm
 from pension_chat.config import get_settings
 
@@ -208,9 +208,10 @@ async def _embed(queries: list[str]) -> list[list[float] | None]:
     missing = [q for q in queries if q not in _EMBED_CACHE]
     if missing:
         try:
-            response = await client.embeddings.create(
-                model=settings.azure_openai_embedding_deployment, input=missing
-            )
+            async with instrument.timed("embedding", "query"):
+                response = await client.embeddings.create(
+                    model=settings.azure_openai_embedding_deployment, input=missing
+                )
             if len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
                 _EMBED_CACHE.clear()
             for query, item in zip(missing, response.data):
@@ -291,9 +292,12 @@ async def _search_one(
         ]
 
     try:
-        results = await client.search(**kwargs)
-        return [dict(doc) async for doc in results]
+        # Timed with the iteration: results are fetched lazily as they are read.
+        async with instrument.timed("search", query):
+            results = await client.search(**kwargs)
+            return [dict(doc) async for doc in results]
     except Exception as exc:
+        instrument.note("semantic_fallback", query)
         logger.warning("Semantic hybrid search failed for %r: %s", query, exc)
 
     # Retry without the semantic ranker — it has its own quota and is the most
@@ -301,8 +305,10 @@ async def _search_one(
     kwargs.pop("query_type", None)
     kwargs.pop("semantic_configuration_name", None)
     try:
-        results = await client.search(**kwargs)
-        return [dict(doc) async for doc in results]
+        # Timed with the iteration: results are fetched lazily as they are read.
+        async with instrument.timed("search", query):
+            results = await client.search(**kwargs)
+            return [dict(doc) async for doc in results]
     except Exception as exc:
         logger.error("Search failed entirely for %r: %s", query, exc)
         return []
@@ -337,13 +343,14 @@ async def fetch_sections(
         filter_parts.append(article_expr)
 
     try:
-        results = await client.search(
-            search_text="*",
-            filter=" and ".join(filter_parts),
-            top=200,
-            select=_SELECT_FIELDS,
-        )
-        docs = [dict(doc) async for doc in results]
+        async with instrument.timed("search", "fetch"):
+            results = await client.search(
+                search_text="*",
+                filter=" and ".join(filter_parts),
+                top=200,
+                select=_SELECT_FIELDS,
+            )
+            docs = [dict(doc) async for doc in results]
     except Exception as exc:
         logger.error("Section fetch failed for %s: %s", pending, exc)
         return cached

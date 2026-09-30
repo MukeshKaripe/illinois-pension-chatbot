@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from pension_chat.agent.instrument import install_sqlalchemy
 from pension_chat.config import get_settings
 
 settings = get_settings()
@@ -37,6 +38,9 @@ engine = create_async_engine(
     pool_pre_ping=settings.db_pool_pre_ping,
     pool_recycle=settings.db_pool_recycle_seconds,
 )
+
+install_sqlalchemy(engine)
+
 
 @event.listens_for(engine.sync_engine, "checkout")
 def discard_closed_connection(

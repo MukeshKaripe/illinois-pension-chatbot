@@ -76,3 +76,8 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.22.1",
+]
