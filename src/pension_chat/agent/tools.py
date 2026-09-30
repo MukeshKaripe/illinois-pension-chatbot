@@ -35,6 +35,7 @@ from pension_chat.agent.nodes import (
     validate_recipes,
 )
 from pension_chat.agent.objectives import OBJECTIVES, objective_for
+from pension_chat.agent.people import norm_name
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
 from pension_chat.agent.section_scope import scoped_evidence
 from pension_chat.agent.worksheet import (
@@ -192,6 +193,14 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
                             "An offset the member named ('two more years'). Never "
                             "convert it to an age yourself -- it is resolved against "
                             "their real age for you."
+                        ),
+                    },
+                    "person": {
+                        "type": "string",
+                        "description": (
+                            "Whose figure, by the label the context lists. Required when "
+                            "the question is about more than one employee -- call once "
+                            "per person; omit when it is about one."
                         ),
                     },
                     "stand_in_facts": {
@@ -829,6 +838,18 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             {},
         )
 
+    # Several people in this turn: whose figure, and only their record (spec §5).
+    # The slice below carries this person's record, history and facts and no one
+    # else's, so another person's salary cannot reach this figure.
+    people = state.get("people") or {}
+    person_ref: str | None = None
+    if len(people) > 1:
+        wanted = norm_name(str(arguments.get("person") or ""))
+        person_ref = next((ref for ref, b in people.items() if norm_name(b["label"]) == wanted), None)
+        if person_ref is None:
+            return ("This question is about more than one employee. Call compute_benefit once for each, "
+                    "with person set to one of: " + "; ".join(b["label"] for b in people.values()) + ".", {})
+
     # A slice of the turn's state, plus what the model asked for. The four nodes
     # run in this order because it is a correctness constraint: resolve_inputs
     # needs the recipe to know which inputs exist, and execute needs the
@@ -846,13 +867,31 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         "stand_in_facts": bool(arguments.get("stand_in_facts"))
         and _invited_stand_ins(state),
     }
+    if person_ref is not None:
+        mine = people[person_ref]
+        slice_.update(employee_record=mine["record"], salary_history=mine["salary_history"],
+                      member_facts=mine["member_facts"])
     update: dict[str, Any] = {}
     for node in (resolve_recipes, resolve_inputs, validate_recipes, execute_calculations):
         produced = await node(slice_)  # type: ignore[arg-type]
         slice_.update(produced)
         update.update(produced)
 
-    stale = _supersede(state, update, slice_["scenarios"])
+    if person_ref is None:
+        stale = _supersede(state, update, slice_["scenarios"])
+    else:
+        # A comparison's figures are fresh side-by-side figures; superseding is
+        # tracked for one person's figure across turns, not between people.
+        stale = []
+        label = people[person_ref]["label"]
+        mine_now = {
+            f"{label} · {key}": {**entry, "person": label, "person_ref": person_ref,
+                                  "input_sources": dict(update.get("input_sources") or {})}
+            for key, entry in (update.get("calculation_result") or {}).items()
+        }
+        others = {key: entry for key, entry in (state.get("calculation_result") or {}).items()
+                  if (entry or {}).get("person_ref") not in (None, person_ref)}
+        update["calculation_result"] = {**others, **mine_now}
     update["stale_figures"] = stale
 
     return (

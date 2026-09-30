@@ -42,7 +42,7 @@ from langgraph.graph import END, StateGraph
 from pension_chat.agent import guardrails
 from pension_chat.agent.blocks import MarkerSubstituter
 from pension_chat.agent.capture import record_failure
-from pension_chat.agent.card import calculation_card
+from pension_chat.agent.card import calculation_cards
 from pension_chat.agent.checkpointer import (
     SqlAlchemyCheckpointSaver,
     thread_config,
@@ -555,13 +555,13 @@ async def run_agent_stream(
     # The card's figures come from the interpreter, but it sits beside an answer;
     # when verification replaced that answer its figures are unverified too, and
     # the card goes with them.
-    card = None
+    cards: list[dict[str, Any]] = []
     if report.passed:
         # The verifier's pass is the label. Nothing enters the memory on the
         # strength of the model's own opinion, and a replaced answer teaches
         # the system nothing -- that one goes to `capture` instead.
         await remember(state, report)
-        card = calculation_card(
+        cards = calculation_cards(
             state,
             WorkSheet.from_state(
                 state,
@@ -569,7 +569,57 @@ async def run_agent_stream(
                 as_stand_in=_stand_ins_allowed(cast(PensionAgentState, state)),
             ),
         )
-    yield {"type": "done", "state": state, "card": card, "scenarios": scenarios}
+    yield {"type": "done", "state": state, "card": cards[0] if cards else None, "cards": cards,
+           "scenarios": scenarios}
+
+
+def _people_facts(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Every person's facts for the verifier, keyed by ref so two people's values
+    never collide (spec §5). Which number belongs to whom is the PEOPLE table's job."""
+    people = state.get("people") or {}
+    if len(people) < 2:
+        return {}
+    return {f"{ref}:{name}": value for ref, bundle in people.items()
+            for name, value in (bundle.get("member_facts") or {}).items()}
+
+
+def _recorded_scenarios(
+    entry: Mapping[str, Any], base: Mapping[str, Any], inputs_used: Mapping[str, Any], turn: Any
+) -> dict[str, dict[str, Any]]:
+    """One result's figures as the scenario set files them: its scenarios, else "now".
+
+    Results accumulate across turns under the label the member used, so "put all
+    four in one table" has all four to put there. When a turn evaluates
+    scenarios those are the results worth keeping; the unscenarioed base is the
+    "as things stand today" case.
+    """
+    scenarios = entry.get("scenarios") or []
+    return {
+        str(scenario.get("label")): {
+            "annual_amount": scenario.get("annual_amount"),
+            "monthly_amount": scenario.get("monthly_amount"),
+            "service_years": (scenario.get("assumptions") or {}).get(
+                "service_years"
+            ),
+            "section": entry.get("section"),
+            "turn": turn,
+            # A variant is the same recipe over the same inputs at a
+            # different retirement date, so it rests on the same values the
+            # base figure did and goes stale with them.
+            "rests_on": list(inputs_used),
+        }
+        for scenario in scenarios
+        if scenario.get("label") and scenario.get("annual_amount")
+    } or {
+        NOW_LABEL: {
+            "annual_amount": base.get("annual_amount"),
+            "monthly_amount": base.get("monthly_amount"),
+            "service_years": inputs_used.get("creditable_service_years"),
+            "section": entry.get("section"),
+            "turn": turn,
+            "rests_on": list(inputs_used),
+        }
+    }
 
 
 def turn_record(state: dict) -> dict[str, Any] | None:
@@ -650,33 +700,7 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         #
         # When a turn evaluates scenarios those are the results worth keeping;
         # the unscenarioed base is the "as things stand today" case.
-        scenarios = entry.get("scenarios") or []
-        recorded = {
-            str(scenario.get("label")): {
-                "annual_amount": scenario.get("annual_amount"),
-                "monthly_amount": scenario.get("monthly_amount"),
-                "service_years": (scenario.get("assumptions") or {}).get(
-                    "service_years"
-                ),
-                "section": entry.get("section"),
-                "turn": state.get("turn_index"),
-                # A variant is the same recipe over the same inputs at a
-                # different retirement date, so it rests on the same values the
-                # base figure did and goes stale with them.
-                "rests_on": list(inputs_used),
-            }
-            for scenario in scenarios
-            if scenario.get("label") and scenario.get("annual_amount")
-        } or {
-            NOW_LABEL: {
-                "annual_amount": base.get("annual_amount"),
-                "monthly_amount": base.get("monthly_amount"),
-                "service_years": inputs_used.get("creditable_service_years"),
-                "section": entry.get("section"),
-                "turn": state.get("turn_index"),
-                "rests_on": list(inputs_used),
-            }
-        }
+        recorded = _recorded_scenarios(entry, base, inputs_used, state.get("turn_index"))
         # A label reused with a different figure means the member corrected
         # something. Overwriting silently leaves "which parts of the original
         # changed?" with nothing to compare against, and the model then quotes
@@ -691,6 +715,21 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         }
         update["scenario_set"] = {**superseded, **recorded}
         break
+
+    # Several people in one turn: every person's figures are kept, each under
+    # their own label, so two people's "at age 62" never overwrite each other.
+    people_results = [
+        entry for entry in results.values()
+        if (entry or {}).get("person") and ((entry.get("base") or {}).get("ok"))
+    ]
+    if people_results:
+        update["scenario_set"] = {
+            f"{entry['person']} — {label}": value
+            for entry in people_results
+            for label, value in _recorded_scenarios(
+                entry, entry["base"], entry["base"].get("inputs_used") or {}, state.get("turn_index")
+            ).items()
+        }
 
     if state.get("resolved_inputs"):
         question = state.get("question") or ""
@@ -947,7 +986,7 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         # the record belongs to a different fund, so for these turns the record
         # stops being an allowed source and a figure from it is caught rather
         # than blessed.
-        facts=_available_facts(state),
+        facts={**_available_facts(state), **_people_facts(state)},
         user_text=conversation or state.get("question", ""),
         check_numbers=settings.guardrail_numeric_provenance,
         established_sections=(state.get("cited_sections") or {}),

@@ -408,7 +408,7 @@ async def send_message(
         answer_parts: list[str] = []
         replaced_answer: str | None = None
         final_state: dict = {}
-        card: dict | None = None
+        cards: list[dict] = []
         # The what-ifs the conversation holds after this turn, for the chip.
         scenarios: list[dict] = []
         stream_failed = False
@@ -467,7 +467,7 @@ async def send_message(
                     yield sse_error(event["message"])
                 elif kind == "done":
                     final_state = event.get("state") or {}
-                    card = event.get("card")
+                    cards = event.get("cards") or ([event["card"]] if event.get("card") else [])
                     scenarios = event.get("scenarios") or []
             completed = True
         except Exception:
@@ -498,7 +498,7 @@ async def send_message(
 
         # The calculation card rides in the audit trail: it is provenance too,
         # and there it needs no column of its own.
-        tool_calls = _audit_trail(final_state) + ([card] if card else [])
+        tool_calls = _audit_trail(final_state) + cards
 
         # Persist the assistant turn, including the audit metadata the
         # architecture requires (§7.1): citations, and whether the answer passed

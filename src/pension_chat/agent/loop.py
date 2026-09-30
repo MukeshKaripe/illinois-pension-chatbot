@@ -21,6 +21,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from langgraph.config import get_stream_writer
@@ -161,6 +162,60 @@ def _record_notes(record: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _people_context(state: dict[str, Any]) -> str:
+    """Several people in one turn: who each is, and how to compute for each (spec §5)."""
+    people = state.get("people") or {}
+    lines = [
+        f"This question is about {len(people)} employees. Call compute_benefit once for each, with "
+        "person set to the label shown. Their figures are put side by side for you at <<<PEOPLE>>>; "
+        "do not write the figures yourself."
+    ]
+    for ref in state.get("turn_people") or list(people):
+        bundle = people.get(ref)
+        if not bundle:
+            continue
+        record, facts = bundle["record"], bundle.get("member_facts") or {}
+        known = ", ".join(f"{k}={facts[k]}" for k in ("age", "service_years") if facts.get(k) is not None)
+        where = record.get("department") or record.get("employer") or "department not on file"
+        line = (f"- {bundle['label']}: {where}; Tier {record.get('tier') or 'not settled'}; "
+                f"{known or 'no age or service on file'}")
+        if record.get("missing"):
+            line += "; record gaps -- " + "; ".join(f"{k}: {v}" for k, v in sorted(record["missing"].items()))
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _money(value: Any) -> str:
+    if value in (None, ""):
+        return "—"
+    return f"${Decimal(str(value).replace(',', '').replace('$', '')):,.2f}"
+
+
+def render_people(state: dict[str, Any]) -> str:
+    """One row per person with a figure, in the turn's order -- code-rendered so the
+    model can compare in prose but can never swap two people's numbers."""
+    people = state.get("people") or {}
+    first_figure: dict[str, dict] = {}
+    for entry in (state.get("calculation_result") or {}).values():
+        ref = (entry or {}).get("person_ref")
+        if ref and ref not in first_figure and ((entry.get("base") or {}).get("ok")):
+            first_figure[ref] = entry
+    if len(first_figure) < 2:
+        return ""
+    rows = ["| Employee | Department | Tier | Worked from | Annual | Monthly |",
+            "|---|---|---|---|---|---|"]
+    for ref in state.get("turn_people") or list(people):
+        entry, bundle = first_figure.get(ref), people.get(ref)
+        if not entry or not bundle:
+            continue
+        record, base = bundle["record"], entry["base"]
+        section = f"§{entry['section']}{entry.get('subsection') or ''}" if entry.get("section") else ""
+        rows.append(f"| {bundle['label']} | {record.get('department') or record.get('employer') or ''} | "
+                    f"{record.get('tier') or ''} | {section} | {_money(base.get('annual_amount'))} | "
+                    f"{_money(base.get('monthly_amount'))} |")
+    return "\n".join(rows)
+
+
 def _context(state: dict[str, Any]) -> str:
     """What is known about this member, re-rendered every iteration.
 
@@ -214,6 +269,8 @@ def _context(state: dict[str, Any]) -> str:
     record = state.get("employee_record") or {}
     if record.get("record_source") and len(state.get("people") or {}) <= 1:
         lines.append(_record_notes(record))
+    if len(state.get("people") or {}) > 1:
+        lines.append(_people_context(state))
     coverage = state.get("coverage") or {}
     if coverage.get("article"):
         # Whose claim this is, said correctly. Under a supposition the file says
@@ -1156,7 +1213,7 @@ def _branched(state: dict[str, Any]) -> str:
 #: ASSUMPTIONS is deliberately absent. `guardrails._check_assumptions_disclosed`
 #: requires the *answer* to disclose an assumption in its own words, and a block
 #: substituted into the stream is not the answer saying anything.
-MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS")
+MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS", "PEOPLE")
 
 
 #: How a tool call reads as a step, in the member's terms rather than the
@@ -1260,6 +1317,8 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
     """
     first = _first_figure(state)
     rendered = {
+        # Several people side by side, code-rendered so no two figures can swap.
+        "PEOPLE": render_people(state),
         "WORKED_STEPS": render_worked_steps(first["base"]) if first else "",
         # Which provision applies outranks which date to pick: a member
         # who does not know their tier cannot act on a date.

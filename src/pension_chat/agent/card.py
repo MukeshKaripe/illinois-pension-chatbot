@@ -107,3 +107,28 @@ def _record_label(state: Mapping[str, Any]) -> str | None:
     """Whose record the "Record" inputs came from -- the fund's, named without its internal key."""
     record = state.get("employee_record") or {}
     return f"{record['record_source']} record" if record.get("record_source") else None
+
+
+def calculation_cards(state: Mapping[str, Any], sheet: WorkSheet) -> list[dict[str, Any]]:
+    """One card per person with a figure; a one-person turn's card exactly as before."""
+    people = state.get("people") or {}
+    if len(people) < 2:
+        card = calculation_card(state, sheet)
+        return [card] if card else []
+    cards: list[dict[str, Any]] = []
+    done: set[str] = set()
+    for entry in (state.get("calculation_result") or {}).values():
+        ref = (entry or {}).get("person_ref")
+        if not ref or ref in done or ref not in people or not (entry.get("base") or {}).get("ok"):
+            continue
+        done.add(ref)
+        card = calculation_card(
+            {**state, "calculation_result": {"figure": entry}, "input_sources": entry.get("input_sources") or {},
+             "employee_record": people[ref]["record"]},
+            sheet,
+        )
+        if card:
+            cards.append({**card, "person": entry.get("person")})
+    order = {r: i for i, r in enumerate(state.get("turn_people") or [])}
+    people_order = {people[r]["label"]: order.get(r, 99) for r in people}
+    return sorted(cards, key=lambda c: people_order.get(c["person"], 99))

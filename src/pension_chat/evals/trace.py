@@ -94,12 +94,14 @@ def _figures(result: dict[str, Any]) -> list[dict[str, Any]]:
     figures: list[dict[str, Any]] = []
     for formula, entry in result.items():
         base = (entry or {}).get("base") or {}
+        # Whose figure, in a turn about several people (a one-person figure keeps its shape).
+        who = {"person": entry["person"]} if (entry or {}).get("person") else {}
         if base.get("ok") and base.get("annual_amount") is not None:
-            figures.append({"formula": formula, "when": "now", "annual": str(base["annual_amount"])})
+            figures.append({"formula": formula, "when": "now", "annual": str(base["annual_amount"]), **who})
         for scenario in (entry or {}).get("scenarios") or []:
             if scenario.get("annual_amount") is not None:
                 figures.append({"formula": formula, "when": str(scenario.get("label") or ""),
-                                "annual": str(scenario["annual_amount"])})
+                                "annual": str(scenario["annual_amount"]), **who})
     return figures
 
 
