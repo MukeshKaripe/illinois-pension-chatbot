@@ -115,3 +115,21 @@ async def test_a_conversation_that_raises_is_an_error_not_a_crashed_run() -> Non
     by_id = {r.case.id: r for r in results}
     assert by_id["A"].turns[0].status == "error" and "something outside" in by_id["A"].turns[0].trace.error
     assert by_id["B"].passed
+
+
+@pytest.mark.asyncio
+async def test_an_ungating_judge_that_cannot_answer_does_not_fail_the_turn(monkeypatch) -> None:
+    from pension_chat.evals import runner as runner_mod
+
+    async def no_verdict(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(runner_mod, "judge_turn", no_verdict)
+    result = await run_conversation(_case("A", ["q1"]), fixtures={}, probe={},
+                                    options=RunOptions(judge=True, judge_gates=False),
+                                    agent=_agent({"q1": ["1-160"]}))
+    assert result.turns[0].status == "pass" and result.turns[0].verdict is None
+    gated = await run_conversation(_case("A", ["q1"]), fixtures={}, probe={},
+                                   options=RunOptions(judge=True, judge_gates=True),
+                                   agent=_agent({"q1": ["1-160"]}))
+    assert gated.turns[0].status == "unjudged"

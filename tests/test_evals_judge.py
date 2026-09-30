@@ -95,3 +95,10 @@ async def test_a_judge_that_recovers_from_a_rate_limit_still_judges(tmp_path: Pa
     verdict = await judge_turn(TURN, TRACE, [], rubric_path=RUBRIC, cache_dir=tmp_path,
                                complete=flaky, backoff=0.0)
     assert verdict == Verdict(**GOOD)
+
+
+@pytest.mark.asyncio
+async def test_yes_and_no_strings_are_read_as_booleans(tmp_path: Path) -> None:
+    complete, _ = _fake([json.dumps({**GOOD, "relevant": "no", "within_boundary": "yes"})])
+    v = await judge_turn(TURN, TRACE, [], rubric_path=RUBRIC, cache_dir=tmp_path, complete=complete)
+    assert v is not None and v.relevant is False and v.within_boundary is True

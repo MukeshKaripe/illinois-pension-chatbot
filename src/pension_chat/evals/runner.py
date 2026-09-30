@@ -114,7 +114,9 @@ async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe
                 if options.judge:
                     verdict = await judge_turn(turn, trace, history, rubric_path=options.rubric_path,
                                                cache_dir=options.cache_dir)
-                if options.judge and verdict is None:
+                if options.judge and verdict is None and options.judge_gates:
+                    # Unjudged fails only a turn the judge is allowed to fail; an
+                    # uncalibrated judge being throttled is capacity, not quality.
                     status = "unjudged"
                 elif options.judge_gates and verdict is not None and not verdict.passes(turn.acceptable):
                     status = "fail"

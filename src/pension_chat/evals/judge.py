@@ -47,12 +47,24 @@ def rubric_version(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
+def _flag(value: Any) -> bool:
+    """A JSON boolean, or "yes"/"no" -- never Python truthiness, where "no" is True."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("yes", "true"):
+        return True
+    if text in ("no", "false"):
+        return False
+    raise ValueError(f"not a yes/no: {value!r}")
+
+
 def _parse(text: str) -> Verdict | None:
     try:
         raw = json.loads(text)
         v = Verdict(
-            goal=str(raw["goal"]), relevant=bool(raw["relevant"]),
-            within_boundary=bool(raw["within_boundary"]), behaviour=str(raw["behaviour"]),
+            goal=str(raw["goal"]), relevant=_flag(raw["relevant"]),
+            within_boundary=_flag(raw["within_boundary"]), behaviour=str(raw["behaviour"]),
             voice=int(raw["voice"]), hedging=int(raw["hedging"]), clarity=int(raw["clarity"]),
             quotes=dict(raw.get("quotes") or {}), reason=str(raw.get("reason") or ""),
         )
