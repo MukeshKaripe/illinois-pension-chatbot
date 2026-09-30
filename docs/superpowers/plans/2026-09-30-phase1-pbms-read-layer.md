@@ -1,19 +1,24 @@
-# Phase 1: MEABF Read Layer and Name-Based Demo Path — Implementation Plan
+# Phase 1: MEABF Read Layer, People in Context, and Comparisons — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** An employer names an employee by first and last name in the chat, chooses the right person when the name is shared, and the agent answers from that employee's PBMS record, read live and read-only.
+**Goal:** An employer names employees by first and last name in the chat and chooses who is meant when a name is shared. A conversation holds up to 4 people, shown as live chips, and the agent answers about one of them or compares several in one turn. Every record is read live and read-only from PBMS.
 
 **Architecture:**
 - A new package, `src/pension_chat/pbms/`, holds four parts:
   - a guard: `PbmsClient`, which runs only named, read-only, allow-listed statements;
   - the SQL: `queries.py`;
-  - the in-memory name directory: `names.py`, which matches names in a message at no database cost;
+  - the in-memory name directory: `names.py`;
   - the provider: `PbmsProvider`, which implements `RecordProvider` and adds `names_in` and `find_by_name`.
-- The app installs the provider process-wide when `RECORD_SOURCE=pbms`, and refreshes the directory every 6 hours.
-- `triage` turns a name in a message into a choose-first suggestion.
-- The chosen person becomes the session's **subject** (`sessions.subject_meab_id`). The MEAB ID is internal only, and appears in payloads just as an opaque `ref`.
-- `fetch_employee_record` loads the subject's record.
+- A new pure module, `agent/people.py`, decides deterministically who each turn is about (spec §4.2):
+  - familiar names: no query;
+  - an unfamiliar name: a choice turn;
+  - no name: the previous turn's people;
+  - a singular pronoun after a comparison: a which-one turn.
+- `fetch_employee_record` loads every person in the turn in parallel. The first person also fills today's single-member keys, so one-person turns are unchanged.
+- `compute_benefit` takes a `person` when a turn has several, and runs the existing engine chain on that person's record only.
+- A code-rendered `PEOPLE` table carries the comparison.
+- The session stores the people (`sessions.subjects`, at most 4, most recent first). A `people` SSE event updates the header chips before any answer text arrives.
 
 **Tech Stack:**
 - Python 3.12, FastAPI, LangGraph, SQLAlchemy/Alembic (Postgres);
@@ -21,7 +26,7 @@
 - Next.js 16 / React 19 with `node --test`;
 - pytest (`asyncio_mode = "auto"`).
 
-**Spec:** `docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md`, revised 2026-09-30 for name lookup. Read all of it, especially §3.4, §4.2 and §6.1.
+**Spec:** `docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md`, revised 2026-10-01. Read all of it, especially §3.4, §4 and §5.
 
 ## Global Constraints
 
@@ -30,23 +35,26 @@
 - **Never write to PBMS.** Nothing is ever written to it.
 - **Never read personal identifiers.** No statement ever names `Ssn`, `SSN`, `eSSN`, any `CC*` column, `PbsAddress_*`, `Pbs*_Phone`, `PbsEmail`, `Maiden_Name`, `Middle_Name` or `MemberID`.
 - **Session settings.** Every PBMS connection uses `ApplicationIntent=ReadOnly` and `APP=pension-chat-readonly`, and runs at `READ UNCOMMITTED`. Queries time out after 5 s by default; the name directory load is allowed 30 s.
-- **Employees are found by first and last name only.** The MEAB ID (`^M-[0-9]{6}$`) is the internal subject key. It is never shown in the UI or written into an answer, and it travels in API payloads only as the opaque `ref`.
+- **Employees are found by first and last name only.** The MEAB ID (`^M-[0-9]{6}$`) is internal. It is never shown in the UI or written into an answer, and it travels in API payloads only as the opaque `ref`.
 - **Active members only.** An active member is a linker row with `MEAB_Id LIKE 'M-%'`, a live employee row (`e.Status = 'A'`) and `e.Employee_Status_Cd = 'A'`.
 - **Salary is read through `T_Pen_Ded_Master`.** No statement filters `T_Pen_Ded_Detail` by `Person_Info_Seq_No`.
-- **Only tier codes `1`, `2` and `3` map to a tier.** Any other code is recorded in `missing["tier"]`.
 - **Gaps stay gaps.** A field PBMS leaves empty is absent, with a reason in `missing`. It is never defaulted, and nothing falls back to Postgres.
-- **Nobody is chosen for the user.** A shared name is always offered as a choice. When more than 12 people share it (`MAX_LISTED = 12`), the department is asked first.
-- **Default behaviour is unchanged.** With `RECORD_SOURCE` unset, which means `postgres`, local development, tests and evals behave exactly as they do today.
+- **Nobody is chosen for the user.** A shared name is always offered as a choice, department first above `MAX_LISTED = 12`. A singular pronoun after a turn about several people is asked about, never guessed.
+- **At most `MAX_PEOPLE = 4` people** in a conversation and in a turn.
+- **One person's record never feeds another's figure.** Each `compute_benefit` call in a multi-person turn sees only its own person's record. Comparison numbers are code-rendered (the `PEOPLE` view), never written by the model.
+- **Default behaviour is unchanged.** With `RECORD_SOURCE` unset (`postgres`), and in eval cases without `people:`, everything behaves exactly as today. A one-person turn fills exactly today's state keys.
 - **Commits.** Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
 ## Review Focus
 
-1. **A name typed as "ka_ls ma_lp's", "MA_LP, KA_LS" or "…KA_LS MA_LP?"** is still recognised: case, possessive, `LAST, FIRST` and trailing punctuation are all handled. A name inside a longer token (`XKA_LS`) is not recognised (Task 4).
-2. **A name shared by 109 people** is offered department-first, and nobody is auto-selected (Tasks 6 and 8).
-3. **A follow-up that repeats the current subject's name** passes straight through, instead of asking the user to choose again (Task 6).
-4. **A pooled connection the server has dropped** is retried once on a fresh connection instead of failing the turn (Task 2).
-5. **A driver error message that echoes the connection string** never reaches the exception text or `repr(client)` (Task 2).
-6. **A question asked in September** does not report the part-year salary as the "current annual salary" (Task 3).
+1. **Two people with different salaries compared in one turn:** each figure comes from its own record. A test gives them distinct salaries and checks both figures (Task 7).
+2. **"What would she get at 65?" after a comparison:** a which-one card, never a guess (Task 6).
+3. **A name typed as "ka_ls ma_lp's", "MA_LP, KA_LS" or "…KA_LS MA_LP?":** recognised. `XKA_LS` is not (Task 4).
+4. **A name shared by 109 people:** offered department-first, and nobody is auto-selected (Tasks 6 and 9).
+5. **One of three records failing to load:** the other two are answered, and the answer says whose record could not be read (Task 5).
+6. **A fifth person chosen:** the least recently used one leaves, and the chips show it (Task 8).
+7. **A pooled connection dropped by the server:** retried once. A driver message echoing the connection string never reaches the exception text (Task 2).
+8. **A question asked in September:** the part-year salary is not reported as the "current annual salary" (Task 3).
 
 ---
 
@@ -1761,105 +1769,147 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: The agent reads the conversation's subject
+### Task 5: People in the agent's state, and loading their records in parallel
 
 **Files:**
-- Modify: `src/pension_chat/agent/state.py`:
-  - add `subject_meab_id`, `subject_suggestion` and `record_unavailable` to the TypedDict and to `initial_state()`;
-  - add a `subject_meab_id` parameter to `initial_state` and `turn_input`.
-- Modify: `src/pension_chat/agent/graph.py:208-248` (`run_agent_stream`)
+- Create: `src/pension_chat/agent/people.py` (pure: labels, constants; Task 6 adds `decide`)
+- Modify: `src/pension_chat/agent/state.py` (new keys; `subjects` parameter; `DURABLE_KEYS`)
+- Modify: `src/pension_chat/agent/graph.py:208-300` (`run_agent_stream`: the `subjects` parameter and the `people` event)
 - Modify: `src/pension_chat/agent/nodes.py:290-337` (`fetch_employee_record`)
-- Modify: `src/pension_chat/agent/loop.py:141-183` (`_context`, and a new `_record_notes`)
+- Modify: `src/pension_chat/agent/loop.py:141-183` (`_context`: `_record_notes`, the unavailable note)
 - Modify: `src/pension_chat/agent/card.py` (`record_label`)
-- Test: `tests/test_subject_record.py`
+- Test: `tests/test_people_loading.py`
 
 **Interfaces:**
 - Consumes: `current_provider` and `RecordUnavailable` (Tasks 2–3), and the agent record's `record_source`, `display_name`, `employer`, `department`, `service_source` and `missing`.
 - Produces:
-  - `initial_state(..., *, subject_meab_id=None)` and `turn_input(..., *, subject_meab_id=None)`;
-  - `run_agent_stream(..., subject_meab_id=None)`;
-  - the per-turn state keys `subject_meab_id`, `subject_suggestion` and `record_unavailable`;
+  - `people.MAX_PEOPLE = 4`, `people.MAX_LISTED = 12` and `people.norm_name(s) -> str`;
+  - `people.labels(subjects: list[dict]) -> dict[str, str]`, mapping ref to label, with the department added only when two people share a name;
+  - the state keys:
+    - `subjects: list[dict]` (per turn; the roster, most recent first; entries `{"ref", "display_name", "first_name", "last_name", "department", "employer", "birth_year"}`);
+    - `turn_people: list[str]` (per turn);
+    - `last_people: list[str]` (durable);
+    - `people: dict[str, dict]` (per turn; `{ref: {"record", "salary_history", "member_facts", "label"}}`);
+    - `pinned_people: dict[str, dict]` (durable; `{ref: {"record", "salary_history"}}`);
+    - `subject_suggestion: dict | None` (per turn);
+    - `unavailable_people: list[str]` (per turn);
+  - `initial_state(..., *, subjects=None)` and `turn_input(..., *, subjects=None)`;
+  - `run_agent_stream(..., subjects: list[dict] | None = None)`, which yields `{"type": "people", "active": [refs]}` when `triage` reports `turn_people`;
   - `loop._record_notes(record) -> str`;
-  - the card's `"record_label": "PBMS record" | None`. It deliberately omits the MEAB ID.
+  - the card's `"record_label": "PBMS record" | None`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_subject_record.py
-"""A conversation's subject is the record the agent reads; the principal stays the principal."""
+# tests/test_people_loading.py
+"""People in context: labels, parallel loading, per-person pins, and one-person turns unchanged."""
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 
 from pension_chat.agent import nodes
 from pension_chat.agent.card import calculation_card
 from pension_chat.agent.loop import _context, _record_notes
-from pension_chat.agent.state import initial_state, turn_input
+from pension_chat.agent.people import labels
+from pension_chat.agent.state import DURABLE_KEYS, initial_state, turn_input
 from pension_chat.agent.worksheet import WorkSheet
 from pension_chat.records import EmployeeRecord, RecordUnavailable, SalaryYear, use_provider
 
+A = {"ref": "M-000001", "display_name": "KA_LS MA_LP", "first_name": "KA_LS", "last_name": "MA_LP",
+     "department": "Finance", "employer": "City", "birth_year": 1964}
+B = {"ref": "M-000002", "display_name": "QW_XZ PL_MR", "first_name": "QW_XZ", "last_name": "PL_MR",
+     "department": "Water", "employer": "City", "birth_year": 1970}
+A2 = {**A, "ref": "M-000003", "department": "Streets"}
+
 
 class _Stub:
-    def __init__(self, fail=False):
-        self.asked, self.fail = [], fail
+    def __init__(self, fail=()):
+        self.asked, self.fail, self.concurrent, self.peak = [], set(fail), 0, 0
 
     async def find_employees(self, query, scope=None):
         return []
 
     async def get_record(self, key):
         self.asked.append(key)
-        if self.fail:
+        self.concurrent += 1
+        self.peak = max(self.peak, self.concurrent)
+        await asyncio.sleep(0.01)
+        self.concurrent -= 1
+        if key in self.fail:
             raise RecordUnavailable("down")
-        if key != "M-000123":
-            return None
-        return EmployeeRecord(key="M-000123", tier=2, birth_date=date(1964, 9, 30), hire_date=date(2012, 3, 1),
-                              display_name="QW_XZ PL_MR", department="Finance", status="active",
+        salary = {"M-000001": 90000, "M-000002": 60000}.get(key, 70000)
+        return EmployeeRecord(key=key, tier=2, birth_date=date(1964, 9, 30), hire_date=date(2012, 3, 1),
+                              display_name="X", department="D", status="active",
                               service_years=Decimal("14"), service_source="counted from payroll",
-                              missing={"tier": "PBMS records Tier 2, but ..."}, source="PBMS")
+                              source="PBMS", missing={"tier": "note"} if key == "M-000001" else {})
 
     async def get_salary_history(self, key):
-        return [SalaryYear(2025, Decimal("90000"))]
+        return [SalaryYear(2025, Decimal({"M-000001": 90000, "M-000002": 60000}.get(key, 70000)))]
 
 
-def test_the_subject_is_carried_on_every_turn() -> None:
-    assert initial_state("q", "s", "principal", subject_meab_id="M-000123")["subject_meab_id"] == "M-000123"
-    assert turn_input("q", "s", "principal", subject_meab_id="M-000123")["subject_meab_id"] == "M-000123"
-    assert turn_input("q", "s", "principal")["subject_meab_id"] is None
+def test_labels_add_the_department_only_when_names_collide() -> None:
+    assert labels([A, B]) == {"M-000001": "KA_LS MA_LP", "M-000002": "QW_XZ PL_MR"}
+    assert labels([A, A2]) == {"M-000001": "KA_LS MA_LP (Finance)", "M-000003": "KA_LS MA_LP (Streets)"}
 
 
-async def test_the_subject_outranks_the_principal_when_a_provider_is_in_force() -> None:
+def test_the_roster_is_carried_every_turn_and_last_people_is_durable() -> None:
+    assert initial_state("q", "s", subjects=[A])["subjects"] == [A]
+    assert turn_input("q", "s", subjects=[A])["subjects"] == [A]
+    assert {"last_people", "pinned_people"} <= DURABLE_KEYS
+    assert "turn_people" not in DURABLE_KEYS and "people" not in DURABLE_KEYS
+
+
+async def test_several_people_load_in_parallel_and_the_first_fills_the_single_member_keys() -> None:
     stub = _Stub()
     with use_provider(stub):
-        out = await nodes.fetch_employee_record({"employee_id": "principal-uuid", "subject_meab_id": "M-000123"})
-    assert stub.asked == ["M-000123"]
-    assert out["employee_record"]["record_source"] == "PBMS"
+        out = await nodes.fetch_employee_record({"turn_people": ["M-000001", "M-000002"], "subjects": [A, B]})
+    assert stub.peak == 2
+    assert set(out["people"]) == {"M-000001", "M-000002"}
+    assert out["people"]["M-000002"]["label"] == "QW_XZ PL_MR"
+    assert out["employee_record"]["id"] == "M-000001"
+    assert out["last_people"] == ["M-000001", "M-000002"]
+    assert set(out["pinned_people"]) == {"M-000001", "M-000002"}
 
 
-async def test_switching_subject_reloads_instead_of_reusing_the_pin() -> None:
+async def test_a_pinned_person_is_not_read_again() -> None:
     stub = _Stub()
-    pinned = {"record": {"id": "M-000999", "article_number": 8, "tier": 1}, "salary_history": []}
+    pinned = {"M-000001": {"record": {"id": "M-000001", "article_number": 8, "tier": 2}, "salary_history": []}}
     with use_provider(stub):
-        await nodes.fetch_employee_record({"subject_meab_id": "M-000123", "pinned_record": pinned})
-    assert stub.asked == ["M-000123"]
+        await nodes.fetch_employee_record({"turn_people": ["M-000001", "M-000002"], "subjects": [A, B],
+                                           "pinned_people": pinned})
+    assert stub.asked == ["M-000002"]
 
 
-async def test_an_unreachable_source_is_reported_not_treated_as_no_record() -> None:
-    with use_provider(_Stub(fail=True)):
-        out = await nodes.fetch_employee_record({"subject_meab_id": "M-000123"})
-    assert out["employee_record"] is None and out["record_unavailable"] is True
+async def test_one_unreadable_record_is_reported_and_the_others_load() -> None:
+    with use_provider(_Stub(fail={"M-000002"})):
+        out = await nodes.fetch_employee_record({"turn_people": ["M-000001", "M-000002"], "subjects": [A, B]})
+    assert set(out["people"]) == {"M-000001"} and out["unavailable_people"] == ["M-000002"]
 
 
-def test_the_context_says_the_record_could_not_be_read() -> None:
-    assert "could not be read" in _context({**initial_state("q", "s"), "record_unavailable": True})
+async def test_without_turn_people_the_existing_path_runs(monkeypatch) -> None:
+    called = []
+
+    async def fake_load(employee_id):
+        called.append(employee_id)
+        return None
+
+    monkeypatch.setattr(nodes, "_load_record", fake_load)
+    await nodes.fetch_employee_record({"employee_id": "abc"})
+    assert called == ["abc"]
+
+
+def test_the_context_names_whose_record_could_not_be_read() -> None:
+    state = {**initial_state("q", "s", subjects=[A, B]), "unavailable_people": ["M-000002"]}
+    assert "QW_XZ PL_MR" in _context(state) and "could not be read" in _context(state)
 
 
 def test_the_record_notes_name_the_employee_not_the_internal_key() -> None:
     notes = _record_notes({"id": "M-000123", "display_name": "QW_XZ PL_MR", "department": "Finance",
                            "record_source": "PBMS", "service_source": "counted from payroll",
                            "missing": {"tier": "PBMS records Tier 2, but ..."}})
-    assert "QW_XZ PL_MR" in notes and "Finance" in notes and "counted from payroll" in notes
-    assert "tier: PBMS records Tier 2" in notes
+    assert "QW_XZ PL_MR" in notes and "Finance" in notes and "tier: PBMS records Tier 2" in notes
     assert "M-000123" not in notes
 
 
@@ -1873,92 +1923,185 @@ def test_the_card_names_the_pbms_record_without_its_key() -> None:
 
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `uv run pytest tests/test_subject_record.py -v`
-Expected: FAIL, with `TypeError: initial_state() got an unexpected keyword argument 'subject_meab_id'`.
+Run: `uv run pytest tests/test_people_loading.py -v`
+Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.agent.people'`.
 
-- [ ] **Step 3: Update the state and `run_agent_stream`**
-
-In `state.py`, add to `PensionAgentState` next to `employee_id`:
+- [ ] **Step 3: Write `people.py` (labels and constants)**
 
 ```python
-    # The employee this conversation is about -- an internal MEAB ID, never
-    # shown -- read from `sessions.subject_meab_id` on every turn. Not the
-    # principal: `employee_id` still scopes row-level security and checkpoints.
-    subject_meab_id: str | None
-    # A name the user typed that is not the subject: its candidates, offered
-    # for the user to choose from (`triage`).
+# src/pension_chat/agent/people.py
+"""Who a conversation is about: the people chosen in it, and who each turn concerns (spec §4).
+
+Pure and deterministic -- no model and no database. The people are the
+conversation's own list (`sessions.subjects`, most recent first, at most
+MAX_PEOPLE); each is keyed by an internal MEAB ID (`ref`) that is never shown.
+"""
+from __future__ import annotations
+
+from collections import Counter
+from typing import Any
+
+MAX_PEOPLE = 4
+# More candidates than this and a choice starts with the department.
+MAX_LISTED = 12
+
+
+def norm_name(text: str | None) -> str:
+    return " ".join((text or "").split()).upper()
+
+
+def labels(subjects: list[dict[str, Any]]) -> dict[str, str]:
+    """How each person is named to the model and in tables: their name, plus the
+    department only when two people in context share that name."""
+    counts = Counter(norm_name(s.get("display_name")) for s in subjects)
+    out: dict[str, str] = {}
+    for s in subjects:
+        name = s.get("display_name") or "Employee"
+        if counts[norm_name(name)] > 1:
+            name = f"{name} ({s.get('department') or s.get('employer') or 'no department on file'})"
+        out[s["ref"]] = name
+    return out
+```
+
+- [ ] **Step 4: Update the state and `run_agent_stream`**
+
+In `state.py`, add these to `PensionAgentState` next to `employee_id`:
+
+```python
+    # The conversation's people (sessions.subjects), most recent first, passed
+    # in every turn. Each is keyed by an internal MEAB ID (`ref`), never shown.
+    # Not the principal: `employee_id` still scopes row-level security.
+    subjects: list[dict[str, Any]]
+    # Who this turn is about (refs), decided deterministically by `triage`.
+    turn_people: list[str]
+    # Who the previous turn was about: a turn that names nobody continues with them.
+    last_people: list[str]
+    # This turn's people, loaded: {ref: {"record", "salary_history", "member_facts", "label"}}.
+    people: dict[str, dict[str, Any]]
+    # Each person's first-loaded record, reused on later turns (spec §4.3).
+    pinned_people: dict[str, dict[str, Any]]
+    # A choice put to the user: unfamiliar names' candidates, or which of several.
     subject_suggestion: dict[str, Any] | None
-    # The record source could not be read this turn -- distinct from "no record".
-    record_unavailable: bool
+    # People whose record could not be read this turn -- distinct from "no record".
+    unavailable_people: list[str]
 ```
 
-`initial_state` gains a keyword-only parameter `subject_meab_id: str | None = None`, and its dict gains `"subject_meab_id": subject_meab_id, "subject_suggestion": None, "record_unavailable": False,`. `turn_input` gains the same parameter and adds `subject_meab_id=subject_meab_id,` to `fresh.update(...)`. The keys stay out of `DURABLE_KEYS`: the session row is the durable home of the subject.
+- Add `"last_people"` and `"pinned_people"` to `DURABLE_KEYS`.
+- `initial_state` gains a keyword-only parameter `subjects: list[dict[str, Any]] | None = None`. Its dict gains:
 
-In `graph.py`, `run_agent_stream` gains `subject_meab_id: str | None = None` after `thread_owner`, and passes it through:
+  ```python
+  "subjects": list(subjects or []), "turn_people": [], "last_people": [], "people": {},
+  "pinned_people": {}, "subject_suggestion": None, "unavailable_people": [],
+  ```
+- `turn_input` gains the same parameter and adds `subjects=list(subjects or []),` to `fresh.update(...)`.
+
+In `graph.py`, `run_agent_stream` gains `subjects: list[dict[str, Any]] | None = None` after `thread_owner`, and passes `subjects=subjects` to both `initial_state(...)` and `turn_input(...)`. Then, in the `updates` handling, replace `for node_name in payload:` with:
 
 ```python
-        turn: dict[str, Any] = initial_state(question, session_id, employee_id, history,
-                                             subject_meab_id=subject_meab_id)
-    else:
-        turn = turn_input(question, session_id, employee_id, subject_meab_id=subject_meab_id)
+            for node_name in payload:
+                # Who this turn is about is known the moment triage finishes --
+                # before any record is read or token written -- so the chips
+                # change then, not after the answer (spec §4.4).
+                if node_name == "triage":
+                    active = (payload[node_name] or {}).get("turn_people")
+                    if active is not None:
+                        yield {"type": "people", "active": list(active)}
+                label = STAGE_LABELS.get(node_name)
+                if label:
+                    yield {"type": "status", "stage": label, "node": node_name}
 ```
 
-- [ ] **Step 4: Update `fetch_employee_record`**
+- [ ] **Step 5: Load every person in parallel**
 
-Replace the lines from `employee_id = state.get("employee_id")` through `record, history = loaded` with:
+In `nodes.py`, add `import asyncio`, add `RecordUnavailable` to the records import, and add `from pension_chat.agent import people as people_mod`. At the top of `fetch_employee_record`, after `started = time.perf_counter()`, add:
 
 ```python
-    employee_id = state.get("employee_id")
-    provider = current_provider()
-    # With a record provider in force (PBMS, or the eval fixtures) the record is
-    # the conversation's subject when one is set; the principal otherwise, which
-    # is how the evals name their employee. Without one, the Postgres profile.
-    key = (state.get("subject_meab_id") or employee_id) if provider else employee_id
-    if not key:
-        return {"employee_record": None, "salary_history": []}
-
-    pinned = state.get("pinned_record") or {}
-    if (pinned.get("record") or {}).get("id") == str(key):
-        record, history = pinned["record"], pinned["salary_history"]
-    else:
-        try:
-            loaded = await _from_provider(str(key)) if provider else await _load_record(key)
-        except RecordUnavailable:
-            return {"employee_record": None, "salary_history": [], "record_unavailable": True}
-        if loaded is None:
-            return {"employee_record": None, "salary_history": []}
-        record, history = loaded
+    refs = list(state.get("turn_people") or [])
+    if refs and current_provider() is not None:
+        return await _fetch_people(state, refs, started)
 ```
 
-Add `RecordUnavailable` to the `from pension_chat.records import …` line in `nodes.py`.
-
-- [ ] **Step 5: Update the context and the card**
-
-In `loop.py`, change the final `else:` of the facts block (lines 182–183) to:
+Then add below `fetch_employee_record`:
 
 ```python
-    elif state.get("record_unavailable"):
-        lines.append(
-            "The fund's records could not be read for this employee just now. "
-            "Say so plainly, and ask for any value you need rather than assuming it."
+async def _fetch_people(state: PensionAgentState, refs: list[str], started: float) -> dict:
+    """Every person this turn is about, read in parallel (spec §4.3).
+
+    A pinned person is not read again. One unreadable record does not sink the
+    others: it is listed in `unavailable_people` and the answer says whose. The
+    first person also fills the single-member keys, so a one-person turn is
+    exactly the path every other turn has always taken.
+    """
+    pinned: dict[str, dict] = dict(state.get("pinned_people") or {})
+    names = people_mod.labels(state.get("subjects") or [])
+
+    async def load(ref: str) -> dict | None:
+        if ref in pinned:
+            return pinned[ref]
+        loaded = await _from_provider(ref)
+        return None if loaded is None else {"record": loaded[0], "salary_history": loaded[1]}
+
+    results = await asyncio.gather(*(load(ref) for ref in refs), return_exceptions=True)
+    loaded_people: dict[str, dict] = {}
+    unavailable: list[str] = []
+    for ref, result in zip(refs, results, strict=True):
+        if isinstance(result, RecordUnavailable) or result is None:
+            unavailable.append(ref)
+            continue
+        if isinstance(result, BaseException):
+            raise result
+        pinned[ref] = result
+        facts = build_member_facts(
+            result["record"],
+            [(date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+             for h in result["salary_history"]],
         )
+        loaded_people[ref] = {**result, "member_facts": facts,
+                              "label": names.get(ref) or result["record"].get("display_name") or "Employee"}
+
+    update: dict[str, Any] = {
+        "people": loaded_people,
+        "unavailable_people": unavailable,
+        "pinned_people": pinned,
+        "last_people": refs,
+        "timings": {"fetch_employee_record": time.perf_counter() - started},
+    }
+    first = next((loaded_people[r] for r in refs if r in loaded_people), None)
+    if first is None:
+        update.update(employee_record=None, salary_history=[])
+    else:
+        update.update(employee_record=first["record"], salary_history=first["salary_history"],
+                      member_facts=first["member_facts"])
+    return update
+```
+
+- [ ] **Step 6: Update the context and the card**
+
+In `loop.py`, add `from pension_chat.agent.people import labels as people_labels`. Change the final `else:` of the facts block (lines 182–183) to:
+
+```python
     else:
         lines.append("No member record is available; answer from the Code alone.")
+    if state.get("unavailable_people"):
+        names = people_labels(state.get("subjects") or [])
+        lines.append(
+            "The fund's records could not be read just now for: "
+            + ", ".join(names.get(r, "one employee") for r in state["unavailable_people"])
+            + ". Say so plainly, and do not state figures from their records."
+        )
     record = state.get("employee_record") or {}
-    if record.get("record_source"):
+    if record.get("record_source") and len(state.get("people") or {}) <= 1:
         lines.append(_record_notes(record))
 ```
 
-Add this function above `_context`:
+Add this above `_context`:
 
 ```python
 def _record_notes(record: dict[str, Any]) -> str:
     """Who this is and what their record could not say -- only for a fund record (PBMS).
 
-    An employer is asking about someone else, so the answer names them -- by
-    name and department, never by the internal MEAB ID. A gap the record reports
-    (no hire date, a tier PBMS and the dates disagree on) is something to tell
-    the employer, not something to fill.
+    Named by name and department, never by the internal MEAB ID. A gap the
+    record reports is something to tell the employer, not something to fill.
     """
     who = ", ".join(
         str(v) for v in (record.get("display_name"), record.get("department") or record.get("employer")) if v
@@ -1976,7 +2119,7 @@ def _record_notes(record: dict[str, Any]) -> str:
     return " ".join(parts)
 ```
 
-In `card.py`, add `"record_label": _record_label(state),` after `"support_level"` in the returned dict. Add this below `calculation_card`:
+In `card.py`, add `"record_label": _record_label(state),` after `"support_level"`, and add:
 
 ```python
 def _record_label(state: Mapping[str, Any]) -> str | None:
@@ -1985,47 +2128,102 @@ def _record_label(state: Mapping[str, Any]) -> str | None:
     return f"{record['record_source']} record" if record.get("record_source") else None
 ```
 
-- [ ] **Step 6: Run the tests**
+- [ ] **Step 7: Run the tests**
 
-Run: `uv run pytest tests/test_subject_record.py tests/test_records_provider.py -v`, then `uv run pytest -q`
-Expected: all pass.
+Run: `uv run pytest tests/test_people_loading.py tests/test_records_provider.py -v`, then `uv run pytest -q`
+Expected: all pass. Existing tests are unaffected, because `turn_people` is empty unless a later task sets it.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/pension_chat/agent/state.py src/pension_chat/agent/graph.py src/pension_chat/agent/nodes.py src/pension_chat/agent/loop.py src/pension_chat/agent/card.py tests/test_subject_record.py
-git commit -m "Agent: the conversation's subject is the record it reads; an unreadable record is said, not hidden
+git add src/pension_chat/agent/people.py src/pension_chat/agent/state.py src/pension_chat/agent/graph.py src/pension_chat/agent/nodes.py src/pension_chat/agent/loop.py src/pension_chat/agent/card.py tests/test_people_loading.py
+git commit -m "Agent: people in context -- each turn's people loaded in parallel, pinned per person, gaps and failures said
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 6: A name in a message becomes a choice, never a load
+### Task 6: Who a turn is about: familiar names, choices, which-one
 
 **Files:**
+- Modify: `src/pension_chat/agent/people.py` (add `TurnPeople` and `decide`)
 - Modify: `src/pension_chat/agent/nodes.py:116-144` (`triage`)
-- Modify: `src/pension_chat/agent/graph.py:101-115` (`decline`)
-- Test: `tests/test_subject_suggestion.py`
+- Modify: `src/pension_chat/agent/graph.py:101-115` (`decline`, `subject_suggestion_message`)
+- Test: `tests/test_turn_people.py`
 
 **Interfaces:**
-- Consumes: `records.NameSearch` and `current_provider` (Task 4), `RecordUnavailable`, the `EmployeeMatch` fields, and the state keys `subject_meab_id`, `subject_suggestion` and `pinned_record` (Task 5).
+- Consumes:
+  - `records.NameSearch` and `current_provider` (Task 4), and `RecordUnavailable`;
+  - `EmployeeMatch.first_name`, `last_name`, `department`, `employer`, `birth_year` and `status` (Task 3);
+  - `pbms.names.NameDirectory` (Task 4), reused to find roster names in the text;
+  - the state keys from Task 5.
 - Produces:
-  - `nodes.MAX_LISTED = 12`;
-  - `nodes._subject_suggestion(state, question) -> dict | None`. Its shape is `{"first_name", "last_name", "question", "unavailable": bool, "candidates": [{"ref", "display_name", "employer", "department", "status", "birth_year"}]}`, with candidates capped at 200;
+  - `people.TurnPeople(people: list[str], unfamiliar: list[tuple[str, str]], which_of: list[str])`;
+  - `people.decide(question, subjects, last_people, directory_names) -> TurnPeople`;
+  - `nodes._suggestion(...)`, which returns the suggestion `{"kind": "choose" | "which_one", "question": str, "choices": [{"first_name", "last_name", "unavailable": bool, "candidates": [{"ref", "display_name", "first_name", "last_name", "employer", "department", "status", "birth_year"}]}]}`;
   - `graph.subject_suggestion_message(s) -> str`;
-  - triage's `out_of_scope_reason == "subject_suggestion"`.
+  - triage's `turn_people` (always set when there is a roster or name search) and `out_of_scope_reason == "subject_suggestion"` for choice and which-one turns.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_subject_suggestion.py
-"""A name typed in a message is offered for the user to choose; nobody is loaded on a mention."""
+# tests/test_turn_people.py
+"""Who a turn is about -- spec §4.2, one test per rule -- and the choice replies."""
 from __future__ import annotations
 
 from pension_chat.agent import nodes
 from pension_chat.agent.graph import decline, subject_suggestion_message
+from pension_chat.agent.people import decide
 from pension_chat.records import EmployeeMatch, RecordUnavailable, use_provider
+
+
+def _p(ref, first, last, dept="Finance"):
+    return {"ref": ref, "display_name": f"{first} {last}", "first_name": first, "last_name": last,
+            "department": dept, "employer": "City", "birth_year": 1964}
+
+
+A, B, C = _p("M-1", "KA_LS", "MA_LP"), _p("M-2", "QW_XZ", "PL_MR", "Water"), _p("M-3", "RO_BK", "TA_NE")
+
+
+def test_familiar_names_need_no_query() -> None:
+    d = decide("compare qw_xz pl_mr and KA_LS MA_LP", [A, B], [], [])
+    assert (d.people, d.unfamiliar, d.which_of) == (["M-2", "M-1"], [], [])
+
+
+def test_an_unfamiliar_name_makes_a_choice_turn_and_familiar_ones_ride_along() -> None:
+    d = decide("compare KA_LS MA_LP and LI_MO GA_RD", [A], [], [("KA_LS", "MA_LP"), ("LI_MO", "GA_RD")])
+    assert d.unfamiliar == [("LI_MO", "GA_RD")] and d.people == ["M-1"]
+
+
+def test_no_name_continues_with_the_previous_turns_people() -> None:
+    assert decide("and at 65?", [A, B], ["M-1", "M-2"], []).people == ["M-1", "M-2"]
+
+
+def test_a_singular_pronoun_after_a_comparison_asks_which() -> None:
+    d = decide("what would she get at 65?", [A, B], ["M-1", "M-2"], [])
+    assert d.people == [] and d.which_of == ["M-1", "M-2"]
+    assert decide("what would she get at 65?", [A, B], ["M-1"], []).people == ["M-1"]
+
+
+def test_nothing_before_means_the_most_recent_person_or_nobody() -> None:
+    assert decide("what is their tier?", [B, A], [], []).people == ["M-2"]
+    assert decide("what is Tier 2?", [], [], []).people == []
+
+
+def test_a_removed_person_is_not_continued_with() -> None:
+    assert decide("and at 65?", [A], ["M-1", "M-2"], []).people == ["M-1"]
+
+
+def test_two_people_in_context_with_the_same_name_ask_which() -> None:
+    A2 = _p("M-9", "KA_LS", "MA_LP", "Streets")
+    assert decide("KA_LS MA_LP at 62?", [A, A2], [], []).which_of == ["M-1", "M-9"]
+
+
+def test_at_most_four_people_in_a_turn() -> None:
+    many = [_p(f"M-{i}", f"A{i}_X", f"B{i}_Y") for i in range(5)]
+    text = " and ".join(p["display_name"] for p in many)
+    assert len(decide(text, many, [], []).people) == 4
 
 
 class _Stub:
@@ -2033,172 +2231,267 @@ class _Stub:
         self.count, self.fail, self.searched = count, fail, []
 
     def names_in(self, text):
-        return [("KA_LS", "MA_LP")] if "KA_LS MA_LP" in text.upper() else []
+        return [("LI_MO", "GA_RD")] if "LI_MO GA_RD" in text.upper() else []
 
     async def find_by_name(self, first, last):
         self.searched.append((first, last))
         if self.fail:
             raise RecordUnavailable("down")
-        return [EmployeeMatch(f"M-{i:06d}", "KA_LS MA_LP", "City of Chicago", "active",
-                              f"Dept {i % 3}", 1960 + i) for i in range(self.count)]
+        return [EmployeeMatch(f"M-{i:06d}", f"{first} {last}", "City", "active", f"Dept {i % 3}", 1960 + i,
+                              first, last) for i in range(self.count)]
 
     async def find_employees(self, query, scope=None):
         return []
 
     async def get_record(self, key):
-        raise AssertionError("a mention must not load a record")
+        raise AssertionError("a choice turn must not load a record")
 
     async def get_salary_history(self, key):
-        raise AssertionError("a mention must not load a record")
+        raise AssertionError("a choice turn must not load a record")
 
 
-def _state(q, *, subject=None, subject_name=None):
-    pinned = {"record": {"id": subject, "display_name": subject_name}} if subject else None
-    return {"question": q, "messages": [q], "subject_meab_id": subject, "pinned_record": pinned}
+def _state(q, subjects=(), last=()):
+    return {"question": q, "messages": [q], "subjects": list(subjects), "last_people": list(last)}
 
 
-async def test_a_name_becomes_a_choice_carrying_the_question() -> None:
+async def test_triage_offers_one_card_per_unfamiliar_name() -> None:
     with use_provider(_Stub(count=3)):
-        out = await nodes.triage(_state("What would KA_LS MA_LP's pension be at 62?"))
+        out = await nodes.triage(_state("compare KA_LS MA_LP and LI_MO GA_RD at 62", [A]))
     s = out["subject_suggestion"]
-    assert out["in_scope"] is False and out["out_of_scope_reason"] == "subject_suggestion"
-    assert (s["first_name"], s["last_name"], len(s["candidates"])) == ("KA_LS", "MA_LP", 3)
-    assert s["question"] == "What would KA_LS MA_LP's pension be at 62?"
-    assert s["candidates"][0] == {"ref": "M-000000", "display_name": "KA_LS MA_LP", "employer": "City of Chicago",
-                                  "department": "Dept 0", "status": "active", "birth_year": 1960}
+    assert out["out_of_scope_reason"] == "subject_suggestion" and out["turn_people"] == ["M-1"]
+    assert s["kind"] == "choose" and s["question"].startswith("compare")
+    assert [(c["first_name"], len(c["candidates"])) for c in s["choices"]] == [("LI_MO", 3)]
 
 
-async def test_the_current_subjects_name_passes_straight_through() -> None:
+async def test_triage_decides_familiar_people_without_a_query() -> None:
     stub = _Stub()
     with use_provider(stub):
-        out = await nodes.triage(_state("and KA_LS MA_LP at 65?", subject="M-000001", subject_name="KA_LS MA_LP"))
-    assert out.get("subject_suggestion") is None and stub.searched == []
+        out = await nodes.triage(_state("and KA_LS MA_LP at 65?", [A, B]))
+    assert out["turn_people"] == ["M-1"] and out.get("subject_suggestion") is None and stub.searched == []
 
 
-async def test_without_name_search_names_mean_nothing() -> None:
-    assert (await nodes.triage(_state("KA_LS MA_LP"))).get("subject_suggestion") is None
+async def test_triage_which_one_uses_the_roster_and_no_query() -> None:
+    stub = _Stub()
+    with use_provider(stub):
+        out = await nodes.triage(_state("what would he get?", [A, B], ["M-1", "M-2"]))
+    s = out["subject_suggestion"]
+    assert s["kind"] == "which_one" and [c["ref"] for c in s["choices"][0]["candidates"]] == ["M-1", "M-2"]
+    assert stub.searched == []
 
 
-async def test_unavailable_is_said() -> None:
-    with use_provider(_Stub(fail=True)):
-        s = (await nodes.triage(_state("KA_LS MA_LP")))["subject_suggestion"]
-    assert s["unavailable"] is True and s["candidates"] == []
+async def test_without_roster_or_name_search_triage_is_unchanged() -> None:
+    out = await nodes.triage(_state("What is Tier 2?"))
+    assert "turn_people" not in out and out.get("subject_suggestion") is None
 
 
-def _s(count, unavailable=False):
-    return {"first_name": "KA_LS", "last_name": "MA_LP", "question": "q", "unavailable": unavailable,
-            "candidates": [{"ref": f"M-{i:06d}", "display_name": "KA_LS MA_LP", "employer": "City",
-                            "department": "Finance", "status": "active", "birth_year": 1964}
-                           for i in range(count)]}
+def _choice(count, unavailable=False, first="LI_MO", last="GA_RD"):
+    return {"first_name": first, "last_name": last, "unavailable": unavailable,
+            "candidates": [{"ref": f"M-{i}", "display_name": f"{first} {last}", "department": "Finance",
+                            "employer": "City", "birth_year": 1964} for i in range(count)]}
 
 
-def test_the_messages_by_count() -> None:
-    assert subject_suggestion_message(_s(1)) == (
-        "Did you mean KA_LS MA_LP (Finance, born 1964)? Choose below and I'll answer your question about them.")
-    assert subject_suggestion_message(_s(9)).startswith("There are 9 active employees named KA_LS MA_LP. Which one")
-    assert "Which department" in subject_suggestion_message(_s(40))
-    assert "couldn't find an active employee" in subject_suggestion_message(_s(0))
-    assert "not answering" in subject_suggestion_message(_s(0, unavailable=True))
-    assert "M-0" not in subject_suggestion_message(_s(1))
+def test_the_messages() -> None:
+    one = subject_suggestion_message({"kind": "choose", "question": "q", "choices": [_choice(1)]})
+    assert one.startswith("Did you mean LI_MO GA_RD (Finance, born 1964)?") and "M-0" not in one
+    assert "There are 9 active employees named LI_MO GA_RD" in subject_suggestion_message(
+        {"kind": "choose", "question": "q", "choices": [_choice(9)]})
+    assert "which department" in subject_suggestion_message({"kind": "choose", "question": "q", "choices": [_choice(40)]})
+    assert "couldn't find an active employee" in subject_suggestion_message(
+        {"kind": "choose", "question": "q", "choices": [_choice(0)]})
+    assert "not answering" in subject_suggestion_message({"kind": "choose", "question": "q", "choices": [_choice(0, True)]})
+    two = subject_suggestion_message({"kind": "choose", "question": "q", "choices": [_choice(1), _choice(3, first="RO_BK")]})
+    assert "LI_MO GA_RD" in two and "RO_BK GA_RD" in two and "Once you've chosen" in two
+    which = subject_suggestion_message({"kind": "which_one", "question": "q",
+                                        "choices": [{"candidates": [A, B], "unavailable": False}]})
+    assert which == "Which of them do you mean: KA_LS MA_LP or QW_XZ PL_MR? Choose below."
 
 
 async def test_decline_answers_the_suggestion_without_a_model() -> None:
-    out = await decline({"out_of_scope_reason": "subject_suggestion", "subject_suggestion": _s(9)})
+    out = await decline({"out_of_scope_reason": "subject_suggestion",
+                         "subject_suggestion": {"kind": "choose", "question": "q", "choices": [_choice(9)]}})
     assert "9 active employees" in out["final_answer"]
 ```
 
+`EmployeeMatch` gains `first_name` and `last_name` in this task (Step 3), as its last two fields. The stub above passes them positionally.
+
 - [ ] **Step 2: Run them to see them fail**
 
-Run: `uv run pytest tests/test_subject_suggestion.py -v`
-Expected: FAIL, with `ImportError: cannot import name 'subject_suggestion_message'`.
+Run: `uv run pytest tests/test_turn_people.py -v`
+Expected: FAIL, with `ImportError: cannot import name 'decide'`.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Carry first and last names on matches**
 
-In `nodes.py`, extend the records import with `NameSearch`, `current_provider` and `RecordUnavailable`. Add this above `triage`:
+In `records.py`, add `first_name: str | None = None` and `last_name: str | None = None` as the last fields of `EmployeeMatch`. In `pbms/provider.py`'s `match_from_row`, pass `first_name=_text(row.get("First_Name")), last_name=_text(row.get("Last_Name")),`. Extend Task 3's `test_a_match_carries_what_the_choice_card_shows` to also assert `(m.first_name, m.last_name) == ("QW_XZ", "PL_MR")`.
+
+- [ ] **Step 4: Add `decide` to `people.py`**
 
 ```python
-# More candidates than this and the choice starts with the department (spec §4.2).
-MAX_LISTED = 12
+import re
+from dataclasses import dataclass, field
+
+# A singular personal pronoun: after a turn about several people, it is asked about.
+_SINGULAR = re.compile(r"\b(he|she|him|her|his|hers)\b", re.IGNORECASE)
+
+
+@dataclass
+class TurnPeople:
+    people: list[str] = field(default_factory=list)                # refs this turn is about
+    unfamiliar: list[tuple[str, str]] = field(default_factory=list)  # names to offer a choice for
+    which_of: list[str] = field(default_factory=list)              # refs to ask "which of them?"
+
+
+def decide(question: str, subjects: list[dict[str, Any]], last_people: list[str],
+           directory_names: list[tuple[str, str]]) -> TurnPeople:
+    """Spec §4.2. Familiar names first; an unfamiliar name is a choice; no name
+    continues with the previous turn's people; a singular pronoun after a turn
+    about several is asked about; otherwise the most recent person, or nobody."""
+    from pension_chat.pbms.names import NameDirectory
+
+    roster_refs = [s["ref"] for s in subjects]
+    by_name: dict[str, list[str]] = {}
+    for s in subjects:
+        by_name.setdefault(norm_name(f"{s.get('first_name') or ''} {s.get('last_name') or ''}"), []).append(s["ref"])
+
+    roster_dir = NameDirectory((s.get("first_name") or "", s.get("last_name") or "") for s in subjects)
+    familiar: list[str] = []
+    for first, last in roster_dir.names_in(question):
+        refs = by_name.get(norm_name(f"{first} {last}"), [])
+        if len(refs) > 1:
+            return TurnPeople(which_of=refs)
+        familiar += [r for r in refs if r not in familiar]
+    known = set(by_name)
+    unfamiliar = [(f, la) for f, la in directory_names if norm_name(f"{f} {la}") not in known]
+
+    if unfamiliar:
+        return TurnPeople(people=familiar[:MAX_PEOPLE], unfamiliar=unfamiliar[:MAX_PEOPLE])
+    if familiar:
+        return TurnPeople(people=familiar[:MAX_PEOPLE])
+    continuing = [r for r in last_people if r in roster_refs]
+    if continuing:
+        if len(continuing) > 1 and _SINGULAR.search(question):
+            return TurnPeople(which_of=continuing)
+        return TurnPeople(people=continuing[:MAX_PEOPLE])
+    return TurnPeople(people=roster_refs[:1])
+```
+
+`pbms.names` imports nothing from the agent, so the local import creates no cycle. It is local only so `people.py` can be imported in environments that never touch PBMS.
+
+- [ ] **Step 5: Wire it into `triage`**
+
+In `nodes.py`, extend the records import with `NameSearch`. Add this above `triage`:
+
+```python
 _MAX_CANDIDATES = 200
 
 
-def _same_name(first: str, last: str, display_name: str | None) -> bool:
-    return " ".join(f"{first} {last}".split()).upper() == " ".join((display_name or "").split()).upper()
+def _candidate(m: EmployeeMatch) -> dict[str, Any]:
+    return {"ref": m.key, "display_name": m.display_name, "first_name": m.first_name, "last_name": m.last_name,
+            "employer": m.employer, "department": m.department, "status": m.status, "birth_year": m.birth_year}
 
 
-async def _subject_suggestion(state: PensionAgentState, question: str) -> dict[str, Any] | None:
-    """A name the user typed that is not this conversation's employee: its candidates, to choose from.
-
-    Never loaded on a mention -- a name is shared by up to 109 active members, so
-    choosing for the user would answer about the wrong person. Matched in memory
-    (`names_in`); PBMS is asked only on a hit. Only a provider with name search
-    (PBMS) takes part; the Postgres path and the eval fixtures do not.
-    """
-    provider = current_provider()
-    if not isinstance(provider, NameSearch):
+async def _suggestion(provider: Any, decided: people_mod.TurnPeople, subjects: list[dict],
+                      question: str) -> dict[str, Any] | None:
+    """The choice a turn puts to the user instead of answering (spec §4.2), or None."""
+    if decided.which_of:
+        roster = {s["ref"]: s for s in subjects}
+        return {"kind": "which_one", "question": question,
+                "choices": [{"first_name": None, "last_name": None, "unavailable": False,
+                             "candidates": [roster[r] for r in decided.which_of if r in roster]}]}
+    if not decided.unfamiliar:
         return None
-    pinned = (state.get("pinned_record") or {}).get("record") or {}
-    current_name = pinned.get("display_name") if pinned.get("id") == state.get("subject_meab_id") else None
-    others = [(f, la) for f, la in provider.names_in(question) if not _same_name(f, la, current_name)]
-    if not others:
-        return None
-    first, last = others[0]
-    suggestion: dict[str, Any] = {"first_name": first, "last_name": last, "question": question,
-                                  "unavailable": False, "candidates": []}
-    try:
-        matches = await provider.find_by_name(first, last)
-    except RecordUnavailable:
-        suggestion["unavailable"] = True
-        return suggestion
-    suggestion["candidates"] = [
-        {"ref": m.key, "display_name": m.display_name, "employer": m.employer,
-         "department": m.department, "status": m.status, "birth_year": m.birth_year}
-        for m in matches[:_MAX_CANDIDATES]
-    ]
-    return suggestion
+
+    async def choices_for(first: str, last: str) -> dict[str, Any]:
+        choice: dict[str, Any] = {"first_name": first, "last_name": last, "unavailable": False, "candidates": []}
+        try:
+            matches = await provider.find_by_name(first, last)
+        except RecordUnavailable:
+            choice["unavailable"] = True
+            return choice
+        choice["candidates"] = [_candidate(m) for m in matches[:_MAX_CANDIDATES]]
+        return choice
+
+    choices = await asyncio.gather(*(choices_for(f, la) for f, la in decided.unfamiliar))
+    return {"kind": "choose", "question": question, "choices": list(choices)}
 ```
 
-In `triage`, just before the final `return`, add:
+In `triage`, just before its final `return`, add:
 
 ```python
-    suggestion = await _subject_suggestion(state, question)
-    if suggestion is not None:
+    # Who this turn is about (spec §4.2) -- only where there are people to be
+    # about: a conversation with people in it, or a record source that can find
+    # them by name. Everywhere else this turn is exactly as it was.
+    subjects = list(state.get("subjects") or [])
+    provider = current_provider()
+    name_search = provider if isinstance(provider, NameSearch) else None
+    if subjects or name_search is not None:
+        decided = people_mod.decide(
+            question, subjects, list(state.get("last_people") or []),
+            name_search.names_in(question) if name_search is not None else [],
+        )
+        suggestion = await _suggestion(name_search, decided, subjects, question)
+        if suggestion is not None:
+            return {
+                "in_scope": False,
+                "out_of_scope_reason": "subject_suggestion",
+                "subject_suggestion": suggestion,
+                "turn_people": decided.people,
+                "timings": {"triage": time.perf_counter() - started},
+            }
         return {
-            "in_scope": False,
-            "out_of_scope_reason": "subject_suggestion",
-            "subject_suggestion": suggestion,
+            "in_scope": scope.in_scope,
+            "out_of_scope_reason": scope.reason,
+            "override_signal": guardrails.detect_instruction_override(question).to_dict(),
+            "explicit_sections": extract_section_references(question),
+            "explicit_articles": extract_article_references(question),
+            "turn_people": decided.people,
             "timings": {"triage": time.perf_counter() - started},
         }
 ```
 
-In `graph.py`, add `from pension_chat.agent.nodes import MAX_LISTED`, merging it into the existing nodes import. Add this above `decline`:
+The existing final `return` stays as it is, for turns with no people.
+
+A `which_one` turn needs no name search. `_suggestion` returns before it touches `provider`, so a roster with the fixtures provider works.
+
+- [ ] **Step 6: The replies**
+
+In `graph.py`, add `from pension_chat.agent.people import MAX_LISTED`. Add this above `decline`:
 
 ```python
-def subject_suggestion_message(suggestion: dict[str, Any]) -> str:
-    """The reply to a name in a message: choose one, choose a department, not found, or not checkable.
-
-    Names the people by name, department and birth year -- never by the
-    internal MEAB ID the choice card carries as an opaque `ref`.
-    """
-    name = f"{suggestion.get('first_name', '')} {suggestion.get('last_name', '')}".strip()
-    if suggestion.get("unavailable"):
-        return (f"I couldn't look up {name} just now: the fund's records are not answering. "
-                "Please try again in a moment.")
-    candidates = suggestion.get("candidates") or []
+def _choice_sentence(choice: dict[str, Any]) -> str:
+    name = f"{choice.get('first_name') or ''} {choice.get('last_name') or ''}".strip()
+    if choice.get("unavailable"):
+        return f"I couldn't look up {name} just now: the fund's records are not answering."
+    candidates = choice.get("candidates") or []
     if not candidates:
         return f"I couldn't find an active employee named {name}."
     if len(candidates) == 1:
         one = candidates[0]
         about = ", ".join(v for v in (one.get("department") or one.get("employer"),
                                       f"born {one['birth_year']}" if one.get("birth_year") else None) if v)
-        return (f"Did you mean {one.get('display_name') or name}{f' ({about})' if about else ''}? "
-                "Choose below and I'll answer your question about them.")
+        return f"Did you mean {one.get('display_name') or name}{f' ({about})' if about else ''}?"
     if len(candidates) <= MAX_LISTED:
-        return (f"There are {len(candidates)} active employees named {name}. Which one do you mean? "
-                "Choose below and I'll answer your question about them.")
-    return (f"There are {len(candidates)} active employees named {name}. Which department do they work in? "
-            "Choose below.")
+        return f"There are {len(candidates)} active employees named {name}; which one do you mean?"
+    return f"There are {len(candidates)} active employees named {name}; which department do they work in?"
+
+
+def subject_suggestion_message(suggestion: dict[str, Any]) -> str:
+    """The reply to a choice turn -- people named by name, department and birth year,
+    never by the internal key the cards carry as `ref`."""
+    choices = suggestion.get("choices") or []
+    if suggestion.get("kind") == "which_one":
+        names = [c.get("display_name") or "this employee" for c in (choices[0].get("candidates") if choices else [])]
+        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else "".join(names)
+        return f"Which of them do you mean: {listed}? Choose below."
+    text = " ".join(_choice_sentence(c) for c in choices)
+    if any(c.get("candidates") for c in choices):
+        if len(choices) == 1 and len(choices[0]["candidates"]) == 1:
+            text += " Choose below and I'll answer your question about them."
+        else:
+            text += " Once you've chosen below, I'll answer your question."
+    return text
 ```
+
+This gives two exact strings, and the test's `startswith` expects the first: a single choice with one candidate ends "Did you mean LI_MO GA_RD (Finance, born 1964)? Choose below and I'll answer your question about them.", and several cards end with "Once you've chosen below, I'll answer your question."
 
 In `decline`, replace the `answer = …` line with:
 
@@ -2209,49 +2502,394 @@ In `decline`, replace the `answer = …` line with:
         answer = GREETING_MESSAGE if reason == "greeting" else OUT_OF_SCOPE_MESSAGE
 ```
 
-If importing `MAX_LISTED` from `nodes` into `graph` creates a cycle, it won't: `graph.py` already imports `triage` and `fetch_employee_record` from `nodes`.
+- [ ] **Step 7: Run the tests**
 
-- [ ] **Step 4: Run the tests**
-
-Run: `uv run pytest tests/test_subject_suggestion.py -v`, then `uv run pytest -q`
+Run: `uv run pytest tests/test_turn_people.py tests/test_pbms_provider.py -v`, then `uv run pytest -q`
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/pension_chat/agent/nodes.py src/pension_chat/agent/graph.py tests/test_subject_suggestion.py
-git commit -m "Agent: a name in a message is offered for the user to choose, never loaded on a mention
+git add src/pension_chat/agent/people.py src/pension_chat/agent/nodes.py src/pension_chat/agent/graph.py src/pension_chat/records.py src/pension_chat/pbms/provider.py tests/test_turn_people.py tests/test_pbms_provider.py
+git commit -m "Agent: who a turn is about -- familiar names, a choice for new ones, which-one for an ambiguous pronoun
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 7: The session's subject: migration, API and audit
+### Task 7: Several people in one loop: per-person calculation, the comparison table, verification, cards
 
 **Files:**
-- Create: `alembic/versions/009_session_subject.py`
-- Modify: `src/pension_chat/db/models.py:228-270` (`Session`)
+- Modify: `src/pension_chat/agent/tools.py:160-230` (the `person` parameter) and `:822-873` (`_compute`)
+- Modify: `src/pension_chat/agent/loop.py` (`_context`: the people block; `_views` and `MARKED_VIEWS`: `PEOPLE`)
+- Modify: `src/pension_chat/agent/graph.py` (the verifier's `facts`; `calculation_cards`; the `done` event's `cards`)
+- Modify: `src/pension_chat/agent/card.py` (`calculation_cards`)
+- Modify: `src/pension_chat/agent/graph.py::turn_record` (scenario labels per person)
+- Modify: `src/pension_chat/evals/trace.py:93-103` (`person` on figures), `src/pension_chat/api/sessions.py` (cards into `tool_calls`)
+- Test: `tests/test_people_calculation.py`
+
+**Interfaces:**
+- Consumes: `state["people"]`, `turn_people` and `labels` (Task 5).
+- Produces:
+  - `compute_benefit`'s `person: str` argument, required when `len(people) > 1`;
+  - result entries carrying `person`, `person_ref` and `input_sources`, with keys prefixed `"{label} · "`;
+  - `loop.render_people(state) -> str` and the view slot `"PEOPLE"`;
+  - `graph._people_facts(state) -> dict`;
+  - `card.calculation_cards(state, sheet) -> list[dict]`, each card with `"person"` when the turn had several;
+  - the `done` event's `"cards": list[dict]`, with `"card"` kept as `cards[0]` for compatibility;
+  - trace figures carrying `"person"`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_people_calculation.py
+"""Several people, one loop: each figure from its own record; numbers only in a code-rendered table."""
+from __future__ import annotations
+
+from pension_chat.agent import tools
+from pension_chat.agent.card import calculation_cards
+from pension_chat.agent.graph import _people_facts
+from pension_chat.agent.loop import render_people
+from pension_chat.agent.worksheet import WorkSheet
+
+
+def _bundle(ref, label, salary, tier=2, dept="Finance"):
+    return {"label": label,
+            "record": {"id": ref, "article_number": 8, "tier": tier, "department": dept, "record_source": "PBMS"},
+            "salary_history": [], "member_facts": {"final_average_salary": salary, "age": 62}}
+
+
+PEOPLE = {"M-1": _bundle("M-1", "KA_LS MA_LP", 90000), "M-2": _bundle("M-2", "QW_XZ PL_MR", 60000, dept="Water")}
+
+
+async def test_each_call_computes_from_that_persons_record_only(monkeypatch) -> None:
+    seen = []
+
+    async def fake_node(slice_):
+        seen.append((slice_["employee_record"]["id"], slice_["member_facts"]["final_average_salary"]))
+        return {}
+
+    async def fake_execute(slice_):
+        salary = slice_["member_facts"]["final_average_salary"]
+        return {"calculation_result": {"retirement_annuity": {"base": {"ok": True, "annual_amount": salary * 0.3}}},
+                "input_sources": {"final_average_salary": "record"}}
+
+    for name in ("resolve_recipes", "resolve_inputs", "validate_recipes"):
+        monkeypatch.setattr(tools, name, fake_node)
+    monkeypatch.setattr(tools, "execute_calculations", fake_execute)
+
+    state = {"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": {}}
+    _, first = await tools._compute({"benefit": "retirement_annuity", "person": "ka_ls ma_lp"}, state)
+    state["calculation_result"] = first["calculation_result"]
+    _, second = await tools._compute({"benefit": "retirement_annuity", "person": "QW_XZ PL_MR"}, state)
+
+    assert [s for s in seen if s[0] == "M-1"][0][1] == 90000
+    assert [s for s in seen if s[0] == "M-2"][0][1] == 60000
+    result = second["calculation_result"]
+    assert set(result) == {"KA_LS MA_LP · retirement_annuity", "QW_XZ PL_MR · retirement_annuity"}
+    assert result["KA_LS MA_LP · retirement_annuity"]["base"]["annual_amount"] == 27000
+    assert result["QW_XZ PL_MR · retirement_annuity"]["person_ref"] == "M-2"
+
+
+async def test_a_missing_or_unknown_person_is_refused_with_the_labels() -> None:
+    state = {"people": PEOPLE, "turn_people": ["M-1", "M-2"]}
+    text, update = await tools._compute({"benefit": "retirement_annuity"}, state)
+    assert update == {} and "KA_LS MA_LP" in text and "QW_XZ PL_MR" in text
+    text, update = await tools._compute({"benefit": "retirement_annuity", "person": "Nobody"}, state)
+    assert update == {}
+
+
+def _results():
+    return {
+        "KA_LS MA_LP · retirement_annuity": {"person": "KA_LS MA_LP", "person_ref": "M-1", "section": "8-138",
+                                            "subsection": "(g-1)", "input_sources": {},
+                                            "base": {"ok": True, "annual_amount": "27000.00", "monthly_amount": "2250.00",
+                                                     "inputs_used": {}}},
+        "QW_XZ PL_MR · retirement_annuity": {"person": "QW_XZ PL_MR", "person_ref": "M-2", "section": "8-138",
+                                            "subsection": "(g-1)", "input_sources": {},
+                                            "base": {"ok": True, "annual_amount": "18000.00", "monthly_amount": "1500.00",
+                                                     "inputs_used": {}}},
+    }
+
+
+def test_the_people_table_is_one_row_per_person_in_turn_order() -> None:
+    table = render_people({"people": PEOPLE, "turn_people": ["M-2", "M-1"], "calculation_result": _results()})
+    rows = [line for line in table.splitlines() if line.startswith("| ") and "---" not in line][1:]
+    assert rows[0].startswith("| QW_XZ PL_MR | Water | 2 |") and "$18,000.00" in rows[0]
+    assert rows[1].startswith("| KA_LS MA_LP | Finance | 2 |") and "$27,000.00" in rows[1]
+    assert "M-1" not in table
+
+
+def test_one_person_has_no_people_table() -> None:
+    one = {k: v for k, v in _results().items() if v["person_ref"] == "M-1"}
+    assert render_people({"people": PEOPLE, "turn_people": ["M-1"], "calculation_result": one}) == ""
+
+
+def test_every_persons_facts_reach_the_verifier_without_colliding() -> None:
+    facts = _people_facts({"people": PEOPLE})
+    assert facts["M-1:final_average_salary"] == 90000 and facts["M-2:final_average_salary"] == 60000
+    assert _people_facts({"people": {"M-1": PEOPLE["M-1"]}}) == {}
+
+
+def test_one_card_per_person() -> None:
+    state = {"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": _results(),
+             "employee_record": PEOPLE["M-1"]["record"]}
+    cards = calculation_cards(state, WorkSheet.from_state(state))
+    assert [c["person"] for c in cards] == ["KA_LS MA_LP", "QW_XZ PL_MR"]
+    assert [c["annual_amount"] for c in cards] == ["27000.00", "18000.00"]
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `uv run pytest tests/test_people_calculation.py -v`
+Expected: FAIL, with `ImportError: cannot import name 'calculation_cards'`.
+
+- [ ] **Step 3: `compute_benefit` takes a person**
+
+In `tools.py`, add this to `compute_benefit`'s `properties` (line ~176):
+
+```python
+                    "person": {
+                        "type": "string",
+                        "description": (
+                            "Whose figure, by the label the context lists. Required when "
+                            "the question is about more than one employee -- call once "
+                            "per person; omit when it is about one."
+                        ),
+                    },
+```
+
+Add `from pension_chat.agent.people import norm_name` to the imports. In `_compute`, directly after the benefit check, insert:
+
+```python
+    # Several people in this turn: whose figure, and only their record (spec §5).
+    # The slice below carries this person's record, history and facts and no one
+    # else's, so another person's salary cannot reach this figure.
+    people = state.get("people") or {}
+    person_ref: str | None = None
+    if len(people) > 1:
+        wanted = norm_name(str(arguments.get("person") or ""))
+        person_ref = next((ref for ref, b in people.items() if norm_name(b["label"]) == wanted), None)
+        if person_ref is None:
+            return ("This question is about more than one employee. Call compute_benefit once for each, "
+                    "with person set to one of: " + "; ".join(b["label"] for b in people.values()) + ".", {})
+```
+
+After `slice_` is built, insert:
+
+```python
+    if person_ref is not None:
+        mine = people[person_ref]
+        slice_.update(employee_record=mine["record"], salary_history=mine["salary_history"],
+                      member_facts=mine["member_facts"])
+```
+
+Replace the lines from `stale = _supersede(...)` to `update["stale_figures"] = stale` with:
+
+```python
+    if person_ref is None:
+        stale = _supersede(state, update, slice_["scenarios"])
+    else:
+        # A comparison's figures are fresh side-by-side figures; superseding is
+        # tracked for one person's figure across turns, not between people.
+        stale = []
+        label = people[person_ref]["label"]
+        mine_now = {
+            f"{label} · {key}": {**entry, "person": label, "person_ref": person_ref,
+                                  "input_sources": dict(update.get("input_sources") or {})}
+            for key, entry in (update.get("calculation_result") or {}).items()
+        }
+        others = {key: entry for key, entry in (state.get("calculation_result") or {}).items()
+                  if (entry or {}).get("person_ref") not in (None, person_ref)}
+        update["calculation_result"] = {**others, **mine_now}
+    update["stale_figures"] = stale
+```
+
+`_describe(...)` below still reads `update.get("calculation_result")`. For a person call it now describes both people's results so far, which is what the model should see.
+
+- [ ] **Step 4: The people context block and the `PEOPLE` view**
+
+In `loop.py`, after the `_record_notes` line added in Task 5, add:
+
+```python
+    if len(state.get("people") or {}) > 1:
+        lines.append(_people_context(state))
+```
+
+Add these functions:
+
+```python
+def _people_context(state: dict[str, Any]) -> str:
+    """Several people in one turn: who each is, and how to compute for each (spec §5)."""
+    people = state.get("people") or {}
+    lines = [
+        f"This question is about {len(people)} employees. Call compute_benefit once for each, with "
+        "person set to the label shown. Their figures are put side by side for you at <<<PEOPLE>>>; "
+        "do not write the figures yourself."
+    ]
+    for ref in state.get("turn_people") or list(people):
+        bundle = people.get(ref)
+        if not bundle:
+            continue
+        record, facts = bundle["record"], bundle.get("member_facts") or {}
+        known = ", ".join(f"{k}={facts[k]}" for k in ("age", "service_years") if facts.get(k) is not None)
+        line = (f"- {bundle['label']}: {record.get('department') or record.get('employer') or 'department not on file'}; "
+                f"Tier {record.get('tier') or 'not settled'}; {known or 'no age or service on file'}")
+        if record.get("missing"):
+            line += "; record gaps -- " + "; ".join(f"{k}: {v}" for k, v in sorted(record["missing"].items()))
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _money(value: Any) -> str:
+    if value in (None, ""):
+        return "—"
+    return f"${Decimal(str(value).replace(',', '').replace('$', '')):,.2f}"
+
+
+def render_people(state: dict[str, Any]) -> str:
+    """One row per person with a figure, in the turn's order -- code-rendered so the
+    model can compare in prose but can never swap two people's numbers."""
+    people = state.get("people") or {}
+    first_figure: dict[str, dict] = {}
+    for entry in (state.get("calculation_result") or {}).values():
+        ref = (entry or {}).get("person_ref")
+        if ref and ref not in first_figure and ((entry.get("base") or {}).get("ok")):
+            first_figure[ref] = entry
+    if len(first_figure) < 2:
+        return ""
+    rows = ["| Employee | Department | Tier | Worked from | Annual | Monthly |",
+            "|---|---|---|---|---|---|"]
+    for ref in state.get("turn_people") or list(people):
+        entry, bundle = first_figure.get(ref), people.get(ref)
+        if not entry or not bundle:
+            continue
+        record, base = bundle["record"], entry["base"]
+        section = f"§{entry['section']}{entry.get('subsection') or ''}" if entry.get("section") else ""
+        rows.append(f"| {bundle['label']} | {record.get('department') or record.get('employer') or ''} | "
+                    f"{record.get('tier') or ''} | {section} | {_money(base.get('annual_amount'))} | "
+                    f"{_money(base.get('monthly_amount'))} |")
+    return "\n".join(rows)
+```
+
+Make sure `from decimal import Decimal` is imported in `loop.py`. Add `"PEOPLE"` to `MARKED_VIEWS`, and add `"PEOPLE": render_people(state),` to the `rendered` dict in `_views`.
+
+- [ ] **Step 5: Verification sees every person's facts; cards per person; scenario labels**
+
+In `graph.py`, add:
+
+```python
+def _people_facts(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Every person's facts for the verifier, keyed by ref so two people's values
+    never collide (spec §5). Which number belongs to whom is the PEOPLE table's job."""
+    people = state.get("people") or {}
+    if len(people) < 2:
+        return {}
+    return {f"{ref}:{name}": value for ref, bundle in people.items()
+            for name, value in (bundle.get("member_facts") or {}).items()}
+```
+
+In the `verify_answer(...)` call (line ~893), change `facts=_available_facts(state),` to `facts={**_available_facts(state), **_people_facts(state)},`. First confirm that `guardrails.verify_answer` reads `facts` by value only (`grep -n "facts" src/pension_chat/agent/guardrails.py`). If it reads specific keys (for example `facts.get("age")`), keep `facts=_available_facts(state)` and pass the people facts to the numeric-provenance check through the same value collection it builds, and record a ruling.
+
+In `card.py`, add:
+
+```python
+def calculation_cards(state: Mapping[str, Any], sheet: WorkSheet) -> list[dict[str, Any]]:
+    """One card per person with a figure; a one-person turn's card exactly as before."""
+    people = state.get("people") or {}
+    if len(people) < 2:
+        card = calculation_card(state, sheet)
+        return [card] if card else []
+    cards: list[dict[str, Any]] = []
+    done: set[str] = set()
+    for entry in (state.get("calculation_result") or {}).values():
+        ref = (entry or {}).get("person_ref")
+        if not ref or ref in done or ref not in people or not (entry.get("base") or {}).get("ok"):
+            continue
+        done.add(ref)
+        card = calculation_card(
+            {**state, "calculation_result": {"figure": entry}, "input_sources": entry.get("input_sources") or {},
+             "employee_record": people[ref]["record"]},
+            sheet,
+        )
+        if card:
+            cards.append({**card, "person": entry.get("person")})
+    order = {r: i for i, r in enumerate(state.get("turn_people") or [])}
+    people_order = {people[r]["label"]: order.get(r, 99) for r in people}
+    return sorted(cards, key=lambda c: people_order.get(c["person"], 99))
+```
+
+In `run_agent_stream`, replace `card = calculation_card(...)` with `cards = calculation_cards(...)`, using the same arguments. Initialise `cards: list = []` where `card = None` was. The final `done` becomes `yield {"type": "done", "state": state, "card": cards[0] if cards else None, "cards": cards, "scenarios": scenarios}`.
+
+In `sessions.py`'s `event_stream`:
+- `card = event.get("card")` becomes `cards = event.get("cards") or ([event["card"]] if event.get("card") else [])`;
+- initialise `cards: list = []`;
+- the audit line becomes `tool_calls = _audit_trail(final_state) + cards` (Task 8 appends `_subject_trail`).
+
+In `graph.py::turn_record`, find where a result entry's scenarios are written into `scenario_set` by their `label`. There, when the entry carries `person`, file the scenario under `f"{entry['person']} — {label}"` instead of `label`. That way two people's "at age 62" never overwrite each other in the chip row. Add this test to `tests/test_people_calculation.py`:
+
+```python
+def test_two_peoples_scenarios_do_not_overwrite_each_other() -> None:
+    from pension_chat.agent.graph import turn_record
+
+    results = _results()
+    for entry in results.values():
+        entry["scenarios"] = [{"label": "at age 62", "annual_amount": entry["base"]["annual_amount"]}]
+    update = turn_record({"final_answer": "a", "turn_index": 1, "calculation_result": results,
+                          "guardrail_passed": True})
+    labels = set((update or {}).get("scenario_set") or {})
+    assert {"KA_LS MA_LP — at age 62", "QW_XZ PL_MR — at age 62"} <= labels
+```
+
+If `turn_record` builds `scenario_set` from something other than `calculation_result[*].scenarios`, adapt the test's input to what it reads. Keep the assertion, and record the adaptation in the ledger.
+
+In `evals/trace.py::_figures`, add `"person": (entry or {}).get("person")` to both dicts it appends.
+
+- [ ] **Step 6: Run the tests**
+
+Run: `uv run pytest tests/test_people_calculation.py -v`, then `uv run pytest -q`
+Expected: all pass. Existing card tests are unaffected, since `calculation_card` is unchanged and `calculation_cards` wraps it.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/pension_chat/agent/tools.py src/pension_chat/agent/loop.py src/pension_chat/agent/graph.py src/pension_chat/agent/card.py src/pension_chat/evals/trace.py src/pension_chat/api/sessions.py tests/test_people_calculation.py
+git commit -m "Agent: several people in one loop -- each figure from its own record, a code-rendered comparison, a card each
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: The session's people: migration, API, live event, recency
+
+**Files:**
+- Create: `alembic/versions/009_session_subjects.py`
+- Modify: `src/pension_chat/db/models.py:228-270` (`Session.subjects`)
 - Create: `src/pension_chat/api/subject.py`
 - Modify: `src/pension_chat/api/sessions.py`:
-  - `send_message` passes the subject;
-  - `_subject_trail` joins the audit trail.
-- Modify: `src/pension_chat/main.py` (register the subject router)
+  - pass `subjects`;
+  - relay `people`;
+  - `_subject_trail`;
+  - recency reorder.
+- Modify: `src/pension_chat/sse/__init__.py` (`sse_people`), `src/pension_chat/agent/graph.py` (`people_of`), `src/pension_chat/main.py` (register the router)
 - Test: `tests/test_subject_api.py`
 
 **Interfaces:**
-- Consumes: `normalise_meab_id`, `MEAB_ID_PATTERN`, `current_provider`, `RecordUnavailable` and `EmployeeMatch` (Task 3); `_authorised_session` and `_thread_owner` from `sessions.py`; `run_agent_stream(subject_meab_id=…)` (Task 5); the state keys `subject_suggestion` and `employee_record.record_source`.
+- Consumes: `normalise_meab_id`, `MEAB_ID_PATTERN`, `current_provider`, `RecordUnavailable` and `EmployeeMatch` (Tasks 3 and 6); `people.MAX_PEOPLE`; `_authorised_session` and `_thread_owner` from `sessions.py`; the `people` stream event (Task 5).
 - Produces:
-  - `api.subject.resolve_ref(provider, ref) -> dict`, which raises 400, 404 or 503;
-  - `api.subject.public_match(m) -> dict`, with the keys `display_name`, `employer`, `department`, `status` and `birth_year`, and **no** `ref`;
-  - the routes `GET`, `PUT` (body `{"ref": str}`) and `DELETE` on `/api/v1/sessions/{id}/subject`;
+  - `api.subject.roster_entry(m) -> dict`, `add_to_roster(roster, entry) -> list`, `remove_from_roster(roster, ref) -> list`, `by_recency(roster, used) -> list` and `resolve_ref(provider, ref) -> EmployeeMatch`;
+  - the routes `GET /api/v1/sessions/{id}/subjects` (returns `{"people", "active"}`), `POST` on the same path (body `{"ref"}`, returns `{"people"}`), `DELETE /api/v1/sessions/{id}/subjects/{ref}` and `DELETE /api/v1/sessions/{id}/subjects`;
+  - `sse_people(active: list[str]) -> str`;
+  - `graph.people_of(session_id, *, employee_id, session_token) -> list[str]`;
   - `sessions._subject_trail(state) -> list[dict]`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_subject_api.py
-"""Choosing, restoring and clearing a conversation's employee; tested at the helpers the routes wrap."""
+"""The conversation's people: choose, remove, recency, and the audit -- at the helpers the routes wrap."""
 from __future__ import annotations
 
 import re
@@ -2261,8 +2899,14 @@ import pytest
 from fastapi import HTTPException
 
 from pension_chat.api.sessions import _subject_trail
-from pension_chat.api.subject import resolve_ref
+from pension_chat.api.subject import add_to_roster, by_recency, remove_from_roster, resolve_ref, roster_entry
 from pension_chat.records import MEAB_ID_PATTERN, EmployeeMatch, RecordUnavailable
+from pension_chat.sse import sse_people
+
+
+def _e(ref):
+    return {"ref": ref, "display_name": ref, "first_name": "F", "last_name": ref, "department": None,
+            "employer": None, "birth_year": None}
 
 
 class _Stub:
@@ -2276,22 +2920,18 @@ class _Stub:
         return self.matches
 
 
-A = EmployeeMatch("M-000123", "KA_LS MA_LP", "City of Chicago", "active", "Finance", 1964)
+A = EmployeeMatch("M-000123", "KA_LS MA_LP", "City of Chicago", "active", "Finance", 1964, "KA_LS", "MA_LP")
 
 
-async def test_a_ref_is_re_resolved_and_returned_without_the_key() -> None:
+async def test_a_ref_is_re_resolved_before_it_is_stored() -> None:
     stub = _Stub([A])
-    key, public = await resolve_ref(stub, " m-000123 ")
-    assert stub.asked == ["M-000123"] and key == "M-000123"
-    assert public == {"display_name": "KA_LS MA_LP", "employer": "City of Chicago", "department": "Finance",
-                      "status": "active", "birth_year": 1964}
+    match = await resolve_ref(stub, " m-000123 ")
+    assert stub.asked == ["M-000123"] and roster_entry(match) == {
+        "ref": "M-000123", "display_name": "KA_LS MA_LP", "first_name": "KA_LS", "last_name": "MA_LP",
+        "department": "Finance", "employer": "City of Chicago", "birth_year": 1964}
 
 
-@pytest.mark.parametrize("ref, matches, status", [
-    ("KA_LS MA_LP", [A], 400),
-    ("M-12", [A], 400),
-    ("M-000999", [], 404),
-])
+@pytest.mark.parametrize("ref, matches, status", [("KA_LS MA_LP", [A], 400), ("M-12", [A], 400), ("M-000999", [], 404)])
 async def test_bad_or_unknown_refs(ref, matches, status) -> None:
     with pytest.raises(HTTPException) as caught:
         await resolve_ref(_Stub(matches), ref)
@@ -2306,20 +2946,35 @@ async def test_unavailable_is_503_and_no_provider_is_404() -> None:
     assert (down.value.status_code, off.value.status_code) == (503, 404)
 
 
-def test_the_audit_trail_names_the_subject_and_any_choice_offered() -> None:
-    suggestion = {"first_name": "KA_LS", "last_name": "MA_LP", "candidates": []}
-    state = {"employee_record": {"id": "M-000123", "record_source": "PBMS"}, "subject_suggestion": suggestion}
-    assert _subject_trail(state) == [
-        {"type": "subject", "ref": "M-000123"},
-        {"type": "subject_suggestion", **suggestion},
-    ]
-    assert _subject_trail({"employee_record": {"id": "x"}}) == []
+def test_choosing_puts_the_person_first_and_a_fifth_pushes_out_the_least_recent() -> None:
+    roster = [_e("M-4"), _e("M-3"), _e("M-2"), _e("M-1")]
+    assert [e["ref"] for e in add_to_roster(roster, _e("M-5"))] == ["M-5", "M-4", "M-3", "M-2"]
+    assert [e["ref"] for e in add_to_roster(roster, _e("M-2"))] == ["M-2", "M-4", "M-3", "M-1"]
 
 
-def test_the_migration_checks_the_same_pattern_the_code_uses() -> None:
-    text = Path("alembic/versions/009_session_subject.py").read_text(encoding="utf-8")
-    assert "subject_meab_id" in text and 'down_revision = "008_answer_evidence"' in text
-    assert MEAB_ID_PATTERN in text
+def test_removing_and_recency() -> None:
+    roster = [_e("M-1"), _e("M-2"), _e("M-3")]
+    assert [e["ref"] for e in remove_from_roster(roster, "M-2")] == ["M-1", "M-3"]
+    assert [e["ref"] for e in by_recency(roster, ["M-3", "M-2"])] == ["M-3", "M-2", "M-1"]
+    assert by_recency(roster, []) == roster
+
+
+def test_the_audit_trail_names_the_people_and_any_choice() -> None:
+    suggestion = {"kind": "choose", "question": "q", "choices": []}
+    state = {"turn_people": ["M-1", "M-2"], "subject_suggestion": suggestion}
+    assert _subject_trail(state) == [{"type": "subjects", "refs": ["M-1", "M-2"]},
+                                     {"type": "subject_suggestion", **suggestion}]
+    assert _subject_trail({}) == []
+
+
+def test_the_people_event() -> None:
+    assert sse_people(["M-1"]) == 'event: people\ndata: {"active": ["M-1"]}\n\n'
+
+
+def test_the_migration() -> None:
+    text = Path("alembic/versions/009_session_subjects.py").read_text(encoding="utf-8")
+    assert "subjects" in text and 'down_revision = "008_answer_evidence"' in text
+    assert "jsonb_array_length(subjects) <= 4" in text
     assert re.fullmatch(MEAB_ID_PATTERN, "M-000123") and not re.fullmatch(MEAB_ID_PATTERN, "m-000123")
 ```
 
@@ -2331,93 +2986,113 @@ Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.api.sub
 - [ ] **Step 3: Write the migration and update the model**
 
 ```python
-# alembic/versions/009_session_subject.py
-"""A conversation's subject: the employee an employer is asking about.
+# alembic/versions/009_session_subjects.py
+"""A conversation's people: the employees an employer is asking about (at most 4).
 
-Kept as the internal MEAB ID -- the one identifier that is unique; users find
-employees by name and never see it. Not the principal: `sessions.employee_id` is
-who is chatting and scopes row-level security. The existing `sessions` policies
-cover the new columns. The check is `records.MEAB_ID_PATTERN`: ^M-[0-9]{6}$
+Most recent first: [{"ref", "display_name", "first_name", "last_name",
+"department", "employer", "birth_year"}]. `ref` is the internal MEAB ID --
+validated by code against records.MEAB_ID_PATTERN before storing, never shown.
+Names are kept so a returning name is recognised without a query; the transcript
+already holds them, under the same row-level policies, which cover this column.
+Not the principal: `sessions.employee_id` is who is chatting and scopes RLS.
 
-Revision ID: 009_session_subject
+Revision ID: 009_session_subjects
 Revises: 008_answer_evidence
 """
 
 from __future__ import annotations
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "009_session_subject"
+revision = "009_session_subjects"
 down_revision = "008_answer_evidence"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("sessions", sa.Column("subject_meab_id", sa.Text(), nullable=True))
-    op.add_column("sessions", sa.Column("subject_set_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column(
+        "sessions",
+        sa.Column("subjects", postgresql.JSONB(astext_type=sa.Text()), nullable=False,
+                  server_default=sa.text("'[]'::jsonb")),
+    )
     op.create_check_constraint(
-        "ck_sessions_subject_meab_id", "sessions", "subject_meab_id ~ '^M-[0-9]{6}$'"
+        "ck_sessions_subjects_at_most_four", "sessions",
+        "jsonb_typeof(subjects) = 'array' AND jsonb_array_length(subjects) <= 4",
     )
 
 
 def downgrade() -> None:
-    op.drop_constraint("ck_sessions_subject_meab_id", "sessions", type_="check")
-    op.drop_column("sessions", "subject_set_at")
-    op.drop_column("sessions", "subject_meab_id")
+    op.drop_constraint("ck_sessions_subjects_at_most_four", "sessions", type_="check")
+    op.drop_column("sessions", "subjects")
 ```
 
-In `models.py`, add these to `Session` after `status`:
+In `models.py`, add to `Session` (and import `JSONB` from `sqlalchemy.dialects.postgresql` if it is not already imported):
 
 ```python
-    # The employee this conversation is about (migration 009): an internal MEAB
-    # ID, never shown. Not the principal -- `employee_id` scopes RLS.
-    subject_meab_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    subject_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The conversation's people (migration 009): most recent first, at most 4,
+    # each keyed by an internal MEAB ID never shown. Not the principal.
+    subjects: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 ```
 
-Add `CheckConstraint("subject_meab_id ~ '^M-[0-9]{6}$'", name="ck_sessions_subject_meab_id"),` to its `__table_args__`.
+Add `CheckConstraint("jsonb_typeof(subjects) = 'array' AND jsonb_array_length(subjects) <= 4", name="ck_sessions_subjects_at_most_four"),` to its `__table_args__`.
 
 - [ ] **Step 4: Write `api/subject.py`**
 
 ```python
 # src/pension_chat/api/subject.py
-"""The conversation's employee: chosen from a name's candidates, restored, cleared.
+"""The conversation's people: chosen from a name's candidates, removed, restored.
 
-The choice card sends back the opaque `ref` it was given; the server re-resolves
-it in PBMS (active members only) before storing it, and never returns it -- the
-MEAB ID is internal (spec §4.1).
+A choice card sends back the opaque `ref` it was given; the server re-resolves
+it in PBMS (active members only) before storing it. `ref` is the internal MEAB
+ID: never shown, carried only so the UI can say which card or chip it means.
 """
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import update
 
+from pension_chat.agent.people import MAX_PEOPLE
 from pension_chat.api.auth import TokenData, get_current_user
 from pension_chat.db.models import Session
 from pension_chat.db.session import get_db_session
 from pension_chat.records import EmployeeMatch, RecordProvider, RecordUnavailable, current_provider, normalise_meab_id
 
-router = APIRouter(prefix="/api/v1", tags=["subject"])
+router = APIRouter(prefix="/api/v1", tags=["subjects"])
 
 
-class SubjectRequest(BaseModel):
+class AddPerson(BaseModel):
     ref: str
 
 
-def public_match(match: EmployeeMatch) -> dict[str, Any]:
-    return {"display_name": match.display_name, "employer": match.employer,
-            "department": match.department, "status": match.status, "birth_year": match.birth_year}
+def roster_entry(match: EmployeeMatch) -> dict[str, Any]:
+    return {"ref": match.key, "display_name": match.display_name, "first_name": match.first_name,
+            "last_name": match.last_name, "department": match.department, "employer": match.employer,
+            "birth_year": match.birth_year}
 
 
-async def resolve_ref(provider: RecordProvider | None, ref: str) -> tuple[str, dict[str, Any]]:
+def add_to_roster(roster: list[dict], entry: dict) -> list[dict]:
+    return ([entry] + [e for e in roster if e["ref"] != entry["ref"]])[:MAX_PEOPLE]
+
+
+def remove_from_roster(roster: list[dict], ref: str) -> list[dict]:
+    return [e for e in roster if e["ref"] != ref]
+
+
+def by_recency(roster: list[dict], used: list[str]) -> list[dict]:
+    """The people a turn was about move to the front, in the turn's order."""
+    front = [e for ref in used for e in roster if e["ref"] == ref]
+    return front + [e for e in roster if e["ref"] not in used]
+
+
+async def resolve_ref(provider: RecordProvider | None, ref: str) -> EmployeeMatch:
     if provider is None:
         raise HTTPException(status_code=404, detail="Employee records are not enabled")
     key = normalise_meab_id(ref)
@@ -2429,85 +3104,120 @@ async def resolve_ref(provider: RecordProvider | None, ref: str) -> tuple[str, d
         raise HTTPException(status_code=503, detail="The fund's records are not answering just now") from None
     if not matches:
         raise HTTPException(status_code=404, detail="No active employee with that reference")
-    return matches[0].key, public_match(matches[0])
+    return matches[0]
 
 
-async def _store(session: Session, meab_id: str | None) -> None:
+async def store_roster(session: Session, roster: list[dict]) -> None:
     from pension_chat.api.sessions import _thread_owner
 
     async with get_db_session(**_thread_owner(session)) as db:
-        await db.execute(
-            update(Session).where(Session.id == session.id).values(
-                subject_meab_id=meab_id, subject_set_at=datetime.now(UTC) if meab_id else None,
-            )
-        )
+        await db.execute(update(Session).where(Session.id == session.id).values(subjects=roster))
         await db.commit()
 
 
-@router.get("/sessions/{session_id}/subject")
-async def get_subject(session_id: str, request: Request,
-                      user: TokenData | None = Depends(get_current_user)) -> dict[str, Any] | None:
-    """The conversation's employee, re-read so the chip is current."""
+@router.get("/sessions/{session_id}/subjects")
+async def get_people(session_id: str, request: Request,
+                     user: TokenData | None = Depends(get_current_user)) -> dict[str, Any]:
+    from pension_chat.agent.graph import people_of
+    from pension_chat.api.sessions import _authorised_session, _thread_owner
+
+    session = await _authorised_session(uuid.UUID(session_id), request, user)
+    roster = list(session.subjects or [])
+    active = await people_of(session_id, **_thread_owner(session))
+    return {"people": roster, "active": [r for r in active if any(e["ref"] == r for e in roster)]}
+
+
+@router.post("/sessions/{session_id}/subjects")
+async def add_person(session_id: str, body: AddPerson, request: Request,
+                     user: TokenData | None = Depends(get_current_user)) -> dict[str, Any]:
     from pension_chat.api.sessions import _authorised_session
 
     session = await _authorised_session(uuid.UUID(session_id), request, user)
-    if not session.subject_meab_id:
-        return None
-    try:
-        return (await resolve_ref(current_provider(), session.subject_meab_id))[1]
-    except HTTPException:
-        # Still the subject even when the name cannot be read right now.
-        return {"display_name": None, "employer": None, "department": None, "status": None, "birth_year": None}
+    match = await resolve_ref(current_provider(), body.ref)
+    roster = add_to_roster(list(session.subjects or []), roster_entry(match))
+    await store_roster(session, roster)
+    return {"people": roster}
 
 
-@router.put("/sessions/{session_id}/subject")
-async def put_subject(session_id: str, body: SubjectRequest, request: Request,
-                      user: TokenData | None = Depends(get_current_user)) -> dict[str, Any]:
+@router.delete("/sessions/{session_id}/subjects/{ref}")
+async def remove_person(session_id: str, ref: str, request: Request,
+                        user: TokenData | None = Depends(get_current_user)) -> dict[str, Any]:
     from pension_chat.api.sessions import _authorised_session
 
     session = await _authorised_session(uuid.UUID(session_id), request, user)
-    key, public = await resolve_ref(current_provider(), body.ref)
-    await _store(session, key)
-    return public
+    roster = remove_from_roster(list(session.subjects or []), ref)
+    await store_roster(session, roster)
+    return {"people": roster}
 
 
-@router.delete("/sessions/{session_id}/subject")
-async def delete_subject(session_id: str, request: Request,
-                         user: TokenData | None = Depends(get_current_user)) -> dict[str, bool]:
+@router.delete("/sessions/{session_id}/subjects")
+async def clear_people(session_id: str, request: Request,
+                       user: TokenData | None = Depends(get_current_user)) -> dict[str, Any]:
     from pension_chat.api.sessions import _authorised_session
 
     session = await _authorised_session(uuid.UUID(session_id), request, user)
-    await _store(session, None)
-    return {"cleared": True}
+    await store_roster(session, [])
+    return {"people": []}
 ```
-
-`resolve_ref` returns `(key, public)`. The test above unpacks it that way.
 
 In `main.py`, add `from pension_chat.api.subject import router as subject_router  # noqa: E402` and `app.include_router(subject_router)`.
 
-- [ ] **Step 5: Pass the subject to each turn and record it**
+In `graph.py`, add this next to `scenarios_of`:
 
-In `sessions.py`, add:
+```python
+async def people_of(
+    session_id: str, *, employee_id: str | None = None, session_token: str | None = None
+) -> list[str]:
+    """Who the last turn was about, read from the checkpoint -- so a reload restores the highlight."""
+    config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    snapshot = await active_graph().aget_state(config)
+    return list((snapshot.values or {}).get("last_people") or [])
+```
+
+In `sse/__init__.py`:
+
+```python
+def sse_people(active: list[str]) -> str:
+    """Who this turn is about, as soon as it is decided -- before any answer text --
+    so the header chips change first (spec §4.4)."""
+    return sse_event("people", {"active": list(active)})
+```
+
+`sse_event` serialises with `json.dumps`, which gives exactly the string the test expects.
+
+- [ ] **Step 5: Relay, record and reorder in `send_message`**
+
+In `sessions.py`:
+- import `sse_people`, and `from pension_chat.api.subject import by_recency, store_roster`;
+- add `subjects=list(session.subjects or []),` to the `run_agent_stream(...)` call;
+- in the event loop, add `elif kind == "people": yield sse_people(event["active"])`.
+
+Add:
 
 ```python
 def _subject_trail(state: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Who this turn was about, and any choice it offered -- for the audit and the choice card."""
+    """Who this turn was about, and any choice it offered -- for the audit and the choice cards."""
     trail: list[dict[str, Any]] = []
-    record = state.get("employee_record") or {}
-    if record.get("record_source"):
-        trail.append({"type": "subject", "ref": record.get("id")})
+    if state.get("turn_people"):
+        trail.append({"type": "subjects", "refs": list(state["turn_people"])})
     if suggestion := state.get("subject_suggestion"):
         trail.append({"type": "subject_suggestion", **suggestion})
     return trail
 ```
 
-In `send_message`, add `subject_meab_id=session.subject_meab_id,` to the `run_agent_stream(...)` call. Change the audit line to:
+Change the audit line to `tool_calls = _audit_trail(final_state) + cards + _subject_trail(final_state)`. After the assistant message is persisted, add:
 
 ```python
-        tool_calls = _audit_trail(final_state) + ([card] if card else []) + _subject_trail(final_state)
+        # The people this turn was about move to the front; one write, only
+        # when the order changed (spec §4.4).
+        roster = list(session.subjects or [])
+        reordered = by_recency(roster, list(final_state.get("turn_people") or []))
+        if reordered != roster:
+            try:
+                await store_roster(session, reordered)
+            except Exception:
+                logger.exception("Could not reorder the conversation's people")
 ```
-
-`session` is the ORM object loaded at the top of `send_message`. Its column attributes were loaded before its database session closed, so `subject_meab_id` is available.
 
 - [ ] **Step 6: Run the tests and apply the migration**
 
@@ -2515,45 +3225,46 @@ Run: `uv run pytest tests/test_subject_api.py -v`, then `uv run pytest -q`
 Expected: all pass.
 
 Run: `uv run alembic upgrade head`
-Expected: `Running upgrade 008_answer_evidence -> 009_session_subject`. This touches the project's own Postgres, never PBMS. If the connection is refused, the Postgres firewall does not yet allow this network (49.43.225.208). Record that in the ledger and continue. Apply the migration once the rule exists, and run it before the demo check in Task 9.
+Expected: `Running upgrade 008_answer_evidence -> 009_session_subjects`. This touches the project's own Postgres, never PBMS. If the connection is refused, the Postgres firewall does not yet allow this network (49.43.225.208). Record that in the ledger and continue. Apply the migration once the rule exists, and before the demo check in Task 11.
 
 - [ ] **Step 7: Lint, type-check and commit**
 
 Run: `uv run ruff check . && uv run mypy .`
 
 ```bash
-git add alembic/versions/009_session_subject.py src/pension_chat/db/models.py src/pension_chat/api/subject.py src/pension_chat/api/sessions.py src/pension_chat/main.py tests/test_subject_api.py
-git commit -m "API: a conversation's employee -- chosen by opaque ref, re-resolved in PBMS, passed to every turn, kept in the audit
+git add alembic/versions/009_session_subjects.py src/pension_chat/db/models.py src/pension_chat/api/subject.py src/pension_chat/api/sessions.py src/pension_chat/sse/__init__.py src/pension_chat/agent/graph.py src/pension_chat/main.py tests/test_subject_api.py
+git commit -m "API: a conversation's people -- chosen by opaque ref, at most 4 by recency, relayed live, kept in the audit
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 8: The employee chip, the choice card, and the card label
+### Task 9: The people chips, the choice cards, and one card per person
 
 **Files:**
 - Create: `frontend/src/lib/subject.ts`, `frontend/src/lib/subject.test.ts`
 - Modify: `frontend/src/lib/api.ts` (after `forgetScenario`)
 - Modify: `frontend/src/lib/card.ts`:
-  - add `record_label` to `CalculationCardData`;
+  - add `record_label` and `person` to `CalculationCardData`;
+  - make `cardsFrom` return all cards;
   - add a `recordLabel` parameter to `sourceLabel`.
-- Modify: every `sourceLabel(` caller (`grep -rn "sourceLabel(" frontend/src`)
-- Create: `frontend/src/components/chat/SubjectChip.tsx`, `frontend/src/components/chat/SubjectChoice.tsx`
-- Modify: `frontend/src/components/chat/ChatHeader.tsx`, `ChatMessage.tsx` and `ChatInterface.tsx`
+- Modify: every `sourceLabel(` and `cardFrom(` caller (`grep -rn "sourceLabel(\|cardFrom(" frontend/src`)
+- Create: `frontend/src/components/chat/PeopleChips.tsx`, `frontend/src/components/chat/SubjectChoice.tsx`
+- Modify: `frontend/src/components/chat/ChatHeader.tsx`, `ChatMessage.tsx`, `ChatInterface.tsx` and `CalculationCard.tsx` (the person title)
 
 **Interfaces:**
 - Consumes:
-  - the Task 7 routes;
-  - the public match shape `{display_name, employer, department, status, birth_year}`;
-  - the `tool_calls` entry `{"type": "subject_suggestion", first_name, last_name, question, unavailable, candidates: [{ref, …}]}`;
-  - the card's `record_label`;
+  - the Task 8 routes;
+  - the roster entry shape `{ref, display_name, first_name, last_name, department, employer, birth_year}`;
+  - the `people` SSE event `{active}`;
+  - the `tool_calls` entry `{"type": "subject_suggestion", kind, question, choices: [{first_name, last_name, unavailable, candidates}]}`;
+  - cards with `person` and `record_label`;
   - `/health`'s `record_source`.
 - Produces:
-  - `Subject`, `Candidate` and `Suggestion` (TypeScript);
-  - `MAX_LISTED = 12`;
-  - `chipLabel(s)`, `candidateLabel(c)`, `byDepartment(cs)` and `suggestionFrom(toolCalls)`;
-  - `setSubject(sessionId, ref)`, `clearSubject`, `fetchSubject` and `fetchRecordSource`.
+  - `Person`, `Choice` and `Suggestion` (TypeScript);
+  - `MAX_LISTED`, `chipLabel`, `candidateLabel`, `byDepartment`, `suggestionFrom`, `allChosen` and `whichOneQuestion`;
+  - `fetchPeople`, `addPerson`, `removePerson`, `clearPeople` and `fetchRecordSource`.
 
 Before writing components, read `frontend/AGENTS.md` and the `node_modules/next/dist/docs/` page on client components. Write `"use client"` leaf components in the style of `ScenarioChips.tsx`, using semantic token utilities only. **Never render `ref`.**
 
@@ -2564,37 +3275,41 @@ Before writing components, read `frontend/AGENTS.md` and the `node_modules/next/
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { byDepartment, candidateLabel, chipLabel, MAX_LISTED, suggestionFrom } from "./subject.ts";
+import {
+  allChosen, byDepartment, candidateLabel, chipLabel, MAX_LISTED, suggestionFrom, whichOneQuestion,
+} from "./subject.ts";
 
-const c = (ref: string, department: string | null, birth_year: number | null = 1964) => ({
-  ref, display_name: "KA_LS MA_LP", employer: "City of Chicago", department, status: "active", birth_year,
+const p = (ref: string, department: string | null, name = "KA_LS MA_LP") => ({
+  ref, display_name: name, first_name: null, last_name: null, employer: "City of Chicago", department, birth_year: 1964,
 });
 
-test("the chip reads name then department, falling back to employer", () => {
-  assert.equal(chipLabel({ display_name: "KA_LS MA_LP", employer: "City", department: "Finance", status: "active", birth_year: 1964 }),
-    "KA_LS MA_LP · Finance");
-  assert.equal(chipLabel({ display_name: "KA_LS MA_LP", employer: "City", department: null, status: null, birth_year: null }),
-    "KA_LS MA_LP · City");
+test("chip and candidate labels never include the ref", () => {
+  assert.equal(chipLabel(p("M-1", "Finance")), "KA_LS MA_LP · Finance");
+  assert.equal(chipLabel(p("M-1", null)), "KA_LS MA_LP · City of Chicago");
+  assert.equal(candidateLabel(p("M-1", "Finance")), "Finance · City of Chicago · born 1964");
+  assert.ok(!candidateLabel(p("M-1", "Finance")).includes("M-1"));
 });
 
-test("a candidate reads department, employer and birth year, never the ref", () => {
-  const label = candidateLabel(c("M-000001", "Finance"));
-  assert.equal(label, "Finance · City of Chicago · born 1964");
-  assert.ok(!label.includes("M-000001"));
-});
-
-test("more than MAX_LISTED candidates are grouped by department, largest first", () => {
-  const many = [...Array(MAX_LISTED + 3)].map((_, i) => c(`M-${i}`, i % 3 === 0 ? "Streets" : i % 3 === 1 ? "Water" : null));
-  const groups = byDepartment(many);
-  assert.deepEqual(groups.map((g) => [g.department, g.candidates.length]),
+test("more than MAX_LISTED candidates group by department, largest first, no department last", () => {
+  const many = [...Array(MAX_LISTED + 3)].map((_, i) => p(`M-${i}`, i % 3 === 0 ? "Streets" : i % 3 === 1 ? "Water" : null));
+  assert.deepEqual(byDepartment(many).map((g) => [g.department, g.candidates.length]),
     [["Streets", 5], ["Water", 5], ["No department on file", 5]]);
 });
 
-test("a suggestion is read from tool_calls", () => {
-  const s = { first_name: "KA_LS", last_name: "MA_LP", question: "q", unavailable: false, candidates: [c("M-1", "F")] };
+test("a suggestion is read from tool_calls, and 'all chosen' counts only cards with candidates", () => {
+  const s = { kind: "choose" as const, question: "q", choices: [
+    { first_name: "A", last_name: "B", unavailable: false, candidates: [p("M-1", "F")] },
+    { first_name: "C", last_name: "D", unavailable: false, candidates: [] },
+  ] };
   assert.equal(suggestionFrom([{ type: "card" }, { type: "subject_suggestion", ...s }])?.question, "q");
-  assert.equal(suggestionFrom([{ type: "card" }]), null);
   assert.equal(suggestionFrom(undefined), null);
+  assert.equal(allChosen(s, {}), false);
+  assert.equal(allChosen(s, { 0: "M-1" }), true);
+});
+
+test("a which-one choice re-asks the question about the chosen person by name", () => {
+  assert.equal(whichOneQuestion("what would she get at 65?", p("M-2", "Water", "QW_XZ PL_MR")),
+    "About QW_XZ PL_MR: what would she get at 65?");
 });
 ```
 
@@ -2607,52 +3322,53 @@ Expected: FAIL, with `Cannot find module './subject.ts'`.
 
 ```ts
 // frontend/src/lib/subject.ts
-/** The conversation's employee: found by name in the chat, chosen by the user (Phase 1). */
+/** The conversation's people: found by name in the chat, chosen by the user (Phase 1). */
 
-export interface Subject {
+/** One person. `ref` is opaque: sent back to choose or remove, never shown. */
+export interface Person {
+  ref: string;
   display_name: string | null;
-  employer: string | null;
+  first_name: string | null;
+  last_name: string | null;
   department: string | null;
-  status: string | null;
+  employer: string | null;
   birth_year: number | null;
+  status?: string | null;
 }
 
-/** One person a name matched. `ref` is opaque: sent back on a choice, never shown. */
-export interface Candidate extends Subject {
-  ref: string;
+export interface Choice {
+  first_name: string | null;
+  last_name: string | null;
+  unavailable: boolean;
+  candidates: Person[];
 }
 
 export interface Suggestion {
-  first_name: string;
-  last_name: string;
+  kind: "choose" | "which_one";
   question: string;
-  unavailable: boolean;
-  candidates: Candidate[];
+  choices: Choice[];
 }
 
-/** More candidates than this and the choice starts with the department. */
+/** More candidates than this and a choice starts with the department. */
 export const MAX_LISTED = 12;
-
 const NO_DEPARTMENT = "No department on file";
 
-export function chipLabel(s: Subject): string {
-  return [s.display_name, s.department ?? s.employer].filter((p): p is string => Boolean(p)).join(" · ");
-}
+const joined = (parts: (string | null | undefined)[]) =>
+  parts.filter((part): part is string => Boolean(part)).join(" · ");
 
-export function candidateLabel(c: Candidate): string {
-  return [c.department, c.employer, c.birth_year ? `born ${c.birth_year}` : null]
-    .filter((p): p is string => Boolean(p))
-    .join(" · ");
-}
+export const chipLabel = (p: Person): string => joined([p.display_name, p.department ?? p.employer]);
 
-export function byDepartment(candidates: Candidate[]): { department: string; candidates: Candidate[] }[] {
-  const groups = new Map<string, Candidate[]>();
-  for (const c of candidates) {
-    const key = c.department ?? NO_DEPARTMENT;
-    groups.set(key, [...(groups.get(key) ?? []), c]);
+export const candidateLabel = (p: Person): string =>
+  joined([p.department, p.employer, p.birth_year ? `born ${p.birth_year}` : null]);
+
+export function byDepartment(people: Person[]): { department: string; candidates: Person[] }[] {
+  const groups = new Map<string, Person[]>();
+  for (const person of people) {
+    const key = person.department ?? NO_DEPARTMENT;
+    groups.set(key, [...(groups.get(key) ?? []), person]);
   }
   return [...groups.entries()]
-    .map(([department, cs]) => ({ department, candidates: cs }))
+    .map(([department, candidates]) => ({ department, candidates }))
     .sort((a, b) =>
       b.candidates.length - a.candidates.length ||
       Number(a.department === NO_DEPARTMENT) - Number(b.department === NO_DEPARTMENT) ||
@@ -2664,41 +3380,60 @@ export function suggestionFrom(toolCalls: unknown): Suggestion | null {
   const hit = toolCalls.find(
     (t) => t && typeof t === "object" && (t as { type?: unknown }).type === "subject_suggestion",
   ) as (Suggestion & { type: string }) | undefined;
-  if (!hit || !Array.isArray(hit.candidates)) return null;
+  if (!hit || !Array.isArray(hit.choices)) return null;
   const { type: _type, ...rest } = hit;
   return rest;
 }
+
+/** Every card that has someone to choose has had a choice: time to re-send the question. */
+export const allChosen = (s: Suggestion, chosen: Record<number, string>): boolean =>
+  s.choices.every((c, i) => c.candidates.length === 0 || Boolean(chosen[i]));
+
+/** A which-one choice is answered by asking again about that person, by name. */
+export const whichOneQuestion = (question: string, person: Person): string =>
+  `About ${person.display_name ?? "them"}: ${question}`;
 ```
+
+A re-sent which-one question names the person, so §4.2 treats it as a familiar name and answers about them alone.
 
 - [ ] **Step 4: Run the tests**
 
 Run: `cd frontend && npm test`
 Expected: all pass.
 
-- [ ] **Step 5: Add the API functions and the card label**
+- [ ] **Step 5: API functions and cards**
 
-Append to `api.ts`, and add `import type { Subject } from "./subject";` at the top:
+Append to `api.ts`, and add `import type { Person } from "./subject";`:
 
 ```ts
-/** Make a candidate this conversation's employee; resolves to who they are, or null on failure. */
-export async function setSubject(sessionId: string, ref: string): Promise<Subject | null> {
-  const response = await fetchWithAuth(`/sessions/${sessionId}/subject`, {
-    method: "PUT",
+export interface People { people: Person[]; active?: string[] }
+
+export async function fetchPeople(sessionId: string): Promise<People> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/subjects`);
+  return response.ok ? response.json() : { people: [], active: [] };
+}
+
+/** Add a chosen candidate to the conversation; resolves to the updated list, or null on failure. */
+export async function addPerson(sessionId: string, ref: string): Promise<People | null> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/subjects`, {
+    method: "POST",
     body: JSON.stringify({ ref }),
   });
   return response.ok ? response.json() : null;
 }
 
-export async function clearSubject(sessionId: string): Promise<boolean> {
-  return (await fetchWithAuth(`/sessions/${sessionId}/subject`, { method: "DELETE" })).ok;
-}
-
-export async function fetchSubject(sessionId: string): Promise<Subject | null> {
-  const response = await fetchWithAuth(`/sessions/${sessionId}/subject`);
+export async function removePerson(sessionId: string, ref: string): Promise<People | null> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/subjects/${encodeURIComponent(ref)}`, {
+    method: "DELETE",
+  });
   return response.ok ? response.json() : null;
 }
 
-/** "pbms" when employee records come from the fund; the employee chip shows only then. */
+export async function clearPeople(sessionId: string): Promise<boolean> {
+  return (await fetchWithAuth(`/sessions/${sessionId}/subjects`, { method: "DELETE" })).ok;
+}
+
+/** "pbms" when employee records come from the fund; the chips show only then. */
 export async function fetchRecordSource(): Promise<string> {
   try {
     const response = await fetch(`${API_BASE_URL}/health`);
@@ -2710,103 +3445,167 @@ export async function fetchRecordSource(): Promise<string> {
 ```
 
 In `card.ts`:
-- add `record_label?: string | null;` to `CalculationCardData`;
+- add `record_label?: string | null; person?: string | null;` to `CalculationCardData`;
+- add `export function cardsFrom(toolCalls: unknown): CalculationCardData[]`, which returns every `type === "card"` entry. Keep `cardFrom` as `cardsFrom(toolCalls)[0] ?? null`;
 - make `sourceLabel` take `(source, recordLabel?: string | null)` and return `recordLabel` when `source === "record" && recordLabel`.
 
 Add this to `card.test.ts`:
 
 ```ts
-test("a record input names the fund's record when the card carries one", () => {
+test("every card in a message, and the fund's record named on record inputs", () => {
+  const calls = [{ type: "card", person: "A" }, { type: "subjects" }, { type: "card", person: "B" }];
+  assert.deepEqual(cardsFrom(calls).map((c) => c.person), ["A", "B"]);
   assert.equal(sourceLabel("record", "PBMS record"), "PBMS record");
   assert.equal(sourceLabel("record"), "Record");
 });
 ```
 
-Update every `sourceLabel(input.source)` call to `sourceLabel(input.source, card.record_label)`.
+Update the `sourceLabel(input.source)` calls to `sourceLabel(input.source, card.record_label)`. In `CalculationCard.tsx`, when `card.person` is set, show it as the card's first line, in the card's existing label style.
 
-- [ ] **Step 6: Write the components and wire them in**
+- [ ] **Step 6: The components and the wiring**
 
-`SubjectChip.tsx`:
-- Props: `{ subject: Subject | null; onClear: () => void; disabled?: boolean }`.
-- With a subject: a chip with `chipLabel(subject)` and a **Clear** button (`aria-label="Clear employee"`).
-- Without one: muted text, "Name an employee in your question".
+`PeopleChips.tsx`:
+- Props: `{ people: Person[]; active: string[]; onRemove: (ref: string) => void; disabled?: boolean }`.
+- With no people: muted text, "Name an employee in your question".
+- Otherwise, one chip per person in the given order, labelled `chipLabel(p)`. A chip whose `ref` is in `active` uses the filled treatment (the same tokens `ScenarioChips` uses for a selected chip); the others are outlined.
+- Each chip has an ✕ button with `aria-label={`Remove ${p.display_name}`}` that calls `onRemove(p.ref)`.
+- The container is `flex flex-wrap gap-1`, so it wraps at 360 px.
 
 `SubjectChoice.tsx`:
-- Props: `{ suggestion: Suggestion; onChoose: (ref: string, question: string) => void; disabled?: boolean }`.
-- Local state: `department: string | null` and `chosen: string | null`.
-- It renders nothing when `suggestion.unavailable` or when there are no candidates, because the message text already says why.
-- **More than `MAX_LISTED` candidates and no department picked:** buttons from `byDepartment`, labelled `${department} (${n})`. Clicking one sets `department`.
-- **Otherwise:** the candidates (filtered to the chosen department if one is set), one row each showing `display_name` and `candidateLabel(c)`, with a **Use** button. It calls `onChoose(c.ref, suggestion.question)` and sets `chosen = c.ref`.
-- Once `chosen` is set, every button is disabled and the chosen row is marked "Chosen". When a department is picked, there is also a "Back to departments" link.
+- Props: `{ choice: Choice; kind: "choose" | "which_one"; onChoose: (person: Person) => void; chosenRef?: string; disabled?: boolean }`.
+- It renders nothing when `choice.unavailable` or `choice.candidates.length === 0`, because the message text says why.
+- **More than `MAX_LISTED` candidates and no department picked:** buttons `${department} (${n})` from `byDepartment`.
+- **Otherwise:** one row per candidate (filtered by the picked department) showing `display_name` and `candidateLabel`, with **Use**. A "Back to departments" link appears when a department is picked.
+- When `chosenRef` is set, every button is disabled and the chosen row reads "Chosen".
 
-`ChatHeader.tsx` gains an optional `subject?: React.ReactNode` rendered at the right end (`ml-auto`). It must wrap rather than scroll horizontally at 360 px.
+`ChatHeader.tsx` gains `people?: React.ReactNode`, rendered after the title with `ml-auto`, and wrapping onto its own row at small widths.
 
-`ChatMessage.tsx` reads `const suggestion = suggestionFrom(message.tool_calls);`, renders `<SubjectChoice>` under the message body when it is set, and takes a new prop `onChooseSubject?: (ref: string, question: string) => void`.
+`ChatMessage.tsx`:
+- reads `const suggestion = suggestionFrom(message.tool_calls)` and `const cards = cardsFrom(message.tool_calls)`;
+- renders every card (a person title when set) instead of one;
+- when `suggestion` is set, renders one `<SubjectChoice>` per `suggestion.choices[i]`;
+- keeps `const [chosen, setChosen] = useState<Record<number, string>>({})` and a `resent` ref;
+- takes a new prop `onChoosePerson: (person: Person, suggestion: Suggestion, index: number) => Promise<boolean>`.
+
+On each choice it awaits `onChoosePerson`. If that returns true, it sets `chosen[index] = person.ref`. Once `allChosen(suggestion, next)` is true and the question has not been re-sent (the `resent` ref), it calls the prop `onResend(question)`:
+- for `kind === "which_one"`, with `whichOneQuestion(suggestion.question, person)`;
+- otherwise with `suggestion.question`.
 
 `ChatInterface.tsx`:
-- `const [recordSource, setRecordSource] = useState("postgres")`, loaded once with `fetchRecordSource()` in a mount effect;
-- `const [subject, setSubjectState] = useState<Subject | null>(null)`;
-- on every `sessionId` change: `setSubjectState(null)`, then, when `recordSource === "pbms"` and `sessionId` is set, `fetchSubject(sessionId).then(setSubjectState)`;
-- `subject={recordSource === "pbms" ? <SubjectChip subject={subject} onClear={async () => { if (sessionId && await clearSubject(sessionId)) setSubjectState(null); }} disabled={isStreaming} /> : undefined}` on `ChatHeader`;
-- `onChooseSubject={async (ref, question) => { if (!sessionId) return; const s = await setSubject(sessionId, ref); if (s) { setSubjectState(s); send(question); } }}` on each `ChatMessage`. `send` is the existing function `EmptyState`'s `onPick` uses. Re-sending the original question is what makes the user not ask twice.
+- `recordSource`, loaded once with `fetchRecordSource()`;
+- `people: Person[]` and `active: string[]`. On each `sessionId` change they reset, and when `recordSource === "pbms"` they load with `fetchPeople`;
+- in the SSE switch, `case "people": setActive((data.active as string[]) ?? []); break;`;
+- `people={recordSource === "pbms" ? <PeopleChips people={people} active={active} disabled={isStreaming} onRemove={async (ref) => { if (!sessionId) return; const r = await removePerson(sessionId, ref); if (r) { setPeople(r.people); setActive((a) => a.filter((x) => x !== ref)); } }} /> : undefined}` on `ChatHeader`;
+- `onChoosePerson={async (person, s) => { if (!sessionId) return false; if (s.kind === "which_one") return true; const r = await addPerson(sessionId, person.ref); if (r) setPeople(r.people); return Boolean(r); }}` and `onResend={(q) => send(q)}` on each `ChatMessage`. `send` is the existing function `EmptyState`'s `onPick` uses. A which-one person is already in the list, so choosing them adds nothing, and the re-sent question names them.
 
 - [ ] **Step 7: Build, lint and test**
 
 Run: `cd frontend && npm test && npm run lint && npm run build`
-Expected: tests pass, lint shows 0 errors (the existing 2 warnings are allowed), and the build succeeds. Run `grep -rnE "bg-(red|blue|gray|slate|zinc)-|gradient|blur|\.ref\b.*<|>\{.*\.ref\}" frontend/src/components/chat/Subject*.tsx`. Expected: no palette, gradient or blur hits, and no `ref` rendered.
+Expected: tests pass, lint shows 0 errors (the existing 2 warnings are allowed), and the build succeeds. Run `grep -rnE "bg-(red|blue|gray|slate|zinc)-|gradient|blur|\{[a-z.]*\.ref\}" frontend/src/components/chat/PeopleChips.tsx frontend/src/components/chat/SubjectChoice.tsx`. Expected: no hits.
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add frontend/src/lib/subject.ts frontend/src/lib/subject.test.ts frontend/src/lib/api.ts frontend/src/lib/card.ts frontend/src/lib/card.test.ts frontend/src/components/chat
-git commit -m "UI: choose an employee from a name's candidates (department first when many); the chip; record inputs name the PBMS record
+git commit -m "UI: live people chips, choice cards that re-ask once all are chosen, and a calculation card per person
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 9: Eval fixtures, the live smoke test, docs, and the demo check
+### Task 10: Evals: PBMS-shaped fixtures and the S13 "people in context" family
 
 **Files:**
-- Modify: `src/pension_chat/evals/fixtures.py` (read an optional `source`)
-- Create: `evals/fixtures/employees/pbms_tier_disagreement.yaml`, `evals/fixtures/employees/pbms_payroll_service.yaml`
-- Create: `evals/cases/S4/S4-010.yaml`
-- Modify: `pyproject.toml` (the `pbms` marker, excluded by default)
-- Create: `tests/test_pbms_live.py`
-- Modify: `CLAUDE.md`, `.env.example`, the spec (add §9 Demo check)
-- Test: `tests/test_evals_fixtures.py` (create it if it does not exist)
+- Modify: `src/pension_chat/evals/fixtures.py` (`source`, and `NamedFixtureProvider`)
+- Modify: `src/pension_chat/evals/cases.py` (`Case.people`, the `expected_figures` check)
+- Modify: `src/pension_chat/evals/checks.py` (`expected_figures`)
+- Modify: `src/pension_chat/evals/runner.py` (the roster; `subjects` passed to the agent)
+- Create: `evals/fixtures/employees/pbms_tier_disagreement.yaml`, `pbms_payroll_service.yaml`, `people_a.yaml`, `people_b.yaml`, `people_c.yaml`
+- Create: `evals/cases/S4/S4-010.yaml`, `evals/cases/S13/S13-001.yaml` through `S13-004.yaml`
+- Test: `tests/test_evals_people.py`
 
 **Interfaces:**
-- Consumes: everything above.
-- Produces: PBMS-shaped fixtures that exercise `_record_notes` in evals, and a recorded demo check.
+- Consumes: `people.decide` and the `subjects` roster shape (Tasks 5–6); trace figures' `person` (Task 7).
+- Produces:
+  - `NamedFixtureProvider(fixtures)`, a `FixtureProvider` that also implements `names_in` and `find_by_name` over fixture display names ("FIRST LAST");
+  - `Case.people: list[str]` (fixture keys);
+  - `roster_for(case, fixtures) -> list[dict]`;
+  - the check `expected_figures: [{"person": label, "annual": number}]`.
 
-- [ ] **Step 1: Write the failing fixture test**
+- [ ] **Step 1: Write the failing tests**
 
 ```python
-# tests/test_evals_fixtures.py  (append if the file exists)
+# tests/test_evals_people.py
+"""Eval support for people in context: named fixtures, a case's roster, per-person figures."""
+from __future__ import annotations
+
 from datetime import date
 from pathlib import Path
 
-from pension_chat.evals.fixtures import load_fixtures
+from pension_chat.evals.cases import Turn
+from pension_chat.evals.checks import run_checks
+from pension_chat.evals.fixtures import NamedFixtureProvider, load_fixtures
+from pension_chat.evals.runner import roster_for
+from pension_chat.evals.trace import TurnTrace
+from pension_chat.records import NameSearch
+
+FIXTURES = load_fixtures(Path("evals/fixtures/employees"), date(2026, 9, 30))
 
 
 def test_a_pbms_shaped_fixture_carries_its_source_and_gaps() -> None:
-    fixtures = load_fixtures(Path("evals/fixtures/employees"), date(2026, 9, 30))
-    record, _ = fixtures["pbms_tier_disagreement"]
-    agent = record.to_agent_record([])
-    assert agent["record_source"] == "PBMS"
-    assert "indicates Tier 3" in agent["missing"]["tier"]
+    agent = FIXTURES["pbms_tier_disagreement"][0].to_agent_record([])
+    assert agent["record_source"] == "PBMS" and "indicates Tier 3" in agent["missing"]["tier"]
+
+
+async def test_named_fixtures_can_be_found_by_name() -> None:
+    provider = NamedFixtureProvider(FIXTURES)
+    assert isinstance(provider, NameSearch)
+    first, last = FIXTURES["people_a"][0].display_name.split(" ", 1)
+    assert provider.names_in(f"What would {first} {last}'s pension be?") == [(first, last)]
+    assert [m.key for m in await provider.find_by_name(first, last)] == ["people_a"]
+
+
+def test_a_cases_roster_is_built_from_its_fixtures() -> None:
+    class _Case:
+        people = ["people_a", "people_b"]
+
+    roster = roster_for(_Case(), FIXTURES)
+    assert [r["ref"] for r in roster] == ["people_a", "people_b"]
+    assert roster[0]["display_name"] == FIXTURES["people_a"][0].display_name
+    assert roster[0]["first_name"] and roster[0]["last_name"]
+
+
+def test_expected_figures_are_checked_per_person() -> None:
+    trace = TurnTrace(case_id="x", turn_index=0, question="q", employee=None)
+    trace.figures = [{"formula": "a", "when": "now", "annual": "19770.89", "person": "RO_BK TA_NE"},
+                     {"formula": "b", "when": "now", "annual": "25200.00", "person": "LI_MO GA_RD"}]
+    good = Turn(q="q", goal="g", reference="r", checks={"expected_figures": [
+        {"person": "RO_BK TA_NE", "annual": 19770.89}, {"person": "LI_MO GA_RD", "annual": 25200.00}]})
+    swapped = Turn(q="q", goal="g", reference="r", checks={"expected_figures": [
+        {"person": "RO_BK TA_NE", "annual": 25200.00}, {"person": "LI_MO GA_RD", "annual": 19770.89}]})
+    assert all(c.passed for c in run_checks(good, trace))
+    assert not any(c.passed for c in run_checks(swapped, trace))
 ```
 
-Run: `uv run pytest tests/test_evals_fixtures.py -v`
-Expected: FAIL, with `KeyError: 'pbms_tier_disagreement'`.
+- [ ] **Step 2: Run them to see them fail**
 
-- [ ] **Step 2: Add the fixtures and `source` support**
+Run: `uv run pytest tests/test_evals_people.py -v`
+Expected: FAIL, with `ImportError: cannot import name 'NamedFixtureProvider'`.
+
+- [ ] **Step 3: Fixtures**
 
 In `load_fixtures`, pass `source=raw.get("source"),` to `EmployeeRecord(...)`.
 
-`evals/fixtures/employees/pbms_tier_disagreement.yaml` (synthetic):
+Create `people_a.yaml`, `people_b.yaml` and `people_c.yaml` by **copying `tier2_at_62.yaml`, `tier2_at_67.yaml` and `tier1_capped.yaml` exactly**. Change only `key` (to `people_a`, `people_b`, `people_c`), and set `display_name` to `"RO_BK TA_NE"`, `"LI_MO GA_RD"` and `"FE_NX OR_TL"` respectively. Their hand-worked figures are already proved:
+
+| Fixture | Figure | Source |
+|---|---|---|
+| `people_a` | 19,770.89 at 62 | S4-007 / `tests/test_core_formulas_meabf.py` |
+| `people_b` | 25,200.00 at 67 | S4-008 |
+| `people_c` | 80,000.00 capped | S4-009 |
+
+`pbms_tier_disagreement.yaml` (synthetic):
 
 ```yaml
 key: pbms_tier_disagreement
@@ -2826,7 +3625,7 @@ missing:
 salary: {current: 72000, growth: 0.02, years: 8}
 ```
 
-`evals/fixtures/employees/pbms_payroll_service.yaml` (synthetic):
+`pbms_payroll_service.yaml` (synthetic):
 
 ```yaml
 key: pbms_payroll_service
@@ -2845,35 +3644,144 @@ missing:
 salary: {current: 88000, growth: 0.02, years: 10}
 ```
 
+- [ ] **Step 4: `NamedFixtureProvider`, `Case.people`, the roster and `expected_figures`**
+
+In `fixtures.py`:
+
+```python
+class NamedFixtureProvider(FixtureProvider):
+    """Fixtures findable by name, for cases about people in context (S13).
+
+    A separate class, not a flag: `NameSearch` is a runtime-checkable protocol,
+    so a provider that merely *has* the methods takes part in name recognition.
+    Cases without `people:` keep the plain FixtureProvider and are untouched.
+    """
+
+    def __init__(self, fixtures: dict[str, tuple[EmployeeRecord, list[SalaryYear]]]) -> None:
+        super().__init__(fixtures)
+        from pension_chat.pbms.names import NameDirectory
+
+        self._pairs = {key: _split(rec.display_name) for key, (rec, _) in fixtures.items() if rec.display_name}
+        self._directory = NameDirectory(pair for pair in self._pairs.values() if pair)
+
+    def names_in(self, text: str) -> list[tuple[str, str]]:
+        return self._directory.names_in(text)
+
+    async def find_by_name(self, first: str, last: str) -> list[EmployeeMatch]:
+        want = (first.upper(), last.upper())
+        return [
+            EmployeeMatch(key, rec.display_name or key, rec.employer, rec.status, rec.department, None,
+                          pair[0], pair[1])
+            for key, (rec, _) in self._fixtures.items()
+            if (pair := self._pairs.get(key)) and (pair[0].upper(), pair[1].upper()) == want
+        ]
+
+
+def _split(display_name: str | None) -> tuple[str, str] | None:
+    parts = (display_name or "").strip().rsplit(" ", 1)
+    return (parts[0], parts[1]) if len(parts) == 2 else None
+```
+
+In `cases.py`, add `people: list[str] = field(default_factory=list)` to `Case`. Parse it from `raw.get("people") or []` where `employee` is parsed (line ~92). Add `"expected_figures": list,` to the check vocabulary at line ~37.
+
+In `checks.py`, add this before the `ttft_class` branch:
+
+```python
+    if name == "expected_figures":
+        # One figure per person, each to the cent and each under the right name --
+        # a comparison that swaps two people's figures fails here.
+        misses = []
+        for want in value:
+            amount = Decimal(str(want["annual"]))
+            mine = [Decimal(f["annual"]) for f in trace.figures
+                    if f.get("person") == want["person"] and f["when"] == str(want.get("when") or "now")]
+            if not any(abs(a - amount) <= Decimal("0.01") for a in mine):
+                misses.append(f"{want['person']}: expected {amount}, computed {[str(a) for a in mine] or 'none'}")
+        return CheckResult(name, not misses, "; ".join(misses) or "every person's figure as expected")
+```
+
+In `runner.py`:
+
+```python
+def roster_for(case: Any, fixtures: dict[str, Any]) -> list[dict[str, Any]]:
+    """A case's people, as if the user had already chosen them (spec §8)."""
+    from pension_chat.evals.fixtures import _split
+
+    roster = []
+    for key in getattr(case, "people", None) or []:
+        record = fixtures[key][0]
+        first, last = _split(record.display_name) or (None, None)
+        roster.append({"ref": key, "display_name": record.display_name, "first_name": first,
+                       "last_name": last, "department": record.department, "employer": record.employer,
+                       "birth_year": None})
+    return roster
+```
+
+In `run_conversation`, compute `roster = roster_for(case, fixtures)` and use `NamedFixtureProvider(fixtures) if roster else FixtureProvider(fixtures)` inside `use_provider(...)`. Pass `roster` to `_one_turn`, which calls `agent(question, thread, employee, **({"subjects": roster} if roster else {}))`. Extend `_one_turn`'s signature with `roster: list[dict] | None = None`. Cases without `people:` call the agent exactly as before, which keeps test fakes with the old signature working.
+
+- [ ] **Step 5: The cases**
+
 `evals/cases/S4/S4-010.yaml`:
 
 ```yaml
 id: S4-010
 family: S4
-areas:
-- calculation
-- records
-tiers:
-- full
+areas: [calculation, records]
+tiers: [full]
 employee: pbms_tier_disagreement
 turns:
 - q: What would this employee's annuity be if they retired at the end of this year?
   goal: An answer about this PBMS employee that reports the tier discrepancy instead of choosing silently.
-  reference: 'The answer names the employee by name, not by any ID. PBMS records Tier 2, but participation from 2019
-    indicates Tier 3; the answer says so and which tier any figure uses. With 7.5 years of service, under the 10
-    years §1-160 and §8-138(g-1) require, no retirement annuity is payable yet; the answer says so rather than
-    giving an annuity figure.'
+  reference: 'PBMS records Tier 2, but participation from 2019 indicates Tier 3; the answer says so and which tier
+    any figure uses. With 7.5 years of service, under the 10 years §1-160 and §8-138(g-1) require, no retirement
+    annuity is payable yet; the answer says so rather than giving a figure. No internal ID appears.'
   checks:
     ttft_class: heavy
-    cites_any:
-    - 1-160
-    - 8-138
+    cites_any: [1-160, 8-138]
 ```
 
-Run: `uv run pytest tests/test_evals_fixtures.py -v && uv run pytest tests -q -k evals`
-Expected: pass.
+The S13 cases use `people: [people_a, people_b]` (S13-003 adds `people_c`). Copy the S4-007, S4-008 and S4-009 turn wording for each person's retirement timing, so each expected figure matches its proved value. Read those three case files first and reuse their exact question phrasing, with the person's name in place of "this employee".
 
-- [ ] **Step 3: Add the live smoke test (on demand, never in CI)**
+- **S13-001 switch and return** (areas `[people, calculation]`, tiers `[smoke, full]`), three turns:
+  1. S4-007's question with "RO_BK TA_NE" in place of "this employee". Checks: `expected_figures: [{person: "RO_BK TA_NE", annual: 19770.89}]`, `ttft_class: heavy`.
+  2. "And what about LI_MO GA_RD, retiring at 67?" Checks: `expected_figures: [{person: "LI_MO GA_RD", annual: 25200.00}]`.
+  3. "Back to RO_BK TA_NE -- how many years of service do they have?" Reference: 14 years, from their record; no figure for LI_MO GA_RD.
+- **S13-002 comparison of two** (tiers `[smoke, full]`): "Compare what RO_BK TA_NE would get retiring at 62 with LI_MO GA_RD retiring at 67." Checks: `expected_figures` for both people, `calculation: true`, `ttft_class: heavy`. Reference: one table, one row each, each figure from that person's record.
+- **S13-003 comparison of three plus a follow-up** (tiers `[full]`), `people: [people_a, people_b, people_c]`:
+  1. A comparison of all three at their S4 timings. `expected_figures` for all three.
+  2. "And which of them reaches the 80% cap?" Reference: FE_NX OR_TL (Tier 1, 36 years); the answer names them.
+- **S13-004 pronoun after a comparison** (tiers `[smoke, full]`):
+  1. The S13-002 question.
+  2. "What would she get at 65?" Checks: `no_calculation: true`. Reference: the answer asks which of RO_BK TA_NE or LI_MO GA_RD is meant, and computes nothing.
+
+Validate the cases: `uv run python scripts/run_evals.py --tier smoke --dry-run` if the script has a dry-run flag. Otherwise run `uv run pytest tests -q -k "evals or cases"`, which loads every case file.
+
+- [ ] **Step 6: Run the tests and the new family**
+
+Run: `uv run pytest tests/test_evals_people.py -v && uv run pytest -q`
+Expected: all pass.
+
+Run: `uv run python scripts/run_evals.py --tier full --no-save-formulas` limited to S13 and S4-010. Use the runner's family or case filter; check `--help` for the flag name. Record the pass counts and the TTFT of S13-002 against S4-007's in the ledger. Success criterion 5 asks for comparison TTFT within 1 s of a single-person turn. If it is outside that, record the stage breakdown and stop for a ruling.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/pension_chat/evals evals/fixtures/employees/people_*.yaml evals/fixtures/employees/pbms_*.yaml evals/cases/S4/S4-010.yaml evals/cases/S13 tests/test_evals_people.py
+git commit -m "Evals: S13 people in context -- switching, returning, comparisons checked per person, a pronoun that must ask
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 11: The live smoke test, docs, and the demo check
+
+**Files:**
+- Modify: `pyproject.toml` (the `pbms` marker, excluded by default)
+- Create: `tests/test_pbms_live.py`
+- Modify: `CLAUDE.md`, `.env.example`, the spec (add §9 Demo check)
+
+- [ ] **Step 1: The live smoke test (on demand, never in CI)**
 
 In `pyproject.toml` under `[tool.pytest.ini_options]`, add `markers = ["pbms: reads the client's PBMS live; run on demand with -m pbms"]`, and add `-m 'not pbms'` to `addopts`, creating `addopts` if it is absent.
 
@@ -2890,7 +3798,7 @@ import pytest
 pytestmark = pytest.mark.pbms
 
 
-async def test_a_name_from_the_directory_resolves_to_a_readable_record() -> None:
+async def test_names_from_the_directory_resolve_to_readable_records() -> None:
     from pension_chat.config import get_settings
     from pension_chat.pbms import build_record_provider
 
@@ -2898,63 +3806,63 @@ async def test_a_name_from_the_directory_resolves_to_a_readable_record() -> None
     assert provider is not None
     try:
         assert await provider.load_names() > 1000
-        first, last = random.choice(list(provider._names._by_full.values()))
-        assert provider.names_in(f"What would {first} {last}'s pension be at 62?") == [(first, last)]
-        matches = await provider.find_by_name(first, last)
-        assert matches and all(m.status == "active" for m in matches)
-        record = await provider.get_record(matches[0].key)
-        history = await provider.get_salary_history(matches[0].key)
+        pairs = random.sample(list(provider._names._by_full.values()), 2)
+        text = f"Compare {' '.join(pairs[0])} with {' '.join(pairs[1])} at 62"
+        assert provider.names_in(text) == pairs
+        for first, last in pairs:
+            matches = await provider.find_by_name(first, last)
+            assert matches and all(m.status == "active" for m in matches)
+            record = await provider.get_record(matches[0].key)
+            history = await provider.get_salary_history(matches[0].key)
+            assert record is not None and record.source == "PBMS" and record.tier in (None, 1, 2, 3)
+            assert all(h.year < date.today().year and h.annual_salary > 0 for h in history)
     finally:
         await provider.close()
-    assert record is not None and record.source == "PBMS" and record.article_number == 8
-    assert record.tier in (None, 1, 2, 3)
-    assert all(h.year < date.today().year and h.annual_salary > 0 for h in history)
 ```
 
-Run: `uv run pytest -q`
-Expected: the live test is deselected.
+Run: `uv run pytest -q`. Expected: the live test is deselected.
 
-Then run it once by hand: `uv run pytest -m pbms -v`
-Expected: 1 passed. Assertion messages could echo a value, so if it fails, report only which assertion failed.
+Then run: `uv run pytest -m pbms -v`. Expected: 1 passed. If it fails, report only which assertion failed.
 
-- [ ] **Step 4: Docs**
+- [ ] **Step 2: Docs**
 
 `.env.example`: add `RECORD_SOURCE=postgres`, `PBMS_SQL_SERVER=`, `PBMS_SQL_DATABASE=`, `PBMS_SQL_USER=` and `PBMS_SQL_PASSWORD=`, with a comment that the read-only login replaces the `sa` credentials with no code change.
 
-`CLAUDE.md`: add a subsection **"PBMS read layer (`pbms/`)"** under Architecture, of at most 14 lines. It states:
-- `RECORD_SOURCE=pbms` installs `PbmsProvider` process-wide, and evals still use `FixtureProvider`;
+`CLAUDE.md`: add a subsection **"PBMS read layer and people in context"** under Architecture, of at most 18 lines. It states:
+- `RECORD_SOURCE=pbms` installs `PbmsProvider` process-wide, and evals use `FixtureProvider`, or `NamedFixtureProvider` for cases with `people:`;
 - the guard (named statements only, the allow-list, never SSN or `CC*`);
 - salary is read through `T_Pen_Ded_Master`;
-- employees are found by first and last name from the in-memory directory, and PBMS is asked only on a hit;
-- a shared name is always a choice (department first above 12);
-- the subject (`sessions.subject_meab_id`) is an internal MEAB ID, never shown, and is not the principal;
-- gaps go in `missing` and reach the answer through `_record_notes`.
+- names are found in memory, and PBMS is asked only on a hit;
+- `agent/people.py` decides who a turn is about, deterministically: a shared name is always a choice, and a singular pronoun after a comparison is asked about;
+- people are internal MEAB IDs (`ref`), never shown;
+- one loop for several people: `compute_benefit(person=…)` sees one person's record, and the `PEOPLE` view carries the comparison numbers.
 
-Also add `uv run python scripts/pbms_discover.py timing` to the Commands block.
+Also add `uv run python scripts/pbms_discover.py timing` and `uv run pytest -m pbms` to the Commands block.
 
-- [ ] **Step 5: The demo check (manual, recorded in the spec)**
+- [ ] **Step 3: The demo check (manual, recorded in the spec)**
 
-**Prerequisite:** the Postgres firewall allows this network (49.43.225.208), and migration 009 is applied (`uv run alembic upgrade head`).
+**Prerequisite:** the Postgres firewall allows this network (49.43.225.208), and migration 009 is applied.
 
-With `RECORD_SOURCE=pbms` in `.env`, run `uv run uvicorn pension_chat.main:app --reload` and `cd frontend && npm run dev`. The server log should show "PBMS name directory loaded: N names". Then in the browser, pick names by count with `scripts/pbms_discover.py`'s sampling or the live test; don't write them down anywhere committed:
-1. Ask a pension question naming someone whose name has one active match. The reply asks to confirm, and **Use** sets the chip and answers the original question. The calculation card's record inputs read "PBMS record", and no MEAB ID appears anywhere on the page.
-2. Name someone whose name is shared by 2–12 people. The list shows department · employer · born YYYY, and choosing one answers the question.
-3. Name someone shared by more than 12. Departments come first, then the people.
-4. With a subject set, a follow-up that repeats the same name is answered directly, without asking again.
-5. Break the connection (set a wrong `PBMS_SQL_SERVER` and restart). A question says the fund's records could not be read.
+With `RECORD_SOURCE=pbms`, run `uv run uvicorn pension_chat.main:app --reload` and `cd frontend && npm run dev`. The server log should show "PBMS name directory loaded: N names". Pick names with the live test's sampling, and don't write them anywhere committed. Then in the browser:
+1. **One match.** Ask about someone whose name has one active match. The confirm card appears, **Use** adds a highlighted chip and answers the question, the calculation card reads "PBMS record", and no MEAB ID appears anywhere on the page.
+2. **A shared name.** A name shared by 2–12 people shows the list; a name shared by more than 12 shows departments first.
+3. **Follow-ups.** "And at 65?" is answered for the same person with no card. Naming a second person gives their card, then the chip highlight moves as soon as the next answer starts.
+4. **A comparison.** "Compare A and B at 62" gives one table with a row each, both chips are highlighted, and there is one calculation card each. "What would she get?" then asks which.
+5. **A fifth person.** Choosing a fifth person drops the least recent chip.
+6. **PBMS down.** With a wrong `PBMS_SQL_SERVER` and a restart, a question says the fund's records could not be read.
 
-Append "§9 Demo check (date): 1 ✓ 2 ✓ 3 ✓ 4 ✓ 5 ✓" to the spec, with a note on anything that failed.
+Append "§9 Demo check (date): 1 ✓ … 6 ✓" to the spec, with a note on anything that failed.
 
-- [ ] **Step 6: Run everything and commit**
+- [ ] **Step 4: Run everything and commit**
 
 Run: `uv run pytest -q && uv run ruff check . && uv run mypy . && (cd frontend && npm test && npm run lint)`
 Expected: all green.
 
 ```bash
-git add src/pension_chat/evals/fixtures.py evals/fixtures/employees/pbms_*.yaml evals/cases/S4/S4-010.yaml pyproject.toml tests/test_pbms_live.py tests/test_evals_fixtures.py CLAUDE.md .env.example docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md
-git commit -m "Phase 1: PBMS-shaped eval fixtures, an on-demand live smoke test, docs, and the demo check
+git add pyproject.toml tests/test_pbms_live.py CLAUDE.md .env.example docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md
+git commit -m "Phase 1: an on-demand live smoke test, docs, and the demo check
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-Then run `uv run python scripts/run_evals.py --changed`, and record the pass counts and heavy-TTFT median in the ledger for comparison with the last run.
+Then run `uv run python scripts/run_evals.py --changed`, and record the pass counts and heavy-TTFT median in the ledger.
