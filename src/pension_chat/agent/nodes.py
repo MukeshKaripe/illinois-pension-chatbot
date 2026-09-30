@@ -479,6 +479,46 @@ def _article_of_sections(sections) -> int | None:
     return int(articles.pop()) if len(articles) == 1 else None
 
 
+def _at_scenario_age(state: PensionAgentState, facts: dict) -> dict:
+    """The member as they would be at the retirement the question is about.
+
+    Which provision governs is a question about a member at a date:
+    `compute_benefit(retirement_age=67)` asked about a 58-year-old at 67, and
+    handing derivation (and the registry's applicability check) the member as
+    of today asked it about an annuity at 58 instead -- which §1-160 does not
+    pay, so every Tier 2 turn derived nothing. Execution already re-evaluates
+    each scenario at its own age; this makes the recipe step agree with it.
+
+    Only the facts the retirement age moves are replaced (the age names, the
+    dates, service accrued to that date), so anything the user stated keeps
+    its own value. The first scenario that resolves to an age decides; without
+    one, today stands.
+    """
+    member_facts = state.get("member_facts") or {}
+    age = next(
+        (
+            resolved
+            for scenario in state.get("scenarios") or []
+            if (resolved := _resolve_retirement_age(scenario, member_facts)) is not None
+        ),
+        None,
+    )
+    if age is None:
+        return facts
+    employee = state.get("employee_record")
+    if not employee or not _record_facts_usable(state):
+        # A described employee: no record to project, but the annuity still
+        # starts at the age asked about.
+        return {**facts, "age_at_annuity_start": age}
+    history = [
+        (date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+        for h in state.get("salary_history") or []
+    ]
+    at_age = build_member_facts(employee, history, assumed_retirement_age=age)
+    moved = {name: value for name, value in at_age.items() if member_facts.get(name) != value}
+    return {**facts, **moved}
+
+
 async def resolve_recipes(state: PensionAgentState) -> dict:
     """Reuse a registry recipe where one exists; derive from statute otherwise.
 
@@ -498,7 +538,7 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     employee = state.get("employee_record")
     article = _governing_article(state)
     tier = employee["tier"] if employee else None
-    facts = _available_facts(state)
+    facts = _at_scenario_age(state, _available_facts(state))
 
     # Tier keys the registry, so an unknown tier is not a missing number -- it
     # is two provisions. Ask for both and price whichever are genuinely
