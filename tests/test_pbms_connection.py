@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from pension_chat.pbms.connection import PbmsClient, PbmsUnavailable, UnknownQuery, connection_string
+from pension_chat.pbms.queries import REGISTRY
 from pension_chat.records import RecordUnavailable
 
 SECRET = "pa}ss-w0rd-XYZ"
@@ -103,3 +104,38 @@ def test_the_connection_string_is_read_only_and_named() -> None:
     cs = connection_string(server="tcp:h,2022", database="PbsMeabDev", user="sa", password=SECRET)
     assert "ApplicationIntent=ReadOnly" in cs and "APP=pension-chat-readonly" in cs
     assert "PWD={pa}}ss-w0rd-XYZ}" in cs
+
+
+class CountingConn(FakeConn):
+    def __init__(self, fail=None):
+        super().__init__(fail)
+        self.cursors = 0
+
+    def cursor(self):
+        self.cursors += 1
+        return FakeCursor(self)
+
+
+async def test_a_statement_reuses_its_cursor_on_a_connection() -> None:
+    # pyodbc prepares a statement on each new cursor -- a second round trip to
+    # the server (measured: 480 ms against 245 ms for a reused cursor).
+    client, opened = _client(CountingConn())
+    await client.fetch("record", meab_id="M-000001")
+    await client.fetch("record", meab_id="M-000002")
+    await client.fetch("salary_years", meab_id="M-000001")
+    assert len(opened) == 1 and opened[0].cursors == 2
+
+
+async def test_warm_opens_connections_and_primes_every_lookup_statement() -> None:
+    client, opened = _client(CountingConn(), CountingConn())
+    await client.warm(2)
+    assert len(opened) == 2
+    for conn in opened:
+        primed = {sql for sql, _, _ in conn.log}
+        assert len(primed) == 4                                  # every statement but the directory load
+        assert REGISTRY["name_directory"].sql not in primed
+
+
+async def test_warm_failing_is_not_fatal() -> None:
+    client, opened = _client(CountingConn(fail=Exception("08001", "no route")))
+    await client.warm(1)                                         # logs, never raises

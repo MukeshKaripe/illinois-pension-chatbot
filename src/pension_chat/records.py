@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -122,6 +122,15 @@ class RecordProvider(Protocol):
     async def get_record(self, key: str) -> EmployeeRecord | None: ...
 
     async def get_salary_history(self, key: str) -> list[SalaryYear]: ...
+
+
+@runtime_checkable
+class NameSearch(Protocol):
+    """A record source that can say which employees a message names (PBMS)."""
+
+    def names_in(self, text: str) -> list[tuple[str, str]]: ...
+
+    async def find_by_name(self, first: str, last: str) -> list[EmployeeMatch]: ...
 
 
 _provider: ContextVar[RecordProvider | None] = ContextVar("pension_chat_record_provider", default=None)

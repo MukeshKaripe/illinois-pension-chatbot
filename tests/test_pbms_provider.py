@@ -117,6 +117,9 @@ class FakeClient:
             return PAY
         return [ROW] if params.get("meab_id") == "M-000123" else []
 
+    async def warm(self, connections=4):
+        pass
+
     async def close(self):
         pass
 

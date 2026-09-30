@@ -187,9 +187,41 @@ def peryear(conn) -> None:
         f"{k}={statistics.median(v):.3f} (n={len(v)})" for k, v in ratios.items() if v))
 
 
+def timing(conn) -> None:
+    import asyncio
+    import random
+    import time as _t
+
+    from pension_chat.config import get_settings
+    from pension_chat.pbms import build_record_provider
+
+    provider = build_record_provider(get_settings().model_copy(update={"record_source": "pbms"}))
+    assert provider is not None
+
+    async def run() -> None:
+        t = _t.perf_counter()
+        count = await provider.load_names()
+        print(f"  name_directory: {count} names in {(_t.perf_counter() - t) * 1000:.0f} ms")
+        pairs = random.sample(list(provider._names._by_full.values()), 3)
+        for first, last in pairs:
+            t = _t.perf_counter()
+            matches = await provider.find_by_name(first, last)
+            print(f"  resolve_name: {len(matches)} matches in {(_t.perf_counter() - t) * 1000:.0f} ms")
+        t = _t.perf_counter()
+        await provider.get_record(matches[0].key)
+        print(f"  get_record (record + salary in parallel): {(_t.perf_counter() - t) * 1000:.0f} ms")
+        t = _t.perf_counter()
+        provider.names_in("What would " + " ".join(pairs[0]) + "'s pension be at 62?")
+        print(f"  names_in (in memory): {(_t.perf_counter() - t) * 1e6:.0f} µs")
+        await provider.close()
+
+    print("== timings from this machine (a bare round trip here is ~250 ms)")
+    asyncio.run(run())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=["codes", "links", "salary", "service", "peryear"])
+    ap.add_argument("what", choices=["codes", "links", "salary", "service", "peryear", "timing"])
     ap.add_argument("--link-table")
     args = ap.parse_args()
     if args.what in ("salary", "service") and not args.link_table:
@@ -198,7 +230,8 @@ def main() -> None:
     try:
         {"codes": lambda: codes(conn), "links": lambda: links(conn),
          "salary": lambda: salary(conn, args.link_table),
-         "service": lambda: service(conn, args.link_table), "peryear": lambda: peryear(conn)}[args.what]()
+         "service": lambda: service(conn, args.link_table), "peryear": lambda: peryear(conn),
+         "timing": lambda: timing(conn)}[args.what]()
     finally:
         conn.close()
 

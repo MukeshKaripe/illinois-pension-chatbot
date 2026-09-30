@@ -5,6 +5,7 @@ Configures CORS, routers, and lifespan events.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -105,6 +106,11 @@ async def lifespan(app: FastAPI):
     record_provider = build_record_provider(settings)
     set_default_provider(record_provider)
     logger.info("Employee records from %s", settings.record_source)
+    names_task = None
+    if record_provider is not None:
+        from pension_chat.pbms import refresh_names_forever
+
+        names_task = asyncio.create_task(refresh_names_forever(record_provider))
     await _warm_connections()
     yield
     from pension_chat.agent.llm import close_clients
@@ -115,6 +121,8 @@ async def lifespan(app: FastAPI):
     # connection pool under them would lose the count they were carrying.
     await drain_background_writes()
     await close_clients()
+    if names_task is not None:
+        names_task.cancel()
     set_default_provider(None)
     if record_provider is not None:
         await record_provider.close()

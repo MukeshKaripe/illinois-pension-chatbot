@@ -71,7 +71,7 @@ Nothing else in the codebase imports a SQL Server driver.
 
 ### 3.1 `connection.py`: the guard
 
-- **Driver.** `pyodbc` over **ODBC Driver 18 for SQL Server**, with a small in-house pool (at most 4 connections), through `asyncio.to_thread`. A pooled connection the server has dropped is retried once on a fresh one. The connection string sets:
+- **Driver.** `pyodbc` over **ODBC Driver 18 for SQL Server**, with a small in-house pool (at most 8 connections, one prepared cursor per statement on each, warmed at startup), through `asyncio.to_thread`. A pooled connection the server has dropped is retried once on a fresh one. The connection string sets:
   - `Encrypt=yes`;
   - `TrustServerCertificate=yes` (the Dev server's certificate is self-signed; this is recorded as a Phase 3 item);
   - `ApplicationIntent=ReadOnly`;
@@ -335,6 +335,15 @@ The plan's first task is a read-only discovery script. It uses aggregates and co
   - `RegServ`: 1,075 of 1,376 (78%).
 
   All are within 0.05 of a year. The retiree-level comparison against `MEAB_Svc` (3/60) is not comparable: its median of 43 includes non-payroll service.
+- **Timings (Task 4, from the dev machine, where a bare round trip is about 250 ms).**
+  - **Why the pool is warmed.** pyodbc prepares a statement the first time a cursor runs it, which costs a second round trip (480 ms against 245 ms). So each pooled connection keeps one cursor per statement, and at startup `warm()` opens the pool (8 connections, about 4 s in the background) and prepares every lookup statement on it.
+  - **After warming:**
+    - name directory load: 12,920 names in 1.4 s, in the background, every 6 hours;
+    - `resolve_name`: 320 ms;
+    - one person's record and salary, read in parallel: 499 ms;
+    - three people in parallel: 792 ms;
+    - `names_in`: under 0.2 ms.
+  - **In-region**, each round trip costs about 2 ms, so these are close to server time.
 - **Status codes (live rows).** `DB4` 62,411; `DB1` 53,290; **`A` 44,125**; `I` 24,461; `DB8` 8,885; `DB3` 4,687; `DB2` 4,134; `DB9` 2,517; `DB7` 1,312; `UK` 168; none 164; `DB6` 85; `SRA` 41; `NM` 40. No table describes these codes. Only `A` → active is mapped, and the lookup covers `A` only.
 
 ## 7. Failures

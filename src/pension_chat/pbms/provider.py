@@ -15,6 +15,7 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Protocol
 
+from pension_chat.pbms.names import NameDirectory
 from pension_chat.pbms.queries import SERVICE_FROM_PAYROLL
 from pension_chat.records import EmployeeMatch, EmployeeRecord, SalaryYear, normalise_meab_id
 
@@ -27,6 +28,8 @@ SERVICE_FROM_PAYROLL_SOURCE = "counted from payroll (months with a pension deduc
 
 class _Client(Protocol):
     async def fetch(self, name: str, **params: Any) -> list[dict[str, Any]]: ...
+
+    async def warm(self, connections: int = 8) -> None: ...
 
     async def close(self) -> None: ...
 
@@ -173,6 +176,7 @@ class PbmsProvider:
         self._today = today
         self._ttl = salary_ttl_s
         self._salary: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._names: NameDirectory | None = None
 
     async def find_employees(self, query: str, scope: object | None = None) -> list[EmployeeMatch]:
         """The active member a MEAB ID (an internal `ref`) names; nothing else is searched here."""
@@ -180,6 +184,23 @@ class PbmsProvider:
         if meab_id is None:
             return []
         return [match_from_row(r) for r in await self._client.fetch("resolve_meab_id", meab_id=meab_id)]
+
+    async def load_names(self) -> int:
+        """(Re)load the directory of active members' names; the old one stays if this fails."""
+        rows = await self._client.fetch("name_directory")
+        self._names = NameDirectory((r["First_Name"], r["Last_Name"]) for r in rows)
+        return len(self._names)
+
+    @property
+    def names_ready(self) -> bool:
+        return self._names is not None
+
+    def names_in(self, text: str) -> list[tuple[str, str]]:
+        return self._names.names_in(text) if self._names is not None else []
+
+    async def find_by_name(self, first: str, last: str) -> list[EmployeeMatch]:
+        rows = await self._client.fetch("resolve_name", first_name=first, last_name=last)
+        return [match_from_row(r) for r in rows]
 
     async def get_record(self, key: str) -> EmployeeRecord | None:
         meab_id = normalise_meab_id(key)
@@ -208,6 +229,10 @@ class PbmsProvider:
         if len(self._salary) > 256:
             del self._salary[min(self._salary, key=lambda k: self._salary[k][0])]
         return rows
+
+    async def warm(self) -> None:
+        """Open and prepare the connection pool, so the first question pays no setup."""
+        await self._client.warm()
 
     async def close(self) -> None:
         await self._client.close()
