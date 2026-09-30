@@ -23,6 +23,7 @@ AREA_PATHS: dict[str, tuple[str, ...]] = {
     "recommendation": (P + "agent/recommend.py", P + "agent/objectives.py"),
     "records": (P + "records.py",),
     "voice": (P + "agent/presentation.py", P + "agent/blocks.py"),
+    "people": (P + "agent/people.py", P + "pbms/", P + "api/subject.py"),
 }
 CORE: tuple[str, ...] = (
     P + "agent/loop.py", P + "agent/graph.py", P + "agent/guardrails.py", P + "agent/tools.py",

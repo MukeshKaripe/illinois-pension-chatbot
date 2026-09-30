@@ -1,0 +1,11 @@
+key: people_b
+display_name: "LI_MO GA_RD"
+employer: City of Chicago
+department: Fleet Management
+age: 67
+hire_date: 2011-06-01
+tier: 2
+status: active
+service_years: 15.0
+service_source: stored
+salary: {current: 70000, growth: 0.0, years: 10}

@@ -78,6 +78,7 @@ def load_fixtures(root: Path, today: date) -> dict[str, tuple[EmployeeRecord, li
             reciprocal_service_years=(Decimal(str(raw["reciprocal_service_years"]))
                                       if raw.get("reciprocal_service_years") is not None else None),
             missing=missing,
+            source=raw.get("source"),
         )
         fixtures[record.key] = (record, _history(raw["salary"], today) if raw.get("salary") else [])
     return fixtures
@@ -102,3 +103,36 @@ class FixtureProvider:
     async def get_salary_history(self, key: str) -> list[SalaryYear]:
         found = self._fixtures.get(key)
         return list(found[1]) if found else []
+
+
+class NamedFixtureProvider(FixtureProvider):
+    """Fixtures findable by name, for cases about people in context (S13).
+
+    A separate class, not a flag: `NameSearch` is a runtime-checkable protocol,
+    so a provider that merely *has* the methods takes part in name recognition.
+    Cases without `people:` keep the plain FixtureProvider and are untouched.
+    """
+
+    def __init__(self, fixtures: dict[str, tuple[EmployeeRecord, list[SalaryYear]]]) -> None:
+        super().__init__(fixtures)
+        from pension_chat.pbms.names import NameDirectory
+
+        self._pairs = {key: _split(rec.display_name) for key, (rec, _) in fixtures.items() if rec.display_name}
+        self._directory = NameDirectory(pair for pair in self._pairs.values() if pair)
+
+    def names_in(self, text: str) -> list[tuple[str, str]]:
+        return self._directory.names_in(text)
+
+    async def find_by_name(self, first: str, last: str) -> list[EmployeeMatch]:
+        want = (first.upper(), last.upper())
+        return [
+            EmployeeMatch(key, rec.display_name or key, rec.employer, rec.status, rec.department, None,
+                          pair[0], pair[1])
+            for key, (rec, _) in self._fixtures.items()
+            if (pair := self._pairs.get(key)) and (pair[0].upper(), pair[1].upper()) == want
+        ]
+
+
+def _split(display_name: str | None) -> tuple[str, str] | None:
+    parts = (display_name or "").strip().rsplit(" ", 1)
+    return (parts[0], parts[1]) if len(parts) == 2 else None

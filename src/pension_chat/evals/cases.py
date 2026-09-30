@@ -16,11 +16,11 @@ import yaml
 
 from pension_chat.evals import capabilities
 
-FAMILIES = ("S1", "S2", "S3", "S4", "S4b", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12")
-FIRST_CLASS = ("S1", "S4", "S4b", "S11")
+FAMILIES = ("S1", "S2", "S3", "S4", "S4b", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13")
+FIRST_CLASS = ("S1", "S4", "S4b", "S11", "S13")
 AREAS = frozenset({
     "retrieval", "citations", "calculation", "clarification", "assumptions",
-    "boundary", "continuity", "recommendation", "records", "voice",
+    "boundary", "continuity", "recommendation", "records", "voice", "people",
 })
 BEHAVIOURS = frozenset({"answer", "ask_critical", "branch_on_critical", "ask_other", "refuse"})
 TTFT_CLASSES = {"simple": 3.0, "heavy": 7.0}
@@ -34,7 +34,7 @@ CHECKS: dict[str, type | tuple[type, ...]] = {
     "no_reask": list, "max_questions": int,
     "refuses": bool, "answers_from_article": str,
     "verification_passed": bool, "not_replaced": bool,
-    "ttft_class": str, "about_employee": str, "expected_figure": dict,
+    "ttft_class": str, "about_employee": str, "expected_figure": dict, "expected_figures": list,
 }
 
 
@@ -63,6 +63,8 @@ class Case:
     needs: list[str] = field(default_factory=list)
     employee: str | None = None
     tiers: list[str] = field(default_factory=lambda: ["full"])
+    # The conversation's people (fixture keys), as if the user had already chosen them.
+    people: list[str] = field(default_factory=list)
 
     @property
     def pending(self) -> bool:
@@ -120,12 +122,18 @@ def load_cases(root: Path, fixture_keys: set[str]) -> list[Case]:
         employee = raw.get("employee")
         if employee and employee not in fixture_keys:
             _fail(path, f"unknown fixture '{employee}'")
+        people = list(raw.get("people") or [])
+        for key in people:
+            if key not in fixture_keys:
+                _fail(path, f"unknown fixture '{key}' in people")
+        if len(people) > 4:
+            _fail(path, "at most 4 people in a conversation")
         turns = [_turn(path, t, fixture_keys) for t in raw.get("turns") or []]
         if not turns:
             _fail(path, "no turns")
         cases.append(Case(
             id=case_id, family=str(family), areas=areas, turns=turns, path=path,
             critical=bool(raw.get("critical")), needs=needs, employee=employee,
-            tiers=list(raw.get("tiers") or ["full"]),
+            tiers=list(raw.get("tiers") or ["full"]), people=people,
         ))
     return cases

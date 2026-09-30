@@ -25,7 +25,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from pension_chat.agent import instrument
 from pension_chat.evals.cases import Case
 from pension_chat.evals.checks import CheckResult, run_checks
-from pension_chat.evals.fixtures import FixtureProvider
+from pension_chat.evals.fixtures import FixtureProvider, NamedFixtureProvider
 from pension_chat.evals.judge import Verdict, judge_turn
 from pension_chat.evals.timing import Probe, estimate_in_region, stage_breakdown
 from pension_chat.evals.trace import TurnTrace, build_trace
@@ -95,12 +95,26 @@ def _restore(saver: InMemorySaver, snapshot: tuple[Any, Any, Any]) -> None:
     saver.blobs.update(blobs)
 
 
+def roster_for(case: Any, fixtures: dict[str, Any]) -> list[dict[str, Any]]:
+    """A case's people, as if the user had already chosen them (spec §8)."""
+    from pension_chat.evals.fixtures import _split
+
+    roster = []
+    for key in getattr(case, "people", None) or []:
+        record = fixtures[key][0]
+        first, last = _split(record.display_name) or (None, None)
+        roster.append({"ref": key, "display_name": record.display_name, "first_name": first,
+                       "last_name": last, "department": record.department, "employer": record.employer,
+                       "birth_year": None})
+    return roster
+
+
 async def _one_turn(agent: Any, question: str, thread: str, employee: str | None,
-                    case_id: str, index: int) -> TurnTrace:
+                    case_id: str, index: int, roster: list[dict[str, Any]] | None = None) -> TurnTrace:
     inst = instrument.begin()
     started = time.perf_counter()
     events: list[tuple[float, dict[str, Any]]] = []
-    async for event in agent(question, thread, employee):
+    async for event in agent(question, thread, employee, **({"subjects": roster} if roster else {})):
         events.append((time.perf_counter() - started, event))
     return build_trace(case_id=case_id, turn_index=index, question=question, employee=employee,
                        events=events, instrument=inst, started=started)
@@ -116,7 +130,9 @@ async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe
     history: list[tuple[str, str]] = []
     failed_before = False
     saver = InMemorySaver()
-    with use_graph(build_loop_graph(saver)), use_provider(FixtureProvider(fixtures)):
+    roster = roster_for(case, fixtures)
+    provider = NamedFixtureProvider(fixtures) if roster else FixtureProvider(fixtures)
+    with use_graph(build_loop_graph(saver)), use_provider(provider):
         for index, turn in enumerate(case.turns):
             employee = turn.employee or case.employee
             for attempt in range(options.rate_limit_retries + 1):
@@ -124,7 +140,7 @@ async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe
                 # (durability="exit" persists on error too); retrying on top of
                 # that would put the question in the thread twice.
                 before = _snapshot(saver)
-                trace = await _one_turn(agent, turn.q, thread, employee, case.id, index)
+                trace = await _one_turn(agent, turn.q, thread, employee, case.id, index, roster)
                 if not _rate_limited(trace) or attempt == options.rate_limit_retries:
                     break
                 _restore(saver, before)

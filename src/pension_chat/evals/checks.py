@@ -167,6 +167,17 @@ def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> Check
         amounts = [Decimal(f["annual"]) for f in candidates]
         ok = any(abs(a - want) <= Decimal("0.01") for a in amounts)
         return CheckResult(name, ok, f"expected {want} ({when}); computed {[str(a) for a in amounts] or 'no figure'}")
+    if name == "expected_figures":
+        # One figure per person, each to the cent and each under the right name --
+        # a comparison that swaps two people's figures fails here.
+        misses = []
+        for want in value:
+            amount = Decimal(str(want["annual"]))
+            mine = [Decimal(f["annual"]) for f in trace.figures
+                    if f.get("person") == want["person"] and f["when"] == str(want.get("when") or "now")]
+            if not any(abs(a - amount) <= Decimal("0.01") for a in mine):
+                misses.append(f"{want['person']}: expected {amount}, computed {[str(a) for a in mine] or 'none'}")
+        return CheckResult(name, not misses, "; ".join(misses) or "every person's figure as expected")
     if name == "ttft_class":
         limit = TTFT_CLASSES[value]
         ttft = None if trace.ttft is None else trace.ttft - trace.ttft_rate_limit_wait
