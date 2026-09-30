@@ -1,0 +1,11 @@
+key: tier1_capped
+display_name: "C. Dunn"
+employer: City of Chicago
+department: Water Management
+age: 62
+hire_date: 1990-06-01
+tier: 1
+status: active
+service_years: 36.0
+service_source: stored
+salary: {current: 100000, growth: 0.0, years: 10}

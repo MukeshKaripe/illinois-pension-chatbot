@@ -39,6 +39,8 @@ class TurnTrace:
     formula_sources: dict[str, str] = field(default_factory=dict)
     #: Why no figure, when there was none: what derivation said, what inputs
     #: were missing, what validation refused, and what blocked execution.
+    #: Every figure computed: {"formula", "when" ("now" or a scenario label), "annual"}.
+    figures: list[dict[str, Any]] = field(default_factory=list)
     derivation_failures: list[str] = field(default_factory=list)
     missing_inputs: list[str] = field(default_factory=list)
     validation_codes: list[str] = field(default_factory=list)
@@ -88,6 +90,19 @@ def _tools(state: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _figures(result: dict[str, Any]) -> list[dict[str, Any]]:
+    figures: list[dict[str, Any]] = []
+    for formula, entry in result.items():
+        base = (entry or {}).get("base") or {}
+        if base.get("ok") and base.get("annual_amount") is not None:
+            figures.append({"formula": formula, "when": "now", "annual": str(base["annual_amount"])})
+        for scenario in (entry or {}).get("scenarios") or []:
+            if scenario.get("annual_amount") is not None:
+                figures.append({"formula": formula, "when": str(scenario.get("label") or ""),
+                                "annual": str(scenario["annual_amount"])})
+    return figures
+
+
 def build_trace(
     *, case_id: str, turn_index: int, question: str, employee: str | None,
     events: list[tuple[float, dict[str, Any]]], instrument: Instrument, started: float,
@@ -128,6 +143,7 @@ def build_trace(
                 for entry in (state.get("calculation_result") or {}).values()
             )
             trace.card = event.get("card")
+            trace.figures = _figures(state.get("calculation_result") or {})
             trace.derivation_failures = [
                 f"{f.get('formula_type')}: {f.get('reason')}" for f in state.get("derivation_failures") or []
             ]

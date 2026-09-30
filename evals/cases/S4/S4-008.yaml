@@ -1,0 +1,19 @@
+id: S4-008
+family: S4
+areas:
+- calculation
+- records
+tiers:
+- full
+employee: tier2_at_67
+turns:
+- q: What would this employee's annuity be if they retired now?
+  goal: A Tier 2 annuity at 67, unreduced.
+  reference: 'Tier 2 at 67 with 15 years on a flat $70,000: 2.4% x 15 = 36% (§8-138(g-1)), no reduction at 67 (§1-160(c)):
+    $25,200.00 a year.'
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    expected_figure:
+      annual: 25200.0
+    ttft_class: heavy

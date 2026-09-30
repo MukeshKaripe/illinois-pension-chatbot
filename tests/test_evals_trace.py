@@ -105,3 +105,17 @@ def test_the_trace_records_why_no_figure_was_produced() -> None:
     assert t.missing_inputs == ["final_average_salary_8_year"]
     assert t.validation_codes == ["QUOTE_NOT_IN_SOURCE"]
     assert t.execution_blocked == "validation_failed"
+
+
+def test_the_trace_records_every_figure_computed() -> None:
+    result = {"retirement_annuity": {
+        "base": {"ok": True, "annual_amount": "19770.89"},
+        "scenarios": [{"label": "at age 67", "annual_amount": "39172.43"},
+                      {"label": "at age 70", "annual_amount": None}],
+    }}
+    t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
+                    events=[(1.0, _done(calculation_result=result))], instrument=Instrument(), started=0.0)
+    assert t.figures == [
+        {"formula": "retirement_annuity", "when": "now", "annual": "19770.89"},
+        {"formula": "retirement_annuity", "when": "at age 67", "annual": "39172.43"},
+    ]

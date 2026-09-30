@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 from pension_chat.agent.facts import aliases_of
@@ -156,6 +157,16 @@ def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> Check
         return CheckResult(name, (not trace.replacements) is value, f"replacements {trace.replacements}")
     if name == "about_employee":
         return CheckResult(name, trace.subject == value, f"subject {trace.subject}")
+    if name == "expected_figure":
+        # A figure worked by hand from the statute, to the cent. `when` picks the
+        # figure: "now" (the default) or a word from a scenario's label ("67").
+        want = Decimal(str(value["annual"]))
+        when = str(value.get("when") or "now")
+        candidates = [f for f in trace.figures if when == "now" and f["when"] == "now"
+                      or when != "now" and when in f["when"]]
+        amounts = [Decimal(f["annual"]) for f in candidates]
+        ok = any(abs(a - want) <= Decimal("0.01") for a in amounts)
+        return CheckResult(name, ok, f"expected {want} ({when}); computed {[str(a) for a in amounts] or 'no figure'}")
     if name == "ttft_class":
         limit = TTFT_CLASSES[value]
         ttft = None if trace.ttft is None else trace.ttft - trace.ttft_rate_limit_wait

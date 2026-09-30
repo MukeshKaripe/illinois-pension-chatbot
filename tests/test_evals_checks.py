@@ -167,3 +167,14 @@ def test_must_state_is_not_satisfied_by_a_section_number() -> None:
 def test_must_state_matches_whole_numbers_not_digits_inside_others() -> None:
     assert not _one(_turn(must_state=["67"]), _trace(final_answer="Salary of $6,700 a year.")).passed
     assert _one(_turn(must_state=["9.5%"]), _trace(final_answer="They contribute 9.5% of salary.")).passed
+
+
+def test_expected_figure_is_checked_to_the_cent() -> None:
+    figures = [{"formula": "retirement_annuity", "when": "now", "annual": "19770.89"},
+               {"formula": "retirement_annuity", "when": "at age 67", "annual": "39172.43"}]
+    t = _trace(figures=figures)
+    assert _one(_turn(expected_figure={"annual": 19770.89}), t).passed
+    assert _one(_turn(expected_figure={"annual": 39172.43, "when": "67"}), t).passed
+    wrong = _one(_turn(expected_figure={"annual": 28244.13}), t)
+    assert not wrong.passed and "19770.89" in wrong.detail
+    assert not _one(_turn(expected_figure={"annual": 19770.89}), _trace()).passed   # no figure at all

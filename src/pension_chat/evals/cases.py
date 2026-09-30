@@ -34,7 +34,7 @@ CHECKS: dict[str, type | tuple[type, ...]] = {
     "no_reask": list, "max_questions": int,
     "refuses": bool, "answers_from_article": str,
     "verification_passed": bool, "not_replaced": bool,
-    "ttft_class": str, "about_employee": str,
+    "ttft_class": str, "about_employee": str, "expected_figure": dict,
 }
 
 
