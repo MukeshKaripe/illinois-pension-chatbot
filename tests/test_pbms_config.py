@@ -1,7 +1,17 @@
 """The PBMS settings exist, default to off, and never show the password."""
 from __future__ import annotations
 
+import pytest
+
 from pension_chat.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _no_pbms_environment(monkeypatch):
+    # Some tests import scripts that call load_dotenv(), which copies .env into
+    # os.environ; these settings must come only from what each test passes.
+    for name in ("RECORD_SOURCE", "PBMS_SQL_SERVER", "PBMS_SQL_DATABASE", "PBMS_SQL_USER", "PBMS_SQL_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
 
 
 def _settings(**overrides):

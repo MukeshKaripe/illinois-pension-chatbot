@@ -13,6 +13,7 @@ default in their place would be a wrong figure with a real citation on it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -34,6 +35,8 @@ class EmployeeMatch:
     display_name: str
     employer: str | None = None
     status: str | None = None
+    department: str | None = None
+    birth_year: int | None = None
 
 
 @dataclass
@@ -52,6 +55,9 @@ class EmployeeRecord:
     service_source: str | None = None
     reciprocal_service_years: Decimal | None = None
     missing: dict[str, str] = field(default_factory=dict)
+    # Where the record came from when it is the fund's own ("PBMS"); the agent
+    # names the employee and reports the record's gaps only for such a record.
+    source: str | None = None
 
     def to_agent_record(self, history: list[SalaryYear]) -> dict[str, Any]:
         """The dict `fetch_employee_record` has always returned.
@@ -89,6 +95,8 @@ class EmployeeRecord:
             record["reciprocal_service_years"] = float(self.reciprocal_service_years)
         if self.missing:
             record["missing"] = dict(self.missing)
+        if self.source:
+            record["record_source"] = self.source
         return record
 
 
@@ -118,9 +126,28 @@ class RecordProvider(Protocol):
 
 _provider: ContextVar[RecordProvider | None] = ContextVar("pension_chat_record_provider", default=None)
 
+# The process-wide provider the app installs at startup (RECORD_SOURCE=pbms).
+# A provider set with `use_provider` -- the eval suite's fixtures -- outranks it.
+_default_provider: RecordProvider | None = None
+
+
+def set_default_provider(provider: RecordProvider | None) -> None:
+    global _default_provider
+    _default_provider = provider
+
 
 def current_provider() -> RecordProvider | None:
-    return _provider.get()
+    return _provider.get() or _default_provider
+
+
+MEAB_ID_PATTERN = r"^M-[0-9]{6}$"
+_MEAB_ID = re.compile(MEAB_ID_PATTERN)
+
+
+def normalise_meab_id(text: str | None) -> str | None:
+    """`M-######` in canonical form, or None if `text` is not one. Internal key only."""
+    candidate = (text or "").strip().upper()
+    return candidate if _MEAB_ID.fullmatch(candidate) else None
 
 
 @contextmanager

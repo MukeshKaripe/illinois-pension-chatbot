@@ -96,7 +96,15 @@ async def _warm_connections() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
+    from pension_chat.pbms import build_record_provider
+    from pension_chat.records import set_default_provider
+
     logger.info("Starting Pension Chat API (env=%s)", settings.app_env)
+    # RECORD_SOURCE=pbms: every turn reads employee records from PBMS, live and
+    # read-only. Built before warming so a misconfiguration fails at start.
+    record_provider = build_record_provider(settings)
+    set_default_provider(record_provider)
+    logger.info("Employee records from %s", settings.record_source)
     await _warm_connections()
     yield
     from pension_chat.agent.llm import close_clients
@@ -107,6 +115,9 @@ async def lifespan(app: FastAPI):
     # connection pool under them would lose the count they were carrying.
     await drain_background_writes()
     await close_clients()
+    set_default_provider(None)
+    if record_provider is not None:
+        await record_provider.close()
     logger.info("Shutting down Pension Chat API")
 
 
