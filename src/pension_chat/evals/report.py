@@ -26,7 +26,8 @@ def _pct(values: list[float], q: float) -> float | None:
     return ordered[min(len(ordered) - 1, int(round(q * (len(ordered) - 1))))]
 
 
-def summarise(results: list[ConversationResult], *, judge_calibrated: bool, probe: dict) -> dict[str, Any]:
+def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
+              probe: dict[str, Any]) -> dict[str, Any]:
     families: dict[str, dict[str, Any]] = {}
     turns: dict[str, dict[str, Any]] = {}
     latency: dict[str, dict[str, list[float]]] = {}

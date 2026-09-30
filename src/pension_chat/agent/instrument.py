@@ -91,25 +91,25 @@ def install_sqlalchemy(engine: Any) -> None:
     sync = engine.sync_engine
 
     @event.listens_for(sync, "before_cursor_execute")
-    def _before(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+    def _before(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
         if _current.get() is not None:
             conn.info["_instrument_start"] = time.perf_counter()
 
     @event.listens_for(sync, "after_cursor_execute")
-    def _after(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+    def _after(conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool) -> None:
         inst = _current.get()
         start = conn.info.pop("_instrument_start", None)
         if inst is not None and start is not None:
             inst.calls.append(Call("postgres", statement.split(None, 1)[0].lower(), start, time.perf_counter()))
 
     @event.listens_for(sync, "do_connect")
-    def _do_connect(dialect, conn_rec, cargs, cparams):  # noqa: ANN001
+    def _do_connect(dialect: Any, conn_rec: Any, cargs: Any, cparams: Any) -> None:
         inst = _current.get()
         if inst is not None:
             inst.pending_connect = time.perf_counter()
 
     @event.listens_for(sync, "connect")
-    def _connect(dbapi_connection, connection_record):  # noqa: ANN001
+    def _connect(dbapi_connection: Any, connection_record: Any) -> None:
         inst = _current.get()
         if inst is not None and inst.pending_connect is not None:
             inst.calls.append(Call("postgres_connect", "", inst.pending_connect, time.perf_counter()))

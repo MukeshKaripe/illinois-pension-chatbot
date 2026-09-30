@@ -26,7 +26,7 @@ class ProbeError(RuntimeError):
 
 
 async def probe(settings: Any) -> Probe:
-    import asyncpg
+    import asyncpg  # type: ignore[import-untyped]
     import httpx
 
     out: Probe = {}
@@ -64,8 +64,8 @@ def _before_first_token(trace: TurnTrace) -> list[dict[str, Any]]:
 def _overhead(call: dict[str, Any], probe: Probe, rtt: float) -> float:
     measured = probe.get(KIND_ENDPOINT.get(call["kind"], ""), {})
     if call["kind"].endswith("_connect"):
-        return max(0.0, (call["end"] - call["start"]) - 3 * rtt)
-    return max(0.0, measured.get("warm", rtt) - rtt)
+        return max(0.0, float(call["end"] - call["start"]) - 3 * rtt)
+    return max(0.0, float(measured.get("warm", rtt)) - rtt)
 
 
 def estimate_in_region(trace: TurnTrace, probe: Probe, in_region_rtt: float = 0.002) -> float | None:
@@ -99,9 +99,13 @@ def stage_breakdown(trace: TurnTrace) -> dict[str, float]:
     if trace.ttft is None:
         return {}
     calls = _before_first_token(trace)
-    clip = lambda c: (c["start"], min(c["end"], trace.ttft))  # noqa: E731
-    stages = {}
+    ttft = trace.ttft
+
+    def clip(c: dict[str, Any]) -> tuple[float, float]:
+        return (float(c["start"]), min(float(c["end"]), ttft))
+
+    stages: dict[str, float] = {}
     for kind in ("model", "embedding", "search", "postgres"):
         stages[kind] = _union([clip(c) for c in calls if c["kind"].startswith(kind)])
-    stages["unattributed"] = max(0.0, trace.ttft - _union([clip(c) for c in calls]))
+    stages["unattributed"] = max(0.0, ttft - _union([clip(c) for c in calls]))
     return stages

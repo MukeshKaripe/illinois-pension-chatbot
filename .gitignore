@@ -43,7 +43,7 @@ alembic/__pycache__/
 
 # Eval and benchmark reports.
 #
-# `scripts/eval_agent.py --json` and `scripts/bench_ttft.py --json` are written
+# `scripts/bench_ttft.py --json` is written
 # to dot-prefixed files in the repo root by convention, and they are output, not
 # source: a report is true of one run against one index and one model
 # deployment, and is stale the moment any of those moves. The harness that

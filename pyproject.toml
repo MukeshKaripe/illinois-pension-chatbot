@@ -80,4 +80,5 @@ strict = true
 [dependency-groups]
 dev = [
     "aiosqlite>=0.22.1",
+    "types-pyyaml>=6.0.12.20260906",
 ]

@@ -125,5 +125,5 @@ def is_calibrated(eval_root: Path, rubric_path: Path) -> bool:
     if not path.exists():
         return False
     data = json.loads(path.read_text(encoding="utf-8"))
-    return (data.get("rubric_version") == rubric_version(rubric_path)
+    return bool(data.get("rubric_version") == rubric_version(rubric_path)
             and data.get("total", 0) >= 20 and data.get("agreed", 0) >= 18)

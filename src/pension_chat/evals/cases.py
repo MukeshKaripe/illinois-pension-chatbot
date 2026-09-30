@@ -124,7 +124,7 @@ def load_cases(root: Path, fixture_keys: set[str]) -> list[Case]:
         if not turns:
             _fail(path, "no turns")
         cases.append(Case(
-            id=case_id, family=family, areas=areas, turns=turns, path=path,
+            id=case_id, family=str(family), areas=areas, turns=turns, path=path,
             critical=bool(raw.get("critical")), needs=needs, employee=employee,
             tiers=list(raw.get("tiers") or ["full"]),
         ))

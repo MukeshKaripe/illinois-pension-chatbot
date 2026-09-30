@@ -67,10 +67,12 @@ class ConversationResult:
 
 
 def _rate_limited(trace: TurnTrace) -> bool:
-    return bool(trace.error) and ("429" in trace.error or "RateLimit" in trace.error)
+    error = trace.error or ""
+    return "429" in error or "RateLimit" in error
 
 
-async def _one_turn(agent, question, thread, employee, case_id, index) -> TurnTrace:
+async def _one_turn(agent: Any, question: str, thread: str, employee: str | None,
+                    case_id: str, index: int) -> TurnTrace:
     inst = instrument.begin()
     started = time.perf_counter()
     events: list[tuple[float, dict[str, Any]]] = []
@@ -80,8 +82,8 @@ async def _one_turn(agent, question, thread, employee, case_id, index) -> TurnTr
                        events=events, instrument=inst, started=started)
 
 
-async def run_conversation(case: Case, *, fixtures: dict, probe: Probe, options: RunOptions,
-                           agent=None) -> ConversationResult:
+async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe, options: RunOptions,
+                           agent: Any = None) -> ConversationResult:
     from pension_chat.agent.graph import build_loop_graph, run_agent_stream, use_graph
 
     agent = agent or run_agent_stream
@@ -126,8 +128,8 @@ async def run_conversation(case: Case, *, fixtures: dict, probe: Probe, options:
     return result
 
 
-async def run_suite(cases: list[Case], *, fixtures: dict, probe: Probe, options: RunOptions,
-                    agent=None) -> list[ConversationResult]:
+async def run_suite(cases: list[Case], *, fixtures: dict[str, Any], probe: Probe, options: RunOptions,
+                    agent: Any = None) -> list[ConversationResult]:
     gate = asyncio.Semaphore(options.concurrency)
 
     async def guarded(case: Case) -> ConversationResult:

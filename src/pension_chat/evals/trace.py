@@ -46,7 +46,8 @@ class TurnTrace:
     usage: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return json.loads(json.dumps(asdict(self), default=str))
+        data: dict[str, Any] = json.loads(json.dumps(asdict(self), default=str))
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TurnTrace:

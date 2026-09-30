@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from pension_chat.agent.facts import aliases_of
 from pension_chat.agent.retrieval import CROSS_CUTTING_ARTICLES
@@ -65,7 +66,7 @@ def _questions(answer: str) -> list[str]:
     return [s.strip() for s in re.findall(r"[^.?!\n]*\?", unquoted) if s.strip()]
 
 
-def _check(name: str, value, trace: TurnTrace, latency_gate: bool) -> CheckResult:
+def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> CheckResult:
     verified = trace.verified_citations
     if name == "cites_any":
         return CheckResult(name, any(s in verified for s in value), f"verified {verified}")
@@ -117,8 +118,8 @@ def _check(name: str, value, trace: TurnTrace, latency_gate: bool) -> CheckResul
         count = sum(1 for o in trace.input_sources.values() if o == "assumed")
         return CheckResult(name, count <= value, f"{count} assumed")
     if name == "assumptions_disclosed":
-        bad = [c for c in trace.failure_codes if "assumption" in c.lower()]
-        return CheckResult(name, not bad, f"codes {bad}")
+        codes = [c for c in trace.failure_codes if "assumption" in c.lower()]
+        return CheckResult(name, not codes, f"codes {codes}")
     if name == "no_reask":
         asked = [n for n in value for q in _questions(trace.final_answer)
                  if any(cue in q.lower() for cue in REASK_CUES.get(n, (n.replace("_", " "),)))]
