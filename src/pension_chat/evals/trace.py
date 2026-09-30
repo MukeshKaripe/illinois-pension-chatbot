@@ -37,6 +37,12 @@ class TurnTrace:
     calculation: bool = False
     #: formula type -> "registry" (a saved formula reused) or "derived" (new)
     formula_sources: dict[str, str] = field(default_factory=dict)
+    #: Why no figure, when there was none: what derivation said, what inputs
+    #: were missing, what validation refused, and what blocked execution.
+    derivation_failures: list[str] = field(default_factory=list)
+    missing_inputs: list[str] = field(default_factory=list)
+    validation_codes: list[str] = field(default_factory=list)
+    execution_blocked: str | None = None
     card: dict[str, Any] | None = None
     subject: str | None = None
     ttft: float | None = None
@@ -122,6 +128,12 @@ def build_trace(
                 for entry in (state.get("calculation_result") or {}).values()
             )
             trace.card = event.get("card")
+            trace.derivation_failures = [
+                f"{f.get('formula_type')}: {f.get('reason')}" for f in state.get("derivation_failures") or []
+            ]
+            trace.missing_inputs = [str(m.get("name")) for m in state.get("missing_inputs") or []]
+            trace.validation_codes = [str(e.get("code")) for e in state.get("validation_errors") or []]
+            trace.execution_blocked = state.get("execution_blocked")
             trace.formula_sources = {
                 str(p.get("formula_type")): str(p.get("source"))
                 for p in state.get("recipe_provenance") or [] if p.get("formula_type")

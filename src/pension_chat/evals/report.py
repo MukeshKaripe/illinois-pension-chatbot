@@ -26,6 +26,14 @@ def _pct(values: list[float], q: float) -> float | None:
     return ordered[min(len(ordered) - 1, int(round(q * (len(ordered) - 1))))]
 
 
+def _why_no_figure(trace: Any) -> str:
+    """What stopped a calculation, in one line, from the trace."""
+    parts = trace.derivation_failures[:1] + (
+        [f"missing {', '.join(trace.missing_inputs)}"] if trace.missing_inputs else []
+    ) + ([f"refused: {', '.join(sorted(set(trace.validation_codes)))}"] if trace.validation_codes else [])
+    return "; ".join(parts)[:300]
+
+
 def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
               probe: dict[str, Any]) -> dict[str, Any]:
     families: dict[str, dict[str, Any]] = {}
@@ -42,7 +50,8 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
             key = f"{conv.case.id}#{tr.turn_index}"
             turns[key] = {"status": tr.status, "family": conv.case.family, "flaky": conv.flaky,
                           "failed_checks": [f"{c.name}: {c.detail}" for c in tr.checks if not c.passed],
-                          "ttft": tr.trace.ttft, "estimate": tr.estimate}
+                          "ttft": tr.trace.ttft, "estimate": tr.estimate,
+                          "why_no_figure": _why_no_figure(tr.trace)}
             if tr.status in SCORED:
                 fam["scored"] += 1
                 fam["passed"] += tr.status == "pass"
@@ -131,5 +140,7 @@ def render_markdown(report: dict[str, Any], changes: dict[str, Any]) -> str:
     lines += ["", "## Failures"]
     for key, t in report["turns"].items():
         if t["status"] in ("fail", "error", "unjudged"):
-            lines.append(f"- {key} [{t['status']}]{' (flaky)' if t['flaky'] else ''}: {'; '.join(t['failed_checks'])}")
+            why = f" -- no figure because: {t['why_no_figure']}" if t.get("why_no_figure") else ""
+            lines.append(f"- {key} [{t['status']}]{' (flaky)' if t['flaky'] else ''}: "
+                         f"{'; '.join(t['failed_checks'])}{why}")
     return "\n".join(lines)

@@ -90,3 +90,18 @@ def test_the_trace_says_whether_a_formula_was_reused_or_derived() -> None:
     t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
                     events=[(1.0, _done(recipe_provenance=provenance))], instrument=Instrument(), started=0.0)
     assert t.formula_sources == {"retirement_annuity": "registry", "survivor_annuity": "derived"}
+
+
+def test_the_trace_records_why_no_figure_was_produced() -> None:
+    state = {
+        "derivation_failures": [{"formula_type": "retirement_annuity", "reason": "Section 1-162 may govern"}],
+        "missing_inputs": [{"name": "final_average_salary_8_year", "description": "Tier 2 average"}],
+        "validation_errors": [{"code": "QUOTE_NOT_IN_SOURCE", "message": "m"}],
+        "execution_blocked": "validation_failed",
+    }
+    t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
+                    events=[(1.0, _done(**state))], instrument=Instrument(), started=0.0)
+    assert t.derivation_failures == ["retirement_annuity: Section 1-162 may govern"]
+    assert t.missing_inputs == ["final_average_salary_8_year"]
+    assert t.validation_codes == ["QUOTE_NOT_IN_SOURCE"]
+    assert t.execution_blocked == "validation_failed"
