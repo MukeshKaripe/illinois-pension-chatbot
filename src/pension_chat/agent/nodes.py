@@ -51,6 +51,7 @@ from pension_chat.agent.retrieval import (
     canonical_section_texts,
     extract_article_references,
     extract_section_references,
+    fetch_sections,
     retrieve,
 )
 from pension_chat.agent.state import PensionAgentState
@@ -1292,6 +1293,33 @@ def _dedupe_missing_inputs(missing: list[dict[str, Any]]) -> list[dict[str, Any]
 # ── 5. Validation ─────────────────────────────────────────────────
 
 
+async def _parameter_texts(recipes: dict[str, dict]) -> dict[str, dict[str, str]]:
+    """The text of every section a recipe's constants cite, by subsection.
+
+    What `_validate_parameters_in_source` checks each constant against. Every
+    printed version of a subsection is joined, so a value any version states is
+    found. Fetched whole rather than taken from this turn's retrieval, which is
+    budget-trimmed and could cut the very subsection a constant cites.
+    """
+    cited = sorted({
+        str((param.get("source") or {}).get("section") or "").split("(")[0].strip()
+        for recipe in recipes.values()
+        for param in ((recipe.get("spec") or {}).get("parameters") or {}).values()
+        if isinstance(param, dict)
+    } - {""})
+    if not cited:
+        return {}
+    texts: dict[str, dict[str, str]] = {}
+    for section, chunks in (await fetch_sections(cited)).items():
+        by_subsection: dict[str, list[str]] = {}
+        for chunk in chunks:
+            by_subsection.setdefault(str(chunk.get("subsection_id") or ""), []).append(
+                str(chunk.get("content") or "")
+            )
+        texts[section] = {sub: "\n".join(parts) for sub, parts in by_subsection.items()}
+    return texts
+
+
 async def validate_recipes(state: PensionAgentState) -> dict:
     """Validate and risk-tier every recipe, and decide whether it may execute.
 
@@ -1330,11 +1358,15 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     blocked: str | None = None
     can_execute = True
 
+    parameter_texts = await _parameter_texts(recipes)
+
     for formula_type, recipe in recipes.items():
         spec = recipe.get("spec") or {}
         sources = recipe.get("source_sections") or []
 
-        result = validator.validate(spec, sources, indexed, set(), strict=True)
+        result = validator.validate(
+            spec, sources, indexed, set(), strict=True, parameter_texts=parameter_texts
+        )
         for error in result.errors:
             errors.append({"formula_type": formula_type, **error.to_dict()})
         for warning in result.warnings:

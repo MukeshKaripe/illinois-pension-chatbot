@@ -14,11 +14,14 @@ Checks:
 - Recipe doesn't select an internal executable handler
 - Evidence fingerprint is captured
 - Statutory applicability conditions are well formed and cited
+- Every numeric constant is written in the subsection it cites
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from fractions import Fraction
 
 from pension_chat.calculation.applicability import validate_predicate
 from pension_chat.calculation.dsl_types import (
@@ -28,6 +31,75 @@ from pension_chat.calculation.dsl_types import (
 )
 
 logger = logging.getLogger("pension_chat.calculation.validator")
+
+
+# ── Is this constant written in that text? ───────────────────────
+
+_NUMBER_WORDS = {
+    1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+    8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
+    14: "fourteen", 15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+    19: "nineteen", 20: "twenty",
+}
+_FRACTION_WORDS = {
+    Fraction(1, 2): ("one-half", "one half"), Fraction(1, 4): ("one-quarter", "one-fourth"),
+    Fraction(3, 4): ("three-quarters", "three-fourths"), Fraction(1, 3): ("one-third",),
+    Fraction(2, 3): ("two-thirds",),
+}
+
+
+def _plain(number: float) -> list[str]:
+    """A number as digits: 2.4, 67, 106800 and 106,800."""
+    if abs(number - round(number)) < 1e-9:
+        whole = int(round(number))
+        return [str(whole), f"{whole:,}"]
+    return [f"{number:.6f}".rstrip("0").rstrip(".")]
+
+
+def _as_fraction(number: float) -> Fraction | None:
+    """A number the Code would write as a vulgar fraction (1 1/4, 1 2/3, 1/2)."""
+    for denominator in (2, 3, 4, 5, 8):
+        candidate = Fraction(round(number * denominator), denominator)
+        if candidate.denominator > 1 and abs(float(candidate) - number) < 1e-3:
+            return candidate
+    return None
+
+
+def statutory_forms(value: float) -> list[str]:
+    """The ways the Pension Code writes this number: digits, a fraction, a word,
+    and -- for a rate below 1 -- a percentage in each of those forms."""
+    forms: list[str] = _plain(value)
+    if abs(value - round(value)) < 1e-9 and int(round(value)) in _NUMBER_WORDS:
+        forms.append(_NUMBER_WORDS[int(round(value))])
+    percent = value * 100
+    if 0 < value < 1 or value >= 1:
+        for digits in _plain(percent) + (_plain(value) if value >= 1 else []):
+            forms += [f"{digits}%", f"{digits} percent"]
+        fraction = _as_fraction(percent)
+        if fraction is not None:
+            whole, part = divmod(fraction.numerator, fraction.denominator)
+            vulgar = f"{part}/{fraction.denominator}"
+            written = [f"{whole} {vulgar}", f"{whole}-{vulgar}"] if whole else [vulgar]
+            for text in written:
+                forms += [f"{text}%", f"{text} percent"]
+            if not whole:
+                forms += [f"{vulgar} of 1%", f"{vulgar} of one percent"]
+                for word in _FRACTION_WORDS.get(Fraction(part, fraction.denominator), ()):
+                    forms += [f"{word} of 1%", f"{word} of one percent", f"{word} percent"]
+    return list(dict.fromkeys(forms))
+
+
+def value_in_text(value: float, text: str) -> bool:
+    """Whether `value` is written in `text`, as a whole token in any Code form.
+
+    "Whole token": 67 is not found in "6700", nor 2.4% in "2.45%".
+    """
+    haystack = " ".join(text.lower().split())
+    for form in statutory_forms(float(value)):
+        pattern = r"(?<![\d.,/])" + re.escape(form.lower()) + r"(?![\d]|[.,]\d)"
+        if re.search(pattern, haystack):
+            return True
+    return False
 
 
 class ValidationError:
@@ -91,6 +163,7 @@ class RecipeValidator:
         indexed_sections: set[str] | None = None,
         existing_capabilities: set[str] | None = None,
         strict: bool = False,
+        parameter_texts: dict[str, dict[str, str]] | None = None,
     ) -> ValidationResult:
         """Run all validation checks on a recipe.
 
@@ -138,6 +211,8 @@ class RecipeValidator:
 
         # 4. Validate parameters have source citations
         self._validate_parameters(spec, result, indexed_sections)
+        if parameter_texts is not None:
+            self._validate_parameters_in_source(spec, result, parameter_texts)
 
         # 5. Check for dependency cycles
         self._validate_no_cycles(spec, existing_capabilities, result)
@@ -303,6 +378,40 @@ class RecipeValidator:
                     "UNDECLARED_VARIABLE",
                     f"Variable '{var}' is used in the calculation but is not "
                     f"declared as an input or parameter",
+                )
+
+    def _validate_parameters_in_source(
+        self,
+        spec: RuleSpecification,
+        result: ValidationResult,
+        parameter_texts: dict[str, dict[str, str]],
+    ) -> None:
+        """Each constant must be written in the subsection it cites.
+
+        Citing a retrieved section is not evidence that the number is in it: a
+        Tier 2 recipe once carried 1.25% cited to 1-160(g), a subsection about
+        fire fighters under Article 14, having taken the rate from another
+        fund's optional-benefit section. Always an error, in either mode -- a
+        constant the cited text does not contain is not a statutory value, and
+        a recipe carrying one must neither execute nor be saved for reuse.
+
+        The cited subsection is searched when its text is known, the whole
+        section otherwise; a section whose text was not supplied is not judged.
+        """
+        for param_name, param_spec in spec.parameters.items():
+            source = param_spec.source or {}
+            section = str(source.get("section") or "").split("(")[0].strip()
+            subsections = parameter_texts.get(section)
+            if not section or subsections is None or not isinstance(param_spec.value, (int, float)):
+                continue
+            cited = str(source.get("subsection") or "")
+            text = subsections.get(cited) or " ".join(subsections.values())
+            if not value_in_text(float(param_spec.value), text):
+                where = f"{section}{cited}" if cited in subsections else section
+                result.add_error(
+                    "PARAMETER_NOT_IN_SOURCE",
+                    f"Parameter '{param_name}' is {param_spec.value}, but Section {where} "
+                    f"does not state that value, so it is not a statutory figure",
                 )
 
     def _validate_parameters(
