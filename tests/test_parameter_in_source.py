@@ -32,6 +32,10 @@ FIRE_FIGHTERS_G = (
     (10, "has at least ten years of service"),
     (0.016667, "1 2/3% for each year of service over 20 years"),
     (0.065, "beginning January 1, 1972, 6-1/2% of each payment of the salary"),
+    # §8-138(b) writes its tiered rates with trailing zeros.
+    (0.018, "an annuity for life equal to 1.80% for each of the first 10 years"),
+    (0.02, "2.00% for each of the next 10 years of service"),
+    (0.024, "and 2.40% for each year of service in excess of 30"),
 ])
 def test_values_the_code_writes_are_found(value, text) -> None:
     assert value_in_text(value, text)

@@ -89,12 +89,20 @@ def statutory_forms(value: float) -> list[str]:
     return list(dict.fromkeys(forms))
 
 
+def _drop_trailing_zeros(match: re.Match[str]) -> str:
+    whole, fraction = match.group(1), match.group(2)
+    return f"{whole}.{fraction}" if fraction else whole
+
+
 def value_in_text(value: float, text: str) -> bool:
     """Whether `value` is written in `text`, as a whole token in any Code form.
 
     "Whole token": 67 is not found in "6700", nor 2.4% in "2.45%".
     """
     haystack = " ".join(text.lower().split())
+    # The Code writes rates with trailing zeros ("1.80%", "2.00%"); read them
+    # as the numbers they are, so 0.018 is found in "1.80%".
+    haystack = re.sub(r"(\d+)\.(\d*?)0+(?=\D|$)", _drop_trailing_zeros, haystack)
     for form in statutory_forms(float(value)):
         pattern = r"(?<![\d.,/])" + re.escape(form.lower()) + r"(?![\d]|[.,]\d)"
         if re.search(pattern, haystack):
