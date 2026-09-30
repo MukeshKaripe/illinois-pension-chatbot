@@ -18,17 +18,21 @@ def _script():
 FLAGS = ("CAPTURE_FAILURES", "ANSWER_MEMORY_ENABLED", "PERSIST_DERIVED_RECIPES", "REGISTRY_WRITES_ENABLED")
 
 
-def test_no_write_flags_are_forced_off_even_when_the_shell_says_on(monkeypatch) -> None:
+def test_by_default_formulas_are_saved_and_nothing_else_is(monkeypatch) -> None:
+    # Derived formulas are the knowledge the system is built to keep and reuse
+    # (product owner, 2026-09-30); conversations, answer memory and failure
+    # captures are not written by a run -- whatever the shell exports.
+    import os
     for flag in FLAGS:
         monkeypatch.setenv(flag, "true")
-    _script()._force_no_writes(with_memory=False)
+    _script()._force_no_writes(save_formulas=True)
+    assert os.environ["PERSIST_DERIVED_RECIPES"] == os.environ["REGISTRY_WRITES_ENABLED"] == "true"
+    assert os.environ["CAPTURE_FAILURES"] == os.environ["ANSWER_MEMORY_ENABLED"] == "false"
+
+
+def test_no_save_formulas_writes_nothing(monkeypatch) -> None:
     import os
+    for flag in FLAGS:
+        monkeypatch.setenv(flag, "true")
+    _script()._force_no_writes(save_formulas=False)
     assert {flag: os.environ[flag] for flag in FLAGS} == dict.fromkeys(FLAGS, "false")
-
-
-def test_with_memory_opens_the_knowledge_path_but_never_capture(monkeypatch) -> None:
-    import os
-    _script()._force_no_writes(with_memory=True)
-    assert os.environ["CAPTURE_FAILURES"] == "false"
-    assert os.environ["ANSWER_MEMORY_ENABLED"] == os.environ["PERSIST_DERIVED_RECIPES"] == "true"
-    assert os.environ["REGISTRY_WRITES_ENABLED"] == "true"

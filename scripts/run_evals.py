@@ -23,18 +23,21 @@ os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 
-def _force_no_writes(with_memory: bool) -> None:
-    """Nothing a run does may write to the client's databases or the repo.
+def _force_no_writes(save_formulas: bool) -> None:
+    """What a run may write: derived formulas, and nothing else.
 
-    Assigned, not defaulted: a shell that exports ANSWER_MEMORY_ENABLED=true
-    must not turn an eval run into one that writes. `--with-memory` opens the
-    production knowledge path (answer memory, derived recipes, registry
-    counters) on purpose; failure capture into the repo stays off either way.
+    Derived formulas are the knowledge the system exists to keep and reuse
+    (product owner, 2026-09-30), and they are guarded before they are saved --
+    every constant found in its cited text, no recipe resting on a conditional
+    section. Conversations stay in memory; answer memory and failure capture
+    stay off. Assigned, not defaulted, so a shell exporting them cannot change
+    what a run writes. `--no-save-formulas` makes a run write nothing at all.
     """
-    knowledge = "true" if with_memory else "false"
+    formulas = "true" if save_formulas else "false"
     os.environ["CAPTURE_FAILURES"] = "false"
-    for key in ("ANSWER_MEMORY_ENABLED", "PERSIST_DERIVED_RECIPES", "REGISTRY_WRITES_ENABLED"):
-        os.environ[key] = knowledge
+    os.environ["ANSWER_MEMORY_ENABLED"] = "false"
+    for key in ("PERSIST_DERIVED_RECIPES", "REGISTRY_WRITES_ENABLED"):
+        os.environ[key] = formulas
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,8 +58,8 @@ def _args() -> argparse.Namespace:
     p.add_argument("--judge-all", action="store_true",
                    help="judge every turn, even ones the code checks failed (for calibration)")
     p.add_argument("--latency-gate", action="store_true")
-    p.add_argument("--with-memory", action="store_true",
-                   help="let the run write answer memory and derived recipes (the production knowledge path)")
+    p.add_argument("--no-save-formulas", action="store_true",
+                   help="write nothing at all; by default derived formulas are saved for reuse")
     p.add_argument("--accept", action="store_true")
     p.add_argument("--calibrate", action="store_true")
     p.add_argument("--from", dest="from_run", type=Path)
@@ -76,7 +79,7 @@ async def _calibrate(run_dir: Path) -> int:
 
 async def main() -> int:
     args = _args()
-    _force_no_writes(args.with_memory)
+    _force_no_writes(save_formulas=not args.no_save_formulas)
     if args.calibrate:
         return await _calibrate(args.from_run)
 

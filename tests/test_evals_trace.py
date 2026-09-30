@@ -82,3 +82,11 @@ def test_a_recipe_that_ran_and_failed_is_not_a_calculation() -> None:
     t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
                     events=[(1.0, _done(calculation_result=worked))], instrument=Instrument(), started=0.0)
     assert t.calculation is True
+
+
+def test_the_trace_says_whether_a_formula_was_reused_or_derived() -> None:
+    provenance = [{"formula_type": "retirement_annuity", "source": "registry", "reused": True},
+                  {"formula_type": "survivor_annuity", "source": "derived"}]
+    t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
+                    events=[(1.0, _done(recipe_provenance=provenance))], instrument=Instrument(), started=0.0)
+    assert t.formula_sources == {"retirement_annuity": "registry", "survivor_annuity": "derived"}

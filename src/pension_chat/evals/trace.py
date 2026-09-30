@@ -35,6 +35,8 @@ class TurnTrace:
     input_sources: dict[str, str] = field(default_factory=dict)
     assumptions: dict[str, Any] = field(default_factory=dict)
     calculation: bool = False
+    #: formula type -> "registry" (a saved formula reused) or "derived" (new)
+    formula_sources: dict[str, str] = field(default_factory=dict)
     card: dict[str, Any] | None = None
     subject: str | None = None
     ttft: float | None = None
@@ -120,6 +122,10 @@ def build_trace(
                 for entry in (state.get("calculation_result") or {}).values()
             )
             trace.card = event.get("card")
+            trace.formula_sources = {
+                str(p.get("formula_type")): str(p.get("source"))
+                for p in state.get("recipe_provenance") or [] if p.get("formula_type")
+            }
             trace.subject = (state.get("employee_record") or {}).get("id")
             trace.stages = dict(state.get("timings") or {})
             trace.usage = dict(state.get("token_usage") or {})

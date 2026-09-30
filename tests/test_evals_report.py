@@ -56,3 +56,12 @@ def test_markdown_leads_with_changes() -> None:
     assert text.index("Changes since baseline") < text.index("Families")
     assert "judge not calibrated" in text.lower()
     assert "estimated" in text.lower()
+
+
+def test_the_report_counts_formulas_derived_and_reused() -> None:
+    conv = _conv("S4-001", "S4", ["pass", "pass"])
+    conv.turns[0].trace.formula_sources = {"retirement_annuity": "derived"}
+    conv.turns[1].trace.formula_sources = {"retirement_annuity": "registry"}
+    r = summarise([conv], judge_calibrated=False, probe={})
+    assert r["formulas"] == {"derived": 1, "registry": 1}
+    assert "Formulas: 1 derived, 1 reused" in render_markdown(r, diff(r, None))

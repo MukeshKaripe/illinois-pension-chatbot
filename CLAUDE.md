@@ -126,7 +126,7 @@ Coverage is checked the same way, and in both directions. An answer may state wh
 - **Code checks can veto a turn.** They form a closed vocabulary in `evals/cases.py` and read the `TurnTrace`: verified citations, the subsections actually *rendered to the model* (`evidence_has`), each input's origin, assumptions, and replacements.
 - **A judge grades the turn against its reference.** It decides whether the goal was accomplished, whether the answer was relevant, and whether it stayed within the boundary. Its verdicts gate only once calibrated against the labels in `evals/labels/`, with at least 18 of 20 agreeing.
 - **Families S1–S12 plus S4b.** The first-class families are S1 (statute questions), S4/S4b (calculations for a named or described employee) and S11 (continuity).
-- **Records come from `evals/fixtures/employees/*.yaml`.** They are dated relative to the run date and served through the same `RecordProvider` interface the production PBMS read layer implements. Checkpoints live in memory. A run writes nothing to any database.
+- **Records come from `evals/fixtures/employees/*.yaml`.** Ages are relative to the run date and hire dates absolute (tier depends on them); they are served through the same `RecordProvider` interface the production PBMS read layer implements. Checkpoints live in memory. A run saves derived formulas to the registry for reuse (the report counts derived vs reused) and writes nothing else; `--no-save-formulas` writes nothing at all.
 - **Latency is time to the first answer token.** It is measured and also estimated for in-region, per stage, and the gate stays provisional until an in-region run calibrates the estimate.
 
 Typical runs:

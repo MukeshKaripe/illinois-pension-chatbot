@@ -34,6 +34,7 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
     critical: list[str] = []
     soft: dict[str, list[int]] = {"voice": [], "hedging": [], "clarity": []}
     fallbacks = verified = replaced = total = 0
+    formulas = {"derived": 0, "registry": 0}
     for conv in results:
         fam = families.setdefault(conv.case.family, {"passed": 0, "scored": 0,
                                                       "first_class": conv.case.family in FIRST_CLASS})
@@ -54,6 +55,9 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
                 if tr.estimate is not None:
                     slot["estimated"].append(tr.estimate)
             fallbacks += sum(1 for n in tr.trace.notes if n.get("kind") == "semantic_fallback")
+            for source in tr.trace.formula_sources.values():
+                if source in formulas:
+                    formulas[source] += 1
             total += 1
             verified += bool(tr.trace.guardrail_passed)
             replaced += bool(tr.trace.replacements)
@@ -69,6 +73,7 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
         "soft_scores": {k: (statistics.mean(v) if v else None) for k, v in soft.items()},
         "verification": {"passed": verified, "replaced": replaced, "turns": total},
         "semantic_fallbacks": fallbacks,
+        "formulas": formulas,
         "flaky": sorted({k.split("#")[0] for k, t in turns.items() if t["flaky"]}),
         "judge_calibrated": judge_calibrated,
         "probe": probe,
@@ -119,6 +124,7 @@ def render_markdown(report: dict[str, Any], changes: dict[str, Any]) -> str:
     v = report["verification"]
     lines += ["", f"Verification: {v['passed']}/{v['turns']} passed, {v['replaced']} replaced; "
                   f"semantic-ranker fallbacks: {report['semantic_fallbacks']}",
+              f"Formulas: {report['formulas']['derived']} derived, {report['formulas']['registry']} reused",
               f"Judge soft scores: {report['soft_scores']}"]
     if not report["judge_calibrated"]:
         lines.append("Judge not calibrated — its verdicts are reported, not gating (see evals/labels/README.md).")
