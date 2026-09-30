@@ -67,3 +67,31 @@ def test_editing_the_rubric_changes_its_version(tmp_path: Path) -> None:
     first = rubric_version(p)
     p.write_text("a: 2")
     assert rubric_version(p) != first
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limited_judge_retries_and_then_is_unjudged_never_crashes(tmp_path: Path) -> None:
+    attempts = {"n": 0}
+
+    async def limited(**kwargs):
+        attempts["n"] += 1
+        raise RuntimeError("Error code: 429 - rate_limit_exceeded")
+
+    verdict = await judge_turn(TURN, TRACE, [], rubric_path=RUBRIC, cache_dir=tmp_path,
+                               complete=limited, backoff=0.0)
+    assert verdict is None and attempts["n"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_a_judge_that_recovers_from_a_rate_limit_still_judges(tmp_path: Path) -> None:
+    replies = iter([RuntimeError("429"), json.dumps(GOOD)])
+
+    async def flaky(**kwargs):
+        reply = next(replies)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    verdict = await judge_turn(TURN, TRACE, [], rubric_path=RUBRIC, cache_dir=tmp_path,
+                               complete=flaky, backoff=0.0)
+    assert verdict == Verdict(**GOOD)

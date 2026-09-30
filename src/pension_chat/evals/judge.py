@@ -10,6 +10,7 @@ overrule it. It gates only once calibrated against the product owner's labels
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Awaitable, Callable
@@ -85,6 +86,7 @@ async def judge_turn(
     turn: Turn, trace: TurnTrace, history: list[tuple[str, str]], *,
     rubric_path: Path, cache_dir: Path,
     complete: Callable[..., Awaitable[str]] | None = None,
+    backoff: float = 10.0, attempts: int = 4,
 ) -> Verdict | None:
     if complete is None:
         from pension_chat.agent.llm import complete as llm_complete
@@ -96,9 +98,23 @@ async def judge_turn(
     if cached.exists():
         return Verdict(**json.loads(cached.read_text(encoding="utf-8")))
     messages = _messages(yaml.safe_load(rubric_path.read_text(encoding="utf-8")), turn, trace, history)
-    for _ in range(2):
-        verdict = _parse(await complete(node="eval_judge", messages=messages, json_mode=True,
-                                        reasoning_effort="low"))
+    # A transport failure (a 429 above all: the judge shares the answering
+    # model's token quota) waits and retries; a malformed reply is retried once.
+    # Neither may end the run -- a turn that cannot be judged is `unjudged`.
+    malformed = 0
+    for attempt in range(attempts):
+        try:
+            reply = await complete(node="eval_judge", messages=messages, json_mode=True,
+                                   reasoning_effort="low")
+        except Exception:
+            await asyncio.sleep(backoff * (attempt + 1))
+            continue
+        verdict = _parse(reply)
+        if verdict is None:
+            malformed += 1
+            if malformed >= 2:
+                return None
+            continue
         if verdict is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
             cached.write_text(json.dumps(asdict(verdict)), encoding="utf-8")

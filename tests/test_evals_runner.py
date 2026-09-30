@@ -97,3 +97,21 @@ async def test_a_rate_limited_turn_is_retried_not_failed() -> None:
     result = await run_conversation(_case("A", ["q1"]), fixtures={}, probe={},
                                     options=RunOptions(judge=False, rate_limit_backoff=0.0), agent=agent)
     assert result.turns[0].status == "pass" and attempts["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_conversation_that_raises_is_an_error_not_a_crashed_run() -> None:
+    async def broken(question, session_id, employee_id=None, history=None, thread_owner=None):
+        raise RuntimeError("something outside the agent's own error handling")
+        yield  # pragma: no cover
+
+    fine = _agent({"qb": ["1-160"]})
+
+    def either(q, *a, **k):
+        return broken(q, *a, **k) if q == "q1" else fine(q, *a, **k)
+
+    results = await run_suite([_case("A", ["q1"]), _case("B", ["qb"])], fixtures={}, probe={},
+                              options=RunOptions(judge=False), agent=either)
+    by_id = {r.case.id: r for r in results}
+    assert by_id["A"].turns[0].status == "error" and "something outside" in by_id["A"].turns[0].trace.error
+    assert by_id["B"].passed

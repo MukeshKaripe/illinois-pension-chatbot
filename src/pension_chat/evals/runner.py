@@ -134,7 +134,15 @@ async def run_suite(cases: list[Case], *, fixtures: dict[str, Any], probe: Probe
 
     async def guarded(case: Case) -> ConversationResult:
         async with gate:
-            return await run_conversation(case, fixtures=fixtures, probe=probe, options=options, agent=agent)
+            try:
+                return await run_conversation(case, fixtures=fixtures, probe=probe, options=options,
+                                              agent=agent)
+            except Exception as exc:
+                # One conversation failing in a way the agent did not handle is
+                # that conversation's error, never the whole run's.
+                trace = TurnTrace(case_id=case.id, turn_index=0, question=case.turns[0].q,
+                                  employee=case.employee, error=f"{type(exc).__name__}: {exc}")
+                return ConversationResult(case, [TurnResult(case.id, 0, trace, [], None, "error", None, {})])
 
     results = list(await asyncio.gather(*(guarded(c) for c in cases)))
     for i, first in enumerate(results):
