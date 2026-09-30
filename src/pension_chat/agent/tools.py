@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any
 
-from pension_chat.agent import corpus, gaps, memory, recommend
+from pension_chat.agent import corpus, gaps, instrument, memory, recommend
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
     BENEFIT_TYPES,
@@ -375,6 +375,13 @@ def _render(sections: list[dict[str, Any]], budget: int) -> str:
             text = text[: max(0, budget - used)]
         if not text:
             break
+        # What the model is actually shown, subsection by subsection -- the
+        # eval suite's evidence, and a no-op when no run is watching.
+        spans = section.get("spans") or []
+        if spans:
+            instrument.rendered(
+                str(section["section"]), [sid for sid, end in spans if end <= len(text)]
+            )
         blocks.append(
             _HEADING.format(section=section["section"], title=section.get("title", ""))
             + f"\n{text}"

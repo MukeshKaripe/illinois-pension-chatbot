@@ -82,6 +82,7 @@ class RetrievedSection:
     referenced_sections: list[str] = field(default_factory=list)
     source_public_act: str | None = None
     truncated: bool = False
+    spans: list[tuple[str, int]] = field(default_factory=list)
 
     @property
     def citation(self) -> str:
@@ -99,6 +100,7 @@ class RetrievedSection:
             "relevance": self.relevance,
             "referenced_sections": self.referenced_sections,
             "truncated": self.truncated,
+            "spans": [list(span) for span in self.spans],
         }
 
 
@@ -417,6 +419,13 @@ def _variant_of(chunk: dict[str, Any]) -> tuple[str | None, str]:
 def merge_variants(
     chunks: list[dict[str, Any]], subsection_key: Callable[[str], Any] = _subsection_sort_key
 ) -> list[str]:
+    """The texts of `merge_variants_with_ids`, without the subsection ids."""
+    return [text for text, _ in merge_variants_with_ids(chunks, subsection_key)]
+
+
+def merge_variants_with_ids(
+    chunks: list[dict[str, Any]], subsection_key: Callable[[str], Any] = _subsection_sort_key
+) -> list[tuple[str, list[str]]]:
     """A section's text in statute order, with each printed version read once.
 
     ILGA prints a section amended by concurrent Public Acts once per Act, and
@@ -428,6 +437,9 @@ def merge_variants(
     word differently is given once per wording and labelled with the versions
     that carry it, and a note up front says which is which. A section with one
     version, labelled or not, comes back exactly as indexed.
+
+    Each text comes with the subsection ids it carries, which is how the eval
+    suite knows what reached the model rather than what was retrieved.
     """
     ordered = sorted(
         chunks,
@@ -436,8 +448,8 @@ def merge_variants(
     read = [(str(c.get("subsection_id") or ""), *_variant_of(c)) for c in ordered]
     labels = list(dict.fromkeys(label for _, label, _ in read if label))
     if len(labels) < 2:
-        texts = [(c.get("content") or "").strip() for c in ordered]
-        return [text for text in texts if text]
+        texts = [((c.get("content") or "").strip(), str(c.get("subsection_id") or "")) for c in ordered]
+        return [(text, [sid] if sid else []) for text, sid in texts if text]
 
     # A subsection is matched across versions by its letter and by how many
     # times that letter has come up in its own version, so a version that
@@ -452,20 +464,22 @@ def merge_variants(
         normalised = " ".join(body.split())
         wordings.setdefault(normalised, (body, []))[1].append(label)
 
-    parts = [
+    parts: list[tuple[str, list[str]]] = [(
         f"(This Section is printed in {len(labels)} versions: {'; '.join(labels)}. "
         "Text common to all versions is given once; where they differ, each text "
-        "is labelled with the versions it belongs to.)"
-    ]
-    for wordings in groups.values():
+        "is labelled with the versions it belongs to.)",
+        [],
+    )]
+    for (subsection, _), wordings in groups.items():
+        ids = [subsection] if subsection else []
         if len(wordings) == 1:
             body, holders = next(iter(wordings.values()))
             if set(holders) >= set(labels):
-                parts.append(body)
+                parts.append((body, ids))
                 continue
         for body, holders in wordings.values():
             named = [h for h in dict.fromkeys(holders) if h]
-            parts.append(f"({'; '.join(named)})\n{body}" if named else body)
+            parts.append((f"({'; '.join(named)})\n{body}" if named else body, ids))
     return parts
 
 
@@ -490,7 +504,8 @@ def _assemble(
             if ref not in references:
                 references.append(ref)
 
-    for body in merge_variants(chunks):
+    spans: list[tuple[str, int]] = []
+    for body, ids in merge_variants_with_ids(chunks):
         if used + len(body) > char_budget:
             remaining = max(0, char_budget - used)
             if remaining > 400:
@@ -500,6 +515,9 @@ def _assemble(
             break
         parts.append(body)
         used += len(body)
+        # Only whole parts are evidence: a subsection cut short is not.
+        end = len("\n".join(parts))
+        spans.extend((sid, end) for sid in ids)
 
     return RetrievedSection(
         section=section_id,
@@ -512,6 +530,7 @@ def _assemble(
         referenced_sections=references,
         source_public_act=first.get("source_public_act") or None,
         truncated=truncated,
+        spans=spans,
     )
 
 
