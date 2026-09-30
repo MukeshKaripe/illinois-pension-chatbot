@@ -193,3 +193,37 @@ async def test_a_member_with_a_record_is_not_given_the_conversation_as_a_fact(de
     await nodes.resolve_recipes(_state([]))
     [facts] = derived
     assert "described_in_conversation" not in facts
+
+
+@pytest.mark.parametrize("said, tiers", [
+    ("An employee who joined in 2015 is 62 and earns $80,000.", [2]),
+    ("She was hired in 2004 and has 22 years.", [1]),
+    ("They became a member in 2019.", [3]),
+    ("Joined in 2017, age 45.", [2, 3]),          # before or after July 6, 2017 -- both
+    ("An employee is 56 with 18 years of service.", [1, 2]),   # said nothing about when
+])
+def test_a_described_employees_joining_year_decides_the_tier(said, tiers) -> None:
+    assert nodes._described_tiers(said, article=8) == tiers
+
+
+def test_tier_3_is_article_8_and_11_only() -> None:
+    assert nodes._described_tiers("joined in 2019", article=9) == [2]
+
+
+@pytest.mark.asyncio
+async def test_resolve_recipes_looks_up_only_the_stated_tier(monkeypatch, derived) -> None:
+    from langchain_core.messages import HumanMessage
+
+    looked: list = []
+
+    async def lookup(formula_type, article, tier):
+        looked.append(tier)
+        return None
+
+    monkeypatch.setattr(nodes, "lookup_recipe", lookup)
+    said = "An employee who joined in 2015 is 62, earns $80,000 and has 11 years of service."
+    state = {**_state([]), "employee_record": None, "salary_history": [], "member_facts": {},
+             "fact_ledger": {}, "question": said, "messages": [HumanMessage(content=said)],
+             "coverage": {"article": "8", "basis": "deployment", "record_article": None}}
+    await nodes.resolve_recipes(state)
+    assert looked == [2]

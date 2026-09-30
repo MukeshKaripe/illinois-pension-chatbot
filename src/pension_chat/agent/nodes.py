@@ -562,6 +562,39 @@ async def _derivation_evidence(
     return scoped_evidence(list(found) + [s for s in sections if s.section not in have], article)
 
 
+#: "joined in 2015", "hired in 2004", "became a member in 2019", "member since 2012".
+_JOINED_RE = re.compile(
+    r"\b(?:joined|hired|started|began|became a member|first became a member|member since|since)"
+    r"\b[^.?!\d]{0,30}?\b(19[4-9]\d|20[0-4]\d)\b",
+    re.IGNORECASE,
+)
+
+#: Articles whose members first joining on or after July 6, 2017 are Tier 3
+#: (§1-160(c-5): "a retirement annuity under Article 8 or Article 11").
+_TIER_3_ARTICLES = frozenset({8, 11})
+
+
+def _described_tiers(said: str, article: Any) -> list[int]:
+    """The tiers a described employee can be in, from the year they joined.
+
+    Tier follows from when someone first became a member (§1-160(a), (c-5)),
+    and a described employee says it in words -- "joined in 2015" -- which is
+    data, not a judgement. A bare year is only as precise as it is: 2011 to
+    2016 is Tier 2, before 2011 Tier 1, and 2017 either side of July 6. Saying
+    nothing leaves both Tier 1 and Tier 2 open, as before.
+    """
+    match = _JOINED_RE.search(said or "")
+    if not match:
+        return [1, 2]
+    year = int(match.group(1))
+    tier_3 = str(article).isdigit() and int(str(article)) in _TIER_3_ARTICLES
+    if year < 2011:
+        return [1]
+    if year < 2017 or not tier_3:
+        return [2]
+    return [2, 3] if year == 2017 else [3]
+
+
 def _at_scenario_age(state: PensionAgentState, facts: dict) -> dict:
     """The member as they would be at the retirement the question is about.
 
@@ -638,7 +671,11 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     # Only the registry lookup branches. Derivation reads the statute, not the
     # member, so running it twice would spend two model calls producing one
     # recipe.
-    branches: list[int | None] = [tier] if tier is not None else [1, 2]
+    branches: list[int | None] = (
+        [tier] if tier is not None
+        else list(_described_tiers(_member_words(state), article)) if not employee
+        else [1, 2]
+    )
 
     recipes: dict[str, dict] = {}
     provenance: list[dict] = []
