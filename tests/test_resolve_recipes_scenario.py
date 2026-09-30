@@ -308,3 +308,15 @@ async def test_execution_skips_a_ruled_out_branch_and_runs_the_other() -> None:
 ])
 def test_a_stated_annual_salary_is_read_from_the_users_words(said, salary) -> None:
     assert nodes._stated_annual_salary(said) == salary
+
+
+@pytest.mark.parametrize("said, age", [
+    ("An employee who joined in 2015 is 62, earns $80,000 and has 11 years.", 62),
+    ("An employee aged 56 with 18 years of service.", 56),
+    ("A 58-year-old with 27 years.", 58),
+    ("Someone age 60 who joined in 2001.", 60),
+    ("An employee with 11 years of service earning $80,000.", None),   # service is not an age
+    ("They have 30 years and joined in 1996.", None),
+])
+def test_a_stated_age_is_read_from_the_users_words(said, age) -> None:
+    assert nodes._stated_age(said) == age

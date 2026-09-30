@@ -36,7 +36,7 @@ from sqlalchemy.orm import selectinload
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent import gaps, guardrails, ledger
 from pension_chat.agent.derivation import derive_recipe
-from pension_chat.agent.facts import build_member_facts
+from pension_chat.agent.facts import aliases_of, build_member_facts
 from pension_chat.agent.llm import complete
 from pension_chat.agent.registry import (
     RegistryRecipe,
@@ -569,6 +569,13 @@ _JOINED_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: "is 62" / "aged 56" / "age 60" / "58-year-old" -- an adult working age.
+_AGE_RE = re.compile(
+    r"(?:\b(?:is|aged?)\s+([2-8]\d)\b(?!\s*(?:years? of service|%|\.\d)))"
+    r"|(?:\b([2-8]\d)[- ]years?[- ]old\b)",
+    re.IGNORECASE,
+)
+
 #: A pay word, then within a few words an amount of 4 to 7 digits ($80,000).
 _SALARY_RE = re.compile(
     r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?![\d,])",
@@ -578,6 +585,15 @@ _SALARY_RE = re.compile(
 #: Articles whose members first joining on or after July 6, 2017 are Tier 3
 #: (§1-160(c-5): "a retirement annuity under Article 8 or Article 11").
 _TIER_3_ARTICLES = frozenset({8, 11})
+
+
+def _stated_age(said: str) -> int | None:
+    """An age the user wrote down: "is 62", "aged 56", "age 60", "a 58-year-old".
+
+    Never a number of years of service: "11 years of service" is not an age.
+    """
+    match = _AGE_RE.search(said or "")
+    return int(next(g for g in match.groups() if g)) if match else None
 
 
 def _stated_annual_salary(said: str) -> int | None:
@@ -1348,6 +1364,17 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # the recipe with the section that states it, so it fills a gap at its own
     # rank rather than spending the assumption ceiling -- and the answer names
     # the section instead of saying it could not establish the value.
+    # A described employee's age, read as written ("is 62", "aged 56", "a
+    # 58-year-old") when the extraction step did not hear it -- it varies run to
+    # run, and an age the user typed must not become a question back to them.
+    if not state.get("employee_record"):
+        stated_age = _stated_age(spoken)
+        if stated_age is not None:
+            for name in declared:
+                if name in aliases_of("age") and name not in resolved:
+                    resolved[name] = stated_age
+                    taken[name] = stated_age
+
     statutory = statutory_fills(recipes)
     cited: dict[str, Any] = {}
     cited_origins: dict[str, str] = {}
@@ -1366,7 +1393,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # ("is 62" lives in `resolved`, not in `facts`), statutory values, and --
     # for a described employee with no record -- the salary they stated, which
     # the missing-input policy lets stand, flat, for the averaging period.
-    known = {**facts, **resolved, **cited}
+    known = {"as_of_date": date.today().isoformat(), **facts, **resolved, **cited}
     if not state.get("employee_record"):
         stated_salary = _stated_annual_salary(spoken)
         if stated_salary is not None:
