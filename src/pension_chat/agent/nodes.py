@@ -569,9 +569,27 @@ _JOINED_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: A pay word, then within a few words an amount of 4 to 7 digits ($80,000).
+_SALARY_RE = re.compile(
+    r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?![\d,])",
+    re.IGNORECASE,
+)
+
 #: Articles whose members first joining on or after July 6, 2017 are Tier 3
 #: (§1-160(c-5): "a retirement annuity under Article 8 or Article 11").
 _TIER_3_ARTICLES = frozenset({8, 11})
+
+
+def _stated_annual_salary(said: str) -> int | None:
+    """An annual salary the user wrote down -- "earns $80,000", "salary is 72,500".
+
+    Data, not judgement: a money amount beside a word for pay. A year or a date
+    is never one; without a pay word, nothing is read.
+    """
+    match = _SALARY_RE.search(said or "")
+    if not match:
+        return None
+    return int(match.group(1).replace(",", ""))
 
 
 def _described_tiers(said: str, article: Any) -> list[int]:
@@ -1344,8 +1362,17 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         cited_origins[fill.name] = SOURCE_STATUTORY
     resolved.update(cited)
 
+    # What a default may be computed from: the facts, what was stated this turn
+    # ("is 62" lives in `resolved`, not in `facts`), statutory values, and --
+    # for a described employee with no record -- the salary they stated, which
+    # the missing-input policy lets stand, flat, for the averaging period.
+    known = {**facts, **resolved, **cited}
+    if not state.get("employee_record"):
+        stated_salary = _stated_annual_salary(spoken)
+        if stated_salary is not None:
+            known["stated_annual_salary"] = stated_salary
     assumed, assumed_origins, still_missing = apply_assumptions(
-        sheet, outstanding_asks, {**facts, **cited}, settings_ceiling
+        sheet, outstanding_asks, known, settings_ceiling
     )
     filled_origins = {**cited_origins, **assumed_origins}
     resolved.update(assumed)

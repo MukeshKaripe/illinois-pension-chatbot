@@ -30,7 +30,7 @@ def test_timing_inputs_are_assumable() -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["article_number", "employment_status", "tier", "final_average_salary", "service_years"],
+    ["article_number", "employment_status", "tier", "service_years", "current_annual_salary"],
 )
 def test_identity_and_entitlement_inputs_are_never_assumable(name: str) -> None:
     assert not is_assumable(name)
@@ -66,8 +66,11 @@ def test_every_assumable_rule_is_complete() -> None:
         assert rule.disclosure_cues, f"{name}: assumable with no words that disclose it"
         assert rule.default is not None, f"{name}: assumable with no default"
         assert rule.plausible is not None, f"{name}: assumable with no plausible range"
-        assert default_for(name, KNOWN) is not None, f"{name}: default unusable on known facts"
-        assert plausible_range(name, KNOWN) is not None, f"{name}: range unusable on known facts"
+        # A salary basis is taken only from a salary the user stated, so the
+        # facts a rule may use include one.
+        known = {**KNOWN, "stated_annual_salary": 80000}
+        assert default_for(name, known) is not None, f"{name}: default unusable on known facts"
+        assert plausible_range(name, known) is not None, f"{name}: range unusable on known facts"
 
 
 def test_assumption_signals_are_valid() -> None:
@@ -113,19 +116,34 @@ def test_disclosure_contract_by_example() -> None:
     assert not has_signal_undisclosed, f"'{undisclosed_sentence}' should NOT contain an assumption signal"
 
 
-def test_salary_aliases_are_in_never_assumable() -> None:
-    """Every salary alias facts.py publishes must be forbidden to assume."""
-    salary_aliases = {
-        "final_average_salary",
-        "highest_average_annual_salary",
-        "highest_average_annual_salary_4yr",
-        "highest_average_annual_salary_5yr",
-        "highest_average_annual_salary_8yr",
-        "fas",
-        "current_annual_salary",
-    }
-    for alias in salary_aliases:
-        assert alias in NEVER_ASSUMABLE, f"{alias} missing from NEVER_ASSUMABLE"
+SALARY_BASES = (
+    "final_average_salary", "highest_average_annual_salary", "highest_average_annual_salary_4yr",
+    "highest_average_annual_salary_5yr", "highest_average_annual_salary_8yr", "fas",
+    "final_average_salary_8_year", "final_average_salary_96_months", "tier_2_final_average_salary",
+)
+
+
+@pytest.mark.parametrize("name", SALARY_BASES)
+def test_a_salary_basis_is_never_invented_nor_taken_from_record_pay(name: str) -> None:
+    # Missing-input policy (product owner, 2026-09-30): salary growth is a
+    # secondary input -- a salary the user *stated* may be taken as flat across
+    # the averaging period, and said so. Nothing else stands in for one: not
+    # nothing, and not the record's current pay.
+    assert default_for(name, KNOWN) is None
+    assert default_for(name, {**KNOWN, "current_annual_salary": 90000}) is None
+
+
+@pytest.mark.parametrize("name", SALARY_BASES)
+def test_a_stated_salary_is_taken_as_flat_and_disclosed(name: str) -> None:
+    rule = rule_for(name)
+    assert default_for(name, {**KNOWN, "stated_annual_salary": 80000}) == 80000
+    assert rule is not None and not rule.derives          # an assumption, counted and disclosed
+    assert "flat" in rule.basis
+
+
+def test_the_salary_record_itself_stays_never_assumable() -> None:
+    for name in ("current_annual_salary", "salary_history"):
+        assert name in NEVER_ASSUMABLE
 
 
 def test_an_unknown_input_is_not_assumable_by_default() -> None:
@@ -185,13 +203,30 @@ def test_the_ceiling_bites_a_third_invented_value() -> None:
     sheet = WorkSheet.from_state({"turn_index": 1, "member_facts": KNOWN, "assumptions": {}})
     missing = [
         {"name": "withdrawal_date", "ask_for": "..."},
-        {"name": "annuity_start_date", "ask_for": "..."},
+        {"name": "final_average_salary", "ask_for": "..."},
         {"name": "withdrawal_date_again", "ask_for": "..."},
     ]
-    filled, _, still_missing = apply_assumptions(sheet, missing, KNOWN, ceiling=1)
+    filled, _, still_missing = apply_assumptions(
+        sheet, missing, {**KNOWN, "stated_annual_salary": 80000}, ceiling=1
+    )
 
     assert len(filled) == 1
     assert [item["name"] for item in still_missing] == [
-        "annuity_start_date",
+        "final_average_salary",
         "withdrawal_date_again",
     ]
+
+
+def test_a_birth_date_is_derived_from_a_stated_age() -> None:
+    rule = rule_for("birth_date")
+    value = default_for("birth_date", {"as_of_date": "2026-09-30", "age": 62})
+    assert rule is not None and rule.derives
+    assert value is not None and value.startswith("1964")        # mid-year: 62 and a half ago
+    assert default_for("birth_date", {"as_of_date": "2026-09-30"}) is None
+
+
+def test_the_annuity_start_follows_the_withdrawal_date() -> None:
+    rule = rule_for("annuity_start_date")
+    assert rule is not None and rule.derives
+    known = {"as_of_date": "2026-09-30", "withdrawal_date": "2027-01-31"}
+    assert default_for("annuity_start_date", known) == "2027-01-31"

@@ -297,3 +297,14 @@ async def test_execution_skips_a_ruled_out_branch_and_runs_the_other() -> None:
              "resolved_inputs": {"final_average_salary": 80000}}
     out = await nodes.execute_calculations(state)
     assert list(out["calculation_result"]) == ["retirement_annuity@tier2"]
+
+
+@pytest.mark.parametrize("said, salary", [
+    ("An employee who joined in 2015 is 62, earns $80,000 and has 11 years.", 80000),
+    ("Their salary is 72,500 a year.", 72500),
+    ("She makes $95000 annually and is 58.", 95000),
+    ("An employee aged 60 with 24 years.", None),
+    ("They retired on January 1, 2002 at age 60.", None),     # a date is not a salary
+])
+def test_a_stated_annual_salary_is_read_from_the_users_words(said, salary) -> None:
+    assert nodes._stated_annual_salary(said) == salary
