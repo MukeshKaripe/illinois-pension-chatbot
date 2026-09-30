@@ -261,11 +261,18 @@ class Session(Base):
         nullable=False,
         server_default="active",
     )
+    # The conversation's people (migration 009): most recent first, at most 4,
+    # each keyed by an internal MEAB ID never shown. Not the principal.
+    subjects: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     __table_args__ = (
         CheckConstraint(
             "status IN ('active', 'ended')",
             name="ck_sessions_status",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(subjects) = 'array' AND jsonb_array_length(subjects) <= 4",
+            name="ck_sessions_subjects_at_most_four",
         ),
     )
 

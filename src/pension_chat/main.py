@@ -152,10 +152,12 @@ from pension_chat.api.health import router as health_router  # noqa: E402
 from pension_chat.api.profiles import router as profiles_router  # noqa: E402
 from pension_chat.api.sections import router as sections_router  # noqa: E402
 from pension_chat.api.sessions import router as sessions_router  # noqa: E402
+from pension_chat.api.subject import router as subject_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(sessions_router)
+app.include_router(subject_router)
 app.include_router(sections_router)
 app.include_router(profiles_router)
 app.include_router(admin_router)

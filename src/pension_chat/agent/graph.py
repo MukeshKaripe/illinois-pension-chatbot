@@ -823,6 +823,15 @@ async def scenarios_of(
     return active_scenarios((snapshot.values or {}).get("scenario_set") or {})
 
 
+async def people_of(
+    session_id: str, *, employee_id: str | None = None, session_token: str | None = None
+) -> list[str]:
+    """Who the last turn was about, read from the checkpoint -- so a reload restores the highlight."""
+    config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    snapshot = await active_graph().aget_state(config)
+    return list((snapshot.values or {}).get("last_people") or [])
+
+
 async def forget_scenarios(
     session_id: str,
     *,

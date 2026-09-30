@@ -24,11 +24,13 @@ from sqlalchemy import select, update
 from sqlalchemy import text as sa_text
 
 from pension_chat.api.auth import TokenData, get_current_user
+from pension_chat.api.subject import by_recency, store_roster
 from pension_chat.db.models import Employee, Session, SessionMessage
 from pension_chat.db.session import get_admin_session, get_db_session
 from pension_chat.sse import (
     sse_done,
     sse_error,
+    sse_people,
     sse_preamble,
     sse_progress,
     sse_replace,
@@ -439,6 +441,7 @@ async def send_message(
                 # Names the thread's owner, which scopes its checkpoints to
                 # the same row-level policy as the transcript. This thread is a
                 # real session row, so the policy can resolve it.
+                subjects=list(session.subjects or []),
                 thread_owner={
                     "employee_id": str(employee_id) if employee_id else None,
                     "session_token": (
@@ -453,6 +456,8 @@ async def send_message(
                     yield sse_progress(event["text"], event["at"])
                 elif kind == "view":
                     yield sse_view(event["slot"], event["markdown"])
+                elif kind == "people":
+                    yield sse_people(event["active"])
                 elif kind == "token":
                     answer_parts.append(event["text"])
                     yield sse_token(event["text"])
@@ -498,7 +503,7 @@ async def send_message(
 
         # The calculation card rides in the audit trail: it is provenance too,
         # and there it needs no column of its own.
-        tool_calls = _audit_trail(final_state) + cards
+        tool_calls = _audit_trail(final_state) + cards + _subject_trail(final_state)
 
         # Persist the assistant turn, including the audit metadata the
         # architecture requires (§7.1): citations, and whether the answer passed
@@ -530,6 +535,16 @@ async def send_message(
             logger.exception("Failed to persist assistant message")
             msg_id = -1
 
+        # The people this turn was about move to the front; one write, only
+        # when the order changed (spec §4.4).
+        roster = list(session.subjects or [])
+        reordered = by_recency(roster, list(final_state.get("turn_people") or []))
+        if reordered != roster:
+            try:
+                await store_roster(session, reordered)
+            except Exception:
+                logger.exception("Could not reorder the conversation's people")
+
         yield sse_done(
             message_id=msg_id,
             citations=final_state.get("citations"),
@@ -550,6 +565,16 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _subject_trail(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Who this turn was about, and any choice it offered -- for the audit and the choice cards."""
+    trail: list[dict[str, Any]] = []
+    if state.get("turn_people"):
+        trail.append({"type": "subjects", "refs": list(state["turn_people"])})
+    if suggestion := state.get("subject_suggestion"):
+        trail.append({"type": "subject_suggestion", **suggestion})
+    return trail
 
 
 async def _authorised_session(
