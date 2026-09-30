@@ -578,7 +578,8 @@ _AGE_RE = re.compile(
 
 #: A pay word, then within a few words an amount of 4 to 7 digits ($80,000).
 _SALARY_RE = re.compile(
-    r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?![\d,])",
+    r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?!\d|,\d)"
+    r"|\$\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?!\d|,\d)\s+(?:a year |per year |annual )?(?:salary|a year|per year|annually)",
     re.IGNORECASE,
 )
 
@@ -605,7 +606,7 @@ def _stated_annual_salary(said: str) -> int | None:
     match = _SALARY_RE.search(said or "")
     if not match:
         return None
-    return int(match.group(1).replace(",", ""))
+    return int(next(g for g in match.groups() if g).replace(",", ""))
 
 
 def _described_tiers(said: str, article: Any) -> list[int]:

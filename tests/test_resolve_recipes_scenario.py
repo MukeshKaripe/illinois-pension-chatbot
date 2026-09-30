@@ -305,6 +305,9 @@ async def test_execution_skips_a_ruled_out_branch_and_runs_the_other() -> None:
     ("She makes $95000 annually and is 58.", 95000),
     ("An employee aged 60 with 24 years.", None),
     ("They retired on January 1, 2002 at age 60.", None),     # a date is not a salary
+    ("If an employee earns $75,000, joined in 1998 and is 58.", 75000),   # a comma after the amount
+    ("A Tier 3 employee aged 64 with 10 years and a $65,000 salary.", 65000),   # amount before the word
+    ("They are paid $58,250 a year.", 58250),
 ])
 def test_a_stated_annual_salary_is_read_from_the_users_words(said, salary) -> None:
     assert nodes._stated_annual_salary(said) == salary

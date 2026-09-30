@@ -230,3 +230,14 @@ def test_the_annuity_start_follows_the_withdrawal_date() -> None:
     assert rule is not None and rule.derives
     known = {"as_of_date": "2026-09-30", "withdrawal_date": "2027-01-31"}
     assert default_for("annuity_start_date", known) == "2027-01-31"
+
+
+@pytest.mark.parametrize("known, months", [
+    ({"age": 56}, 42),
+    ({"age_at_annuity_start": 56}, 42),     # a described employee's age arrives under this name
+    ({"current_age": 58}, 18),
+    ({"age": 60}, 0),                       # at or past 60 there are no months to count
+    ({"age": 64}, 0),
+])
+def test_months_before_60_reads_any_name_for_the_age(known, months) -> None:
+    assert default_for("months_before_age_60", known) == months

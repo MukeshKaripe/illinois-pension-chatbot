@@ -79,6 +79,15 @@ def _today(known: Mapping[str, Any]) -> Any:
     return known.get("as_of_date")
 
 
+def _age(known: Mapping[str, Any]) -> Any:
+    """The age, under whichever name it arrived -- a described employee's stated
+    age resolves as `age_at_annuity_start`, a record's as `age`."""
+    for name in ("age", "current_age", "attained_age", "age_at_annuity_start", "age_at_withdrawal"):
+        if known.get(name) is not None:
+            return known[name]
+    return None
+
+
 def _months_before_sixty(known: Mapping[str, Any]) -> Any:
     """Whole months from a mid-year birthday to age 60.
 
@@ -87,7 +96,7 @@ def _months_before_sixty(known: Mapping[str, Any]) -> Any:
     and the spread is reported alongside it. Picking a point silently is what
     turns "age 56" into a confident 44 that nobody can check.
     """
-    age = known.get("age")
+    age = _age(known)
     if age is None:
         return None
     months = (60 - int(age)) * 12
@@ -97,7 +106,7 @@ def _months_before_sixty(known: Mapping[str, Any]) -> Any:
 
 
 def _months_before_sixty_range(known: Mapping[str, Any]) -> tuple[Any, Any] | None:
-    age = known.get("age")
+    age = _age(known)
     if age is None:
         return None
     months = (60 - int(age)) * 12
@@ -121,7 +130,7 @@ def _birth_date_from_age(known: Mapping[str, Any]) -> Any:
     """A date of birth placed mid-year from a stated age, as `_months_before_sixty` is."""
     from datetime import date, timedelta
 
-    age, today = known.get("age"), known.get("as_of_date")
+    age, today = _age(known), known.get("as_of_date")
     if age is None or not today:
         return None
     try:
@@ -136,7 +145,7 @@ def _birth_date_range(known: Mapping[str, Any]) -> tuple[Any, Any] | None:
     """Anyone aged N today was born between N+1 years ago (plus a day) and N years ago."""
     from datetime import date, timedelta
 
-    age, today = known.get("age"), known.get("as_of_date")
+    age, today = _age(known), known.get("as_of_date")
     if age is None or not today:
         return None
     try:
