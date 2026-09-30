@@ -54,6 +54,7 @@ from pension_chat.agent.retrieval import (
     fetch_sections,
     retrieve,
 )
+from pension_chat.agent.section_scope import restricted_sources, scoped_evidence
 from pension_chat.agent.state import PensionAgentState
 from pension_chat.agent.worksheet import (
     SOURCE_ASSUMED,
@@ -510,7 +511,7 @@ async def _derivation_evidence(
     """
     queries = _FORMULA_QUERIES.get(formula_type)
     if not queries or not article:
-        return sections
+        return scoped_evidence(sections, article)
     settings = get_settings()
     try:
         found = await retrieve(
@@ -522,9 +523,9 @@ async def _derivation_evidence(
         )
     except Exception:
         logger.exception("Derivation search failed for %s under Article %s", formula_type, article)
-        return sections
+        return scoped_evidence(sections, article)
     have = {s.section for s in found}
-    return list(found) + [s for s in sections if s.section not in have]
+    return scoped_evidence(list(found) + [s for s in sections if s.section not in have], article)
 
 
 def _at_scenario_age(state: PensionAgentState, facts: dict) -> dict:
@@ -1872,6 +1873,12 @@ async def _persist_new_recipes(state: PensionAgentState, results: dict) -> None:
     for formula_type, recipe in (state.get("recipes") or {}).items():
         derived = recipe.get("_derived")
         if derived is None or recipe.get("source") != "derived":
+            continue
+        # A recipe resting on a conditional section (1-162: only an "affected"
+        # fund's members) is right for some members of the fund and wrong for
+        # the rest; filed under the fund, reuse would hand it to all of them.
+        if conditional := restricted_sources(derived.source_sections):
+            logger.info("Not saving %s: rests on conditional sections %s", formula_type, conditional)
             continue
         if any(e.get("formula_type") == formula_type for e in errors):
             continue
