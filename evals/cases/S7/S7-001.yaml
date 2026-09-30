@@ -1,0 +1,18 @@
+id: S7-001
+family: S7
+areas:
+- records
+- clarification
+tiers:
+- full
+employee: unmapped_status
+turns:
+- q: Is this employee active?
+  goal: The status, without guessing an unmapped code.
+  reference: The record's status code DB7 is not mapped; the answer says so rather than calling it active.
+  acceptable:
+  - ask_other
+  - answer
+  checks:
+    must_not_state:
+    - is active

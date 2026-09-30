@@ -1,0 +1,29 @@
+id: S1-005
+family: S1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: What do Tier 3 members contribute, compared with other members?
+  goal: The Tier 3 employee contribution rate against the standard rate.
+  reference: A member subject to §1-160(c-5) (first joined on or after July 6, 2017) contributes 9.5% of each salary
+    payment for age and service annuity (§8-174(a-10)), against 6.5% for other members (§8-174(a)).
+  checks:
+    cites_any:
+    - 8-174
+    must_state:
+    - 9.5%
+    ttft_class: simple
+- q: Since when?
+  goal: When the Tier 3 rate applies from.
+  reference: It applies to members subject to §1-160(c-5), who first became members on or after July 6, 2017, the
+    effective date of Public Act 100-23 (§1-160(c-5), §8-174(a-10)).
+  checks:
+    cites_any:
+    - 8-174
+    - 1-160
+    must_state:
+    - '2017'
+    ttft_class: simple

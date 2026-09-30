@@ -1,0 +1,24 @@
+id: S6-001
+family: S6
+areas:
+- recommendation
+- calculation
+tiers:
+- smoke
+- full
+employee: tier2_standard
+turns:
+- q: Which retirement age gives the best annuity, 62, 65 or 67?
+  goal: A comparison and a recommendation.
+  reference: Each figure from the engine; 67 is unreduced (§1-160(c)), 62 and 65 reduced (§1-160(d)).
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    cites_any:
+    - 1-160
+- q: Why that one?
+  goal: The reasoning behind the recommendation.
+  reference: Grounded in the figures and §1-160(d).
+  checks:
+    ttft_class: heavy

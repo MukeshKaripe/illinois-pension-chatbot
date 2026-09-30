@@ -1,0 +1,20 @@
+id: S8-002
+family: S8
+areas:
+- records
+- continuity
+tiers:
+- full
+needs:
+- find_employee
+turns:
+- q: What is A. Rivera's tier?
+  goal: Tier from the record.
+  reference: Tier 2.
+  checks:
+    about_employee: tier2_standard
+- q: and E. Walsh's status?
+  goal: Status from the other record.
+  reference: Retired.
+  checks:
+    about_employee: retiree

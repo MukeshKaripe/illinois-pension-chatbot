@@ -1,0 +1,18 @@
+id: S7-002
+family: S7
+areas:
+- records
+- clarification
+tiers:
+- full
+employee: no_hire_date
+turns:
+- q: What tier are they?
+  goal: The tier, or why it cannot be determined.
+  reference: The record has no tier and no hire date; tier depends on when they first joined (§1-160(a)).
+  acceptable:
+  - ask_critical
+  - answer
+  checks:
+    critical_inputs:
+    - participation_date

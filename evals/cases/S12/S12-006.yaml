@@ -1,0 +1,37 @@
+id: S12-006
+family: S12
+areas:
+- clarification
+- calculation
+- continuity
+tiers:
+- full
+employee: no_hire_date
+turns:
+- q: What would this employee's annuity be at 62?
+  goal: Ask when they joined, or branch.
+  reference: Tier decides the rule (§1-160(a)).
+  acceptable:
+  - ask_critical
+  - branch_on_critical
+  checks:
+    critical_inputs:
+    - participation_date
+- q: They joined in 2010.
+  goal: Tier 1 estimate.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    calculation: true
+- q: Sorry, it was 2012.
+  goal: 'Now Tier 2: recompute under the Tier 2 rules.'
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    no_reask:
+    - age
+    cites_any:
+    - 1-160

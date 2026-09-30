@@ -1,0 +1,28 @@
+id: S1-008
+family: S1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: An employee has service in another Illinois pension system too. Can it be combined?
+  goal: Whether service in another participating system can be combined, and under which provisions.
+  reference: 'The Reciprocal Act (Article 20): a person with pension credit in two or more participating systems
+    may qualify for a proportional annuity (§20-115), with credits combined for vesting (§20-117), each system computing
+    its own proportional annuity (§20-121).'
+  checks:
+    cites_any:
+    - 20-115
+    - 20-117
+    - 20-121
+    ttft_class: simple
+- q: Which system pays the annuity then?
+  goal: Who pays under the Reciprocal Act.
+  reference: Each participating system in which credit was established computes and pays its own proportional annuity
+    (§20-121); systems may agree that one pays on behalf of others (§20-128).
+  checks:
+    cites_any:
+    - 20-121
+    - 20-128
+    ttft_class: simple

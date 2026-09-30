@@ -1,0 +1,33 @@
+id: S4-002
+family: S4
+areas:
+- calculation
+- records
+tiers:
+- smoke
+- full
+employee: tier2_standard
+turns:
+- q: What would their annuity be at 67?
+  goal: A Tier 2 annuity estimate at 67.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)). Tier 2 final average salary: the highest total salary
+    over 96 consecutive months (8 years) within the last 120 months (10 years) of service, divided by the months
+    (years) in that period (§1-160(b)).'
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    cites_any:
+    - 1-160
+- q: And at 62?
+  goal: The reduced annuity at 62.
+  reference: Reduced by 1/2 of 1% for each full month under 67, a 30% reduction at exactly 62 (§1-160(d)).
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    cites_any:
+    - 1-160

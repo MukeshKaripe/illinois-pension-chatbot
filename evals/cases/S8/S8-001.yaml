@@ -1,0 +1,27 @@
+id: S8-001
+family: S8
+areas:
+- records
+- continuity
+tiers:
+- full
+needs:
+- find_employee
+turns:
+- q: Look up L. Nguyen.
+  goal: Find the employee.
+  reference: Record tier3_recent.
+  checks:
+    about_employee: tier3_recent
+- q: and M. Okafor?
+  goal: Switch to the second employee.
+  reference: Record tier1_veteran.
+  checks:
+    about_employee: tier1_veteran
+- q: who retires first?
+  goal: Compare earliest eligibility.
+  reference: Okafor (Tier 1, eligible at 60, §8-138(g-1)) before Nguyen (Tier 3, 65, §1-160(c-5)).
+  checks:
+    cites_all:
+    - 1-160
+    - 8-138

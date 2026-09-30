@@ -1,0 +1,27 @@
+id: S4b-003
+family: S4b
+areas:
+- calculation
+- clarification
+tiers:
+- full
+turns:
+- q: An employee joined in 2001, is 60, and has 24 years. What would their annuity be?
+  goal: The salary needed for a figure, asked for rather than invented.
+  reference: Tier 1, eligible at 60 with 10+ years (§8-138(g-1)); the formula needs final average salary, which
+    was not given and cannot be assumed.
+  acceptable:
+  - ask_other
+  checks:
+    no_calculation: true
+    max_questions: 2
+- q: Their salary was about $90,000 for the last several years.
+  goal: The Tier 1 estimate.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    max_assumed: 2

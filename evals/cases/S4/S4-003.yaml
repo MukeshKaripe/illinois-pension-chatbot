@@ -1,0 +1,17 @@
+id: S4-003
+family: S4
+areas:
+- calculation
+- records
+tiers:
+- full
+employee: tier3_recent
+turns:
+- q: Estimate their annuity at 65.
+  goal: An estimate at 65 under the Tier 3 age rule, or what is missing.
+  reference: 'Joined after July 6, 2017: eligible at 65 with 10 years (§1-160(c-5)); at 65 they would have the service
+    to date plus the years until 65.'
+  checks:
+    cites_any:
+    - 1-160
+    ttft_class: heavy

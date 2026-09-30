@@ -1,0 +1,25 @@
+id: S4-004
+family: S4
+areas:
+- calculation
+- records
+tiers:
+- full
+employee: near_threshold
+turns:
+- q: Can they retire now with an annuity?
+  goal: Whether this employee is eligible now.
+  reference: 9.8 years is under the 10 years of service §1-160(c) requires, so no retirement annuity yet; a refund
+    may be available (§8-168).
+  checks:
+    no_calculation: true
+    must_state:
+    - 10 years
+    ttft_class: heavy
+- q: What if they work one more year?
+  goal: Eligibility and an estimate after one more year.
+  reference: With 10.8 years at about 67 they meet §1-160(c) and are entitled to an unreduced annuity.
+  checks:
+    cites_any:
+    - 1-160
+    ttft_class: heavy

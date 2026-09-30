@@ -1,0 +1,35 @@
+id: S11-002
+family: S11
+areas:
+- continuity
+- calculation
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: What is their annuity at 67?
+  goal: A Tier 2 estimate at 67.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    cites_any:
+    - 1-160
+- q: and at 65?
+  goal: The reduced estimate at 65 for the same employee.
+  reference: 'Reduced 1/2 of 1% per month under 67: 12% at 65 (§1-160(d)).'
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    cites_any:
+    - 1-160
+- q: which of those two is higher, and by how much?
+  goal: The comparison of the two figures.
+  reference: 67 is higher; the difference from the two engine figures.
+  checks:
+    ttft_class: heavy

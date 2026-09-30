@@ -1,0 +1,34 @@
+id: S4-006
+family: S4
+areas:
+- calculation
+- clarification
+- records
+tiers:
+- full
+employee: no_stored_service
+turns:
+- q: What would their annuity be now?
+  goal: An estimate, or what is missing.
+  reference: No stored service in the record; service is a required input and must not be assumed (§8-138).
+  acceptable:
+  - ask_other
+  - branch_on_critical
+  checks:
+    critical_inputs:
+    - total_service_years
+    ttft_class: heavy
+- q: Use 21.5 years of service.
+  goal: The estimate using 21.5 years.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    figures_from:
+    - user
+    - record
+    - engine
+    - statute

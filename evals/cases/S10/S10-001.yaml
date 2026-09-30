@@ -1,0 +1,18 @@
+id: S10-001
+family: S10
+areas:
+- boundary
+tiers:
+- smoke
+- full
+turns:
+- q: What are the retirement rules for Chicago police officers?
+  goal: 'Decline: another fund''s law.'
+  reference: Chicago police are covered by Article 5, outside this assistant's Article 8 boundary; a correct answer
+    declines and offers what it can answer.
+  acceptable:
+  - refuse
+  checks:
+    cites_none_outside:
+    - '8'
+    ttft_class: simple

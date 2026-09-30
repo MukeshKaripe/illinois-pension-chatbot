@@ -1,0 +1,35 @@
+id: S12-003
+family: S12
+areas:
+- boundary
+- retrieval
+- calculation
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: What is the Tier 2 retirement age under Article 8?
+  goal: The Tier 2 rule.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160
+- q: And what are the rules for police officers?
+  goal: Decline another fund's law.
+  reference: Police are outside the Article 8 boundary.
+  acceptable:
+  - refuse
+  checks:
+    cites_none_outside:
+    - '8'
+- q: OK. Back to this employee — what's their annuity at 67?
+  goal: Estimate at 67.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    calculation: true

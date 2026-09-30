@@ -1,0 +1,22 @@
+id: S9-001
+family: S9
+areas:
+- records
+- clarification
+tiers:
+- full
+needs:
+- find_employee
+turns:
+- q: Look up J. Smith.
+  goal: Disambiguate the two J. Smiths.
+  reference: 'Two records share the name (Streets and Sanitation; Chicago Public Library): ask which.'
+  acceptable:
+  - ask_other
+  checks:
+    max_questions: 1
+- q: the one at the library.
+  goal: Select smith_library.
+  reference: Record smith_library.
+  checks:
+    about_employee: smith_library

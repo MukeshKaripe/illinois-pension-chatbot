@@ -1,0 +1,16 @@
+id: S4b-004
+family: S4b
+areas:
+- calculation
+tiers:
+- full
+turns:
+- q: A Tier 3 employee aged 64 with 10 years and a $65,000 salary — what is their annuity at 65?
+  goal: An estimate at 65 under §1-160(c-5).
+  reference: 'Tier 3: age 65 with 10 years (§1-160(c-5)); the Tier 2 final average salary rule and salary cap apply
+    (§1-160(b), §1-160(b-5)).'
+  checks:
+    calculation: true
+    cites_any:
+    - 1-160
+    ttft_class: heavy

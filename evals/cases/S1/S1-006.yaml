@@ -1,0 +1,26 @@
+id: S1-006
+family: S1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: If an employee leaves before retirement age, can they get their contributions back?
+  goal: Whether and when a withdrawing employee is entitled to a refund.
+  reference: '§8-168: an employee who first became a member before 2011 and withdraws before 55, and any employee
+    with less than 10 years who withdraws before 60, is entitled to a refund of the accumulated sums from their
+    own contributions with interest (§8-168).'
+  checks:
+    cites_any:
+    - 8-168
+    ttft_class: simple
+- q: Does taking the refund end their service credit?
+  goal: What a refund does to service credit, and how it can be restored.
+  reference: A refund cancels the credits it repays; §8-167 lets an employee who returns restore them by repaying
+    the refund with interest, on the conditions it sets (§8-167).
+  checks:
+    cites_any:
+    - 8-167
+    - 8-168
+    ttft_class: simple

@@ -1,0 +1,43 @@
+id: S12-008
+family: S12
+areas:
+- continuity
+- retrieval
+- calculation
+- recommendation
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: Hello
+  goal: A greeting.
+  reference: Greeting answered without a model call.
+- q: What is the Tier 2 retirement age?
+  goal: The Tier 2 rule.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160
+- q: Suppose this employee had 20 more years of service.
+  goal: Adopt the premise.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+- q: Forget that — what does their actual record show?
+  goal: Leave the premise.
+  reference: The record's values.
+  checks:
+    about_employee: tier2_standard
+- q: What would you recommend for them?
+  goal: A grounded recommendation.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160

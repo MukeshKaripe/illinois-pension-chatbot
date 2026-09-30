@@ -1,0 +1,31 @@
+id: S1-004
+family: S1
+areas:
+- retrieval
+- citations
+tiers:
+- smoke
+- full
+turns:
+- q: How is final average salary calculated for a Tier 2 MEABF member?
+  goal: The Tier 2 final average salary rule and its section.
+  reference: 'Tier 2 final average salary: the highest total salary over 96 consecutive months (8 years) within
+    the last 120 months (10 years) of service, divided by the months (years) in that period (§1-160(b)).'
+  checks:
+    cites_any:
+    - 1-160
+    evidence_has:
+    - 1-160(b)
+    must_state:
+    - '96'
+    ttft_class: simple
+- q: Is there a cap on the salary that counts?
+  goal: Whether Tier 2 pensionable salary is capped, and how.
+  reference: 'Tier 2 pensionable salary is capped: $106,800 from January 1, 2011, raised each year by the lesser
+    of 3% or half the CPI-U increase (§1-160(b-5)).'
+  checks:
+    cites_any:
+    - 1-160
+    must_state:
+    - 106,800
+    ttft_class: simple

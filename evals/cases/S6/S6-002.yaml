@@ -1,0 +1,15 @@
+id: S6-002
+family: S6
+areas:
+- recommendation
+tiers:
+- full
+employee: near_threshold
+turns:
+- q: Should they retire now or work another year?
+  goal: A recommendation grounded in the 10-year rule.
+  reference: Retiring now forfeits the annuity (9.8 < 10 years, §1-160(c)); one more year earns it.
+  checks:
+    must_state:
+    - 10 years
+    ttft_class: heavy

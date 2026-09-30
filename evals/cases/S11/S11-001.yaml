@@ -1,0 +1,46 @@
+id: S11-001
+family: S11
+areas:
+- continuity
+- calculation
+tiers:
+- smoke
+- full
+turns:
+- q: An employee who joined in 2015 is 62, earns $80,000 and has 11 years of service. What is their annuity if they
+    retire now?
+  goal: A reduced Tier 2 annuity at 62.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    calculation: true
+    cites_any:
+    - 1-160
+    ttft_class: heavy
+- q: Sorry, the salary is $86,000.
+  goal: The figure recomputed on $86,000, nothing else re-asked.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    calculation: true
+    no_reask:
+    - age
+    - service
+    - participation_date
+    must_state:
+    - 86,000
+    ttft_class: heavy
+- q: So how much more is that per year?
+  goal: The difference between the two figures.
+  reference: The difference between the corrected and the original annual annuity, both from the engine.
+  checks:
+    figures_from:
+    - engine
+    - user
+    - statute
+    - assumed
+    ttft_class: heavy

@@ -1,0 +1,29 @@
+id: S1-001
+family: S1
+areas:
+- retrieval
+- citations
+- boundary
+critical: true
+tiers:
+- smoke
+- full
+turns:
+- q: Who does the Municipal Employees' Annuity and Benefit Fund cover?
+  goal: Who counts as an employee (participant) of the fund under Article 8.
+  reference: 'Defined in §8-113: employees of an employer in the classified civil service (or career service under
+    a personnel ordinance) other than temporary or exempt appointments, persons employed by the board, and the further
+    classes the section lists; the fund itself is created by §8-101.'
+  checks:
+    cites_any:
+    - 8-113
+    answers_from_article: '8'
+    ttft_class: simple
+- q: Does that include part-time employees of the Board of Education?
+  goal: Whether part-time Board of Education service is credited.
+  reference: §8-108.3 provides credit for service as a part-time employee of the Board of Education of the city,
+    on the conditions that section sets.
+  checks:
+    cites_any:
+    - 8-108.3
+    ttft_class: simple

@@ -1,0 +1,33 @@
+id: S11-003
+family: S11
+areas:
+- continuity
+- calculation
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: Suppose this employee had joined in 2009 instead.
+  goal: Adopt the premise without asking.
+  reference: Under the premise they are Tier 1 (§8-138); the answer stays conditional.
+  checks:
+    ttft_class: heavy
+- q: What would the annuity be at 60 then?
+  goal: A Tier 1 figure at 60 under the premise.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    cites_any:
+    - 8-138
+    ttft_class: heavy
+- q: Back to their actual record — what is it at 67?
+  goal: The real Tier 2 figure, premise dropped.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160
+    ttft_class: heavy
