@@ -491,6 +491,30 @@ def _article_of_sections(sections) -> int | None:
     return int(articles.pop()) if len(articles) == 1 else None
 
 
+#: Knowledge statuses a reviewer has vouched for. Everything else must meet the
+#: validation a new derivation meets today.
+_REVIEWED_STATUSES = frozenset({"approved", "validated"})
+
+
+def _meets_current_validation(recipe: dict) -> bool:
+    """Whether a saved recipe may be reused as it stands.
+
+    Recipes saved before quote anchoring carry no quotes, and one of the first
+    two saved on the client's registry (2026-09-30) was a Tier 2 formula missing
+    §1-160(d)'s reduction below 67. Unless a reviewer approved it, a saved recipe
+    whose statutory numbers are not all quoted is re-derived, so the version
+    that is reused has had every number checked against the statute's words.
+    """
+    if recipe.get("status") in _REVIEWED_STATUSES:
+        return True
+    spec = recipe.get("spec") or {}
+    anchors = [*(spec.get("parameters") or {}).values()] + [
+        p for p in spec.get("applicability_predicates") or []
+        if isinstance(p, dict) and isinstance(p.get("value"), (int, float)) and not isinstance(p.get("value"), bool)
+    ]
+    return all(isinstance(a, dict) and a.get("quote") for a in anchors)
+
+
 #: What a derivation searches for, in the Code's own words rather than the
 #: question's. "What would their annuity be at 67?" finds the provisions about
 #: age 67; the amount is set by the Article's formula section, which reads
@@ -632,6 +656,12 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
             mismatches = await verify_freshness(row, relevant) if relevant else {}
             if not mismatches:
                 recipe = RegistryRecipe(row).to_dict()
+                if not _meets_current_validation(recipe):
+                    logger.info(
+                        "Registry recipe %s predates quote anchoring and is unapproved; re-deriving",
+                        row.formula_id,
+                    )
+                    return None
                 # Freshness says the law has not moved under the recipe. It says
                 # nothing about whether the recipe's provision reaches the member
                 # asking today — and matching on article, formula type and tier

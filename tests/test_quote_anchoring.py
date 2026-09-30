@@ -146,3 +146,17 @@ def test_the_derivation_prompt_asks_for_verbatim_quotes() -> None:
 
     assert '"quote"' in derivation._SYSTEM_PROMPT
     assert "verbatim" in derivation._SYSTEM_PROMPT.lower()
+
+
+def test_an_unapproved_saved_formula_without_quotes_is_not_reused() -> None:
+    # Saved before anchoring existed: re-derived under today's validation, so
+    # its numbers get quotes. A reviewer's approval is the only exemption.
+    from pension_chat.agent.nodes import _meets_current_validation
+
+    unquoted = {"status": "agent_derived", "spec": _spec(_rate(0.024, None))}
+    quoted = {"status": "agent_derived",
+              "spec": _spec(_rate(0.024, "or 2.4% if withdrawal is on or after January 1, 2002"))}
+    approved = {"status": "approved", "spec": _spec(_rate(0.024, None))}
+    assert not _meets_current_validation(unquoted)
+    assert _meets_current_validation(quoted)
+    assert _meets_current_validation(approved)
