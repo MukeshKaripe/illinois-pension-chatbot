@@ -26,8 +26,20 @@ class Query:
 
 # How a year's salary is built from pay periods, and whether service is counted
 # from them -- settled against PBMS's own annuity calculations (spec §6.2).
-SALARY_EXPRESSIONS = {"gross": "SUM(d.Gross)", "rate": "MAX(d.Ann_Sal)", "capped": "SUM(d.Capped_Salary)"}
-SALARY_RULE = "gross"
+SALARY_EXPRESSIONS = {
+    "gross": "SUM(d.Gross)",
+    "rate": "MAX(d.Ann_Sal)",
+    "capped": "SUM(d.Capped_Salary)",
+    # PBMS's own pensionable salary where it records one (2019 on for active
+    # members: 12 x its monthly BestSal, and deductions are 8.5% of it); else
+    # gross pay, but only when the deductions are plausible for it -- recent
+    # Gross is empty or fragmentary for active members. Otherwise no salary.
+    "capped_then_gross": (
+        "CASE WHEN SUM(d.Capped_Salary) > 0 THEN SUM(d.Capped_Salary) "
+        "WHEN SUM(d.Gross) > 0 AND SUM(d.Ded) <= 0.2 * SUM(d.Gross) THEN SUM(d.Gross) END"
+    ),
+}
+SALARY_RULE = "capped_then_gross"
 SERVICE_FROM_PAYROLL = True
 
 ALLOWED_COLUMNS: frozenset[str] = frozenset({

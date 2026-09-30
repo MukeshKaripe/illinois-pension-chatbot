@@ -329,6 +329,11 @@ The plan's first task is a read-only discovery script. It uses aggregates and co
   - `MAX(Ann_Sal)` is 11.61 ×.
   - Status filter kept (`m.Status = 'A' AND d.Status = 'A'`); it made no difference.
   - Client question 38 asks the fund to confirm gross pay per calendar year as the salary basis.
+- **Salary rule revised after the live end-to-end run: `SALARY_RULE = "capped_then_gross"`.**
+  - **Why gross alone failed.** It matched PBMS for retirees' years, but for **active** members recent `Gross` is empty or fragmentary. One member had 0 for every year from 2007 to 2025; another had −$6,876 in one year.
+  - **What `Capped_Salary` is.** From 2019 onward, `Capped_Salary` carries the pensionable salary. Deductions are exactly 8.5% of it (for example, $10,146 against $119,364), and it equals 12 × PBMS's `BestSal`.
+  - **The rule.** A year's salary is summed `Capped_Salary` where it is positive. Otherwise it is summed `Gross`, but only when that year's deductions are at most 20% of it. Otherwise the year has no salary, so it is absent rather than wrong.
+  - **Result.** Demo-ready members now show full-year pay of $52k–$120k, where before they showed $47 or −$6,876.
 - **Service: `SERVICE_FROM_PAYROLL = True`.** Months with a pension deduction ÷ 12, per year, match PBMS's own per-year service:
   - `MonthCount/12`: 1,242 of 1,376 person-years (90%);
   - `PaidServ`: 1,082 of 1,376 (79%);

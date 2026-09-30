@@ -59,3 +59,13 @@ def test_no_personal_identifier_is_on_the_allow_list() -> None:
     for col in ALLOWED_COLUMNS:
         assert not re.fullmatch(
             r"(?i)e?ssn|cc\w*|pbsaddress\w*|pbsemail|pbs\w*_phone|maiden_name|middle_name|memberid", col)
+
+
+def test_a_years_salary_prefers_pbms_capped_pensionable_salary() -> None:
+    # Active members' recent Gross is empty or fragmentary; Capped_Salary is
+    # PBMS's own pensionable salary (12 x its monthly BestSal; deductions are
+    # exactly 8.5% of it). Gross stands in only where no capped figure exists,
+    # and only when the deductions are plausible for it (spec §6.2).
+    sql = REGISTRY["salary_years"].sql
+    assert sql.index("SUM(d.Capped_Salary) > 0") < sql.index("SUM(d.Gross)")
+    assert "SUM(d.Ded) <= 0.2 * SUM(d.Gross)" in sql
