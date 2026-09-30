@@ -1277,10 +1277,16 @@ def _live_options(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     real choice a member weighs against waiting -- it is not a *what-if* they
     built, which is what the chip lists.
     """
+    people = list(state.get("turn_people") or [])
+    if len(people) > 1:
+        # Several people: the PEOPLE table is the comparison.
+        return {}
     return {
         label: dict(entry)
         for label, entry in (state.get("scenario_set") or {}).items()
         if SUPERSEDED_MARK not in label and isinstance(entry, Mapping)
+        # With the fund's records, only this turn's person's own options.
+        and (not people or entry.get("person_ref") in people)
     }
 
 

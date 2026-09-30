@@ -93,3 +93,12 @@ async def test_refresh_retries_soon_after_a_failed_first_load() -> None:
     await asyncio.sleep(0.05)
     task.cancel()
     assert provider.names_ready
+
+
+def test_a_comma_list_is_not_read_as_last_first() -> None:
+    # Found live: "A_A B_B, C_C D_D and ..." -- "B_B, C_C" read as LAST, FIRST
+    # matched a real person nobody named.
+    d = NameDirectory([("VA_FN", "GI_LN"), ("CO_FN", "TW_LN"), ("CO_FN", "GI_LN"), ("RO_FN", "OS_LN")])
+    assert d.names_in("compare all three: Va_FN Gi_LN, CO_FN TW_LN and RO_FN OS_LN.") == [
+        ("VA_FN", "GI_LN"), ("CO_FN", "TW_LN"), ("RO_FN", "OS_LN")]
+    assert d.names_in("GI_LN, CO_FN please") == [("CO_FN", "GI_LN")]        # a real LAST, FIRST still works

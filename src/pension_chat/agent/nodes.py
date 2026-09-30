@@ -515,6 +515,19 @@ async def _load_record(employee_id: str) -> tuple[dict, list[dict]] | None:
 _MAX_PINNED_SECTIONS = 6
 
 
+def _ledger_subject(state: Mapping[str, Any]) -> str:
+    """Whose facts the ledger reads and writes this turn.
+
+    The ledger was always per subject; everything simply used `SELF`. With the
+    fund's records (PBMS) a conversation is about several people, and a value
+    remembered for one must never resolve another's input -- found live, B's
+    annuity computed on A's final average salary. A member's own conversation
+    keeps `SELF`, exactly as before.
+    """
+    record = state.get("employee_record") or {}
+    return str(record["id"]) if record.get("record_source") and record.get("id") else ledger.SELF
+
+
 def _available_facts(state: PensionAgentState) -> dict:
     """The member facts this turn is allowed to use.
 
@@ -539,11 +552,12 @@ def _available_facts(state: PensionAgentState) -> dict:
     must not pin a stale copy over a fresher read.
     """
     if not _record_facts_usable(state):
-        return dict(ledger.stated_only(state.get("fact_ledger") or {}, ledger.SELF))
+        return dict(ledger.stated_only(state.get("fact_ledger") or {}, _ledger_subject(state)))
     facts = dict(state.get("member_facts") or {})
     held = state.get("fact_ledger") or {}
-    sources = ledger.provenance(held, ledger.SELF)
-    for name, value in ledger.recall(held, ledger.SELF).items():
+    subject = _ledger_subject(state)
+    sources = ledger.provenance(held, subject)
+    for name, value in ledger.recall(held, subject).items():
         # Strictly better than the record, or the record does not supply it.
         # `outranks` is non-strict on purpose -- a later statement replaces an
         # earlier one -- but here a tie means a ledger copy of the record facing
@@ -1250,6 +1264,7 @@ def _ledger_update(
     resolved: dict[str, Any],
     origins: dict[str, str],
     turn: int,
+    subject: str = ledger.SELF,
 ) -> dict[str, Any]:
     """Turn this turn's resolution into something the next turn can read.
 
@@ -1268,7 +1283,7 @@ def _ledger_update(
 
     update: dict[str, Any] = {}
     for source, values in by_source.items():
-        written = ledger.remember(update, ledger.SELF, values, source, turn)
+        written = ledger.remember(update, subject, values, source, turn)
         if written:
             update = {**update, **written}
     return update
@@ -1330,7 +1345,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # the ledger has nothing stated for a declared input -- once a value is
     # written down it is read from there, so the cost is paid once rather than
     # on every calculating turn.
-    stated_already = set(ledger.stated_only(state.get("fact_ledger") or {}, ledger.SELF))
+    stated_already = set(ledger.stated_only(state.get("fact_ledger") or {}, _ledger_subject(state)))
     # What the member has actually typed, this turn and before it.
     #
     # Built from their own messages rather than from `_history`, which renders
@@ -1539,7 +1554,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         sheet=sheet,
         spoken=spoken,
         stand_in=_stand_ins_allowed(state),
-        held=ledger.provenance(state.get("fact_ledger") or {}, ledger.SELF),
+        held=ledger.provenance(state.get("fact_ledger") or {}, _ledger_subject(state)),
     )
 
     return {
@@ -1549,6 +1564,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
             resolved=resolved,
             origins=origins,
             turn=int(state.get("turn_index") or 0),
+            subject=_ledger_subject(state),
         ),
         # An input the sheet holds is not missing, and an input it holds but
         # cannot use under this premise is not missing either -- it is withheld,

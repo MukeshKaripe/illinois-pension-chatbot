@@ -701,6 +701,14 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         # When a turn evaluates scenarios those are the results worth keeping;
         # the unscenarioed base is the "as things stand today" case.
         recorded = _recorded_scenarios(entry, base, inputs_used, state.get("turn_index"))
+        # The fund's records: a conversation is about several people, so each
+        # scenario carries whose it is -- and says so in its label -- rather than
+        # one person's "at 65" standing in another's table.
+        record = state.get("employee_record") or {}
+        if record.get("record_source") and record.get("id"):
+            who = entry.get("person") or record.get("display_name") or "Employee"
+            recorded = {f"{who} — {label}": {**value, "person_ref": record["id"]}
+                        for label, value in recorded.items()}
         # A label reused with a different figure means the member corrected
         # something. Overwriting silently leaves "which parts of the original
         # changed?" with nothing to compare against, and the model then quotes
@@ -724,7 +732,7 @@ def turn_record(state: dict) -> dict[str, Any] | None:
     ]
     if people_results:
         update["scenario_set"] = {
-            f"{entry['person']} — {label}": value
+            f"{entry['person']} — {label}": {**value, "person_ref": entry.get("person_ref")}
             for entry in people_results
             for label, value in _recorded_scenarios(
                 entry, entry["base"], entry["base"].get("inputs_used") or {}, state.get("turn_index")

@@ -104,3 +104,40 @@ def test_two_peoples_scenarios_do_not_overwrite_each_other() -> None:
                           "guardrail_passed": True})
     labels = set((update or {}).get("scenario_set") or {})
     assert {"KA_LS MA_LP — at age 62", "QW_XZ PL_MR — at age 62"} <= labels
+
+
+def test_one_persons_remembered_values_never_reach_another() -> None:
+    # Found live: after switching from A to B, B's figure used A's final average
+    # salary -- the fact ledger held every value under one subject.
+    from pension_chat.agent.nodes import _available_facts, _ledger_subject, _ledger_update
+
+    a = {"employee_record": {"id": "M-1", "record_source": "PBMS"}}
+    held = _ledger_update(resolved={"final_average_salary": 90000}, origins={"final_average_salary": "stated"},
+                          turn=1, subject=_ledger_subject(a))
+    b = {"employee_record": {"id": "M-2", "record_source": "PBMS", "article_number": 8},
+         "member_facts": {"final_average_salary": 60000, "article_number": 8},
+         "coverage": {"article": "8", "record_article": "8"}, "fact_ledger": held}
+    assert _available_facts(b)["final_average_salary"] == 60000
+    assert _available_facts({**b, "employee_record": {"id": "M-1", "record_source": "PBMS", "article_number": 8}}
+                            )["final_average_salary"] == 90000
+    assert _ledger_subject({"employee_record": {"id": "x"}}) == "me"      # a member's own record: unchanged
+
+
+def test_remembered_scenarios_belong_to_their_person() -> None:
+    # Found live: B's answer tabled A's "retire now" and "at 65" rows.
+    from pension_chat.agent.graph import turn_record
+    from pension_chat.agent.loop import _live_options
+
+    entry = {"section": "8-138", "base": {"ok": True, "annual_amount": "41991.94", "monthly_amount": "3499.33",
+                                          "inputs_used": {}},
+             "scenarios": [{"label": "at age 65", "annual_amount": "41991.94", "monthly_amount": "3499.33"}]}
+    a_turn = {"final_answer": "a", "turn_index": 1, "guardrail_passed": True, "turn_people": ["M-1"],
+              "employee_record": {"id": "M-1", "record_source": "PBMS", "display_name": "KA_LS MA_LP"},
+              "calculation_result": {"retirement_annuity": entry}}
+    held = (turn_record(a_turn) or {})["scenario_set"]
+    assert list(held) == ["KA_LS MA_LP — at age 65"] and held["KA_LS MA_LP — at age 65"]["person_ref"] == "M-1"
+    assert _live_options({"scenario_set": held, "turn_people": ["M-1"]})
+    assert _live_options({"scenario_set": held, "turn_people": ["M-2"]}) == {}
+    assert _live_options({"scenario_set": held, "turn_people": ["M-1", "M-2"]}) == {}
+    member = {**a_turn, "employee_record": {"id": "x"}, "turn_people": []}
+    assert list((turn_record(member) or {})["scenario_set"]) == ["at age 65"]          # a member's own: unchanged
