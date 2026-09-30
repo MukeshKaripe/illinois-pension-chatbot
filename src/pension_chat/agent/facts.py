@@ -230,6 +230,12 @@ def build_member_facts(
     }
     for alias in aliases_of("current_annual_salary"):
         facts[alias] = facts["current_annual_salary"]
+    # A record that holds no service figure (PBMS stores one for few MEABF
+    # members) leaves service unknown -- a missing input to ask for -- rather
+    # than publishing 0 years under the record's name.
+    if employee.get("total_service_years") is None:
+        for alias in aliases_of("total_service_years"):
+            facts.pop(alias, None)
     # Facts only some funds have (`funds.Fund.extra_fields`), under every name a
     # derivation might give them, as the ones above are.
     for name, value in (employee.get("extra_facts") or {}).items():

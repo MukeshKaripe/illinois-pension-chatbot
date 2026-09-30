@@ -207,6 +207,8 @@ def _active(**over):
         "hire_date": date(1996, 3, 1),
         "employment_status": "active",
         "current_annual_salary": Decimal("90000"),
+        # A record states its service; one that does not leaves it unknown.
+        "total_service_years": 30,
     }
     base.update(over)
     return base

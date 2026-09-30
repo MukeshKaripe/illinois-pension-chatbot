@@ -77,6 +77,18 @@ class EmployeeRecord:
         if history:
             latest = max(history, key=lambda h: h.year)
             record["current_annual_salary"] = float(latest.annual_salary)
+        # What an employer looking at this person needs, and what the record
+        # could not say and why -- kept, so the agent can report a gap rather
+        # than fill it.
+        for name in ("display_name", "employer", "department", "service_source"):
+            if getattr(self, name):
+                record[name] = getattr(self, name)
+        if self.termination_date:
+            record["termination_date"] = self.termination_date.isoformat()
+        if self.reciprocal_service_years is not None:
+            record["reciprocal_service_years"] = float(self.reciprocal_service_years)
+        if self.missing:
+            record["missing"] = dict(self.missing)
         return record
 
 

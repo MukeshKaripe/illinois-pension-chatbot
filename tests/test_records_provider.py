@@ -95,3 +95,31 @@ async def test_without_a_provider_the_postgres_path_runs(monkeypatch) -> None:
     monkeypatch.setattr(nodes, "_load_record", fake_load)
     await nodes.fetch_employee_record({"employee_id": "abc"})
     assert called == ["abc"]
+
+
+def test_service_the_record_does_not_hold_stays_unknown_not_zero() -> None:
+    # PBMS stores service for few MEABF records; 0 years with origin "record"
+    # would be a plausible wrong input that no check catches.
+    from pension_chat.agent.facts import build_member_facts
+
+    rec = EmployeeRecord(key="no_stored_service", tier=1, birth_date=date(1969, 1, 1),
+                         hire_date=date(2004, 9, 30), status="active",
+                         missing={"service_years": "no stored service"}).to_agent_record([])
+    facts = build_member_facts(rec, [])
+    for name in ("service_years", "total_service_years", "years_of_service", "creditable_service_years"):
+        assert name not in facts, name
+    assert build_member_facts(_tier2().to_agent_record([]), [])["service_years"] == 12.5
+
+
+def test_the_agent_record_carries_what_the_employer_needs_to_see() -> None:
+    rec = EmployeeRecord(
+        key="reciprocal", tier=1, birth_date=date(1966, 1, 1), display_name="K. Ibrahim",
+        employer="City of Chicago", department="Aviation", status="active",
+        service_years=Decimal("11.5"), service_source="stored",
+        reciprocal_service_years=Decimal("9.0"), missing={"status_meaning": "DB7 unmapped"},
+    ).to_agent_record([])
+    assert rec["display_name"] == "K. Ibrahim"
+    assert rec["employer"] == "City of Chicago" and rec["department"] == "Aviation"
+    assert rec["reciprocal_service_years"] == 9.0
+    assert rec["service_source"] == "stored"
+    assert rec["missing"] == {"status_meaning": "DB7 unmapped"}
