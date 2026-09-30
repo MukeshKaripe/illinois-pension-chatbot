@@ -1401,6 +1401,9 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     assumed, assumed_origins, still_missing = apply_assumptions(
         sheet, outstanding_asks, known, settings_ceiling
     )
+    # Asks drawn up before an input was read (a stated age read from the user's
+    # words, above) are not still asks: a value resolved is not also missing.
+    still_missing = [m for m in still_missing if str(m.get("name") or "") not in resolved]
     filled_origins = {**cited_origins, **assumed_origins}
     resolved.update(assumed)
 

@@ -320,3 +320,28 @@ def test_a_stated_annual_salary_is_read_from_the_users_words(said, salary) -> No
 ])
 def test_a_stated_age_is_read_from_the_users_words(said, age) -> None:
     assert nodes._stated_age(said) == age
+
+
+@pytest.mark.asyncio
+async def test_an_age_read_from_the_users_words_is_not_also_reported_missing(monkeypatch) -> None:
+    # Live, 2026-09-30: resolved {"age": 62 (stated)} and missing ["age"] on the
+    # same turn -- the missing list was drawn up before the age was read.
+    from langchain_core.messages import HumanMessage
+
+    async def heard_nothing(**kwargs):
+        return '{"resolved": {}}'
+
+    monkeypatch.setattr(nodes, "complete", heard_nothing)
+    said = "An employee who joined in 2015 is 62, earns $80,000 and has 11 years of service."
+    spec = {"formula_id": "f", "execution_type": "declarative",
+            "inputs": [{"name": "age", "type": "integer", "required": True}],
+            "parameters": {}, "calculation": {"variable": "age"},
+            "output_name": "annual_annuity", "output_type": "money"}
+    state = {"employee_record": None, "member_facts": {}, "fact_ledger": {}, "salary_history": [],
+             "question": said, "messages": [HumanMessage(content=said)], "turn_index": 1,
+             "coverage": {"article": "8", "basis": "deployment", "record_article": None},
+             "recipes": {"retirement_annuity": {"source": "registry", "spec": spec}},
+             "requires_calculation": True, "assumptions": {}}
+    out = await nodes.resolve_inputs(state)
+    assert out["resolved_inputs"]["age"] == 62
+    assert "age" not in [m.get("name") for m in out["missing_inputs"]]
