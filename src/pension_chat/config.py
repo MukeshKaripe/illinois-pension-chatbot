@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     # The eval suite turns this off: a run must not move production's view of
     # which recipes are load-bearing, nor mark one stale.
     registry_writes_enabled: bool = True
+    # The one fund this deployment serves, when it serves one (D4: MEABF -> 8).
+    # Governs a question with no record and nothing said about coverage.
+    deployment_article: int | None = None
     # Recipes the agent derives itself are estimates, never authoritative.
     derived_recipe_execution_policy: str = "estimate"
 

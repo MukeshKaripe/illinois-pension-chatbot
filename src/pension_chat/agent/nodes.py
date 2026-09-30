@@ -163,12 +163,22 @@ _MAX_GENERAL_SECTIONS = 3
 
 
 def _record_coverage(record_article: str | None, turn: int) -> dict:
-    """What we believe when the member has said nothing about themselves."""
+    """What we believe when the member has said nothing about themselves.
+
+    The record first. With no record, an assistant deployed for one fund
+    (`deployment_article`, D4: MEABF, so Article 8) is answering about that
+    fund's members; without one configured, coverage stays unresolved.
+    """
+    deployed = get_settings().deployment_article
+    if record_article:
+        article, basis = record_article, coverage_mod.BASIS_RECORD
+    elif deployed is not None:
+        article, basis = str(deployed), coverage_mod.BASIS_DEPLOYMENT
+    else:
+        article, basis = None, coverage_mod.BASIS_UNRESOLVED
     return {
-        "article": record_article,
-        "basis": (
-            coverage_mod.BASIS_RECORD if record_article else coverage_mod.BASIS_UNRESOLVED
-        ),
+        "article": article,
+        "basis": basis,
         "record_article": record_article,
         "candidates": [],
         "conflict": False,
