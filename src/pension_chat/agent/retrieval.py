@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -388,6 +388,80 @@ async def canonical_section_texts(section_ids: Iterable[str]) -> dict[str, str]:
     return texts
 
 
+#: The chunker's version prefix: "(from P.A. 102-719)" on its own first line.
+_VARIANT_LABEL_RE = re.compile(r"\A\(([^()\n]+)\)\n")
+
+
+def _variant_of(chunk: dict[str, Any]) -> tuple[str | None, str]:
+    """Which printed version a chunk belongs to, and its text without the label.
+
+    Read off what the chunker wrote: a key suffixed ``__<label>`` and content
+    prefixed with the label on its own line. Both, because subsection text can
+    itself open with a parenthesis.
+    """
+    content = (chunk.get("content") or "").strip()
+    if "__" in str(chunk.get("id") or ""):
+        match = _VARIANT_LABEL_RE.match(content)
+        if match:
+            return match.group(1), content[match.end():].strip()
+    return None, content
+
+
+def merge_variants(
+    chunks: list[dict[str, Any]], subsection_key: Callable[[str], Any] = _subsection_sort_key
+) -> list[str]:
+    """A section's text in statute order, with each printed version read once.
+
+    ILGA prints a section amended by concurrent Public Acts once per Act, and
+    ingestion keeps every copy (choosing one is a reading of the law). Sorted by
+    subsection alone they interleave -- Section 1-160 read (a)(a)(a)(b)(b)(b)...
+    -- and the copies of Section 1-160, which differ only in (g) and (g-5),
+    tripled the text until the budget ran out before (c), the Tier 2 age-67
+    rule. So text every version shares is given once, a subsection the versions
+    word differently is given once per wording and labelled with the versions
+    that carry it, and a note up front says which is which. A section with one
+    version, labelled or not, comes back exactly as indexed.
+    """
+    ordered = sorted(
+        chunks,
+        key=lambda c: (subsection_key(str(c.get("subsection_id") or "")), str(c.get("id") or "")),
+    )
+    read = [(str(c.get("subsection_id") or ""), *_variant_of(c)) for c in ordered]
+    labels = list(dict.fromkeys(label for _, label, _ in read if label))
+    if len(labels) < 2:
+        texts = [(c.get("content") or "").strip() for c in ordered]
+        return [text for text in texts if text]
+
+    # A subsection is matched across versions by its letter and by how many
+    # times that letter has come up in its own version, so a version that
+    # letters two lists (Section 9-219) keeps both.
+    groups: dict[tuple[str, int], dict[str, tuple[str, list[str | None]]]] = {}
+    seen: dict[tuple[str | None, str], int] = {}
+    for subsection, label, body in read:
+        if not body:
+            continue
+        occurrence = seen[(label, subsection)] = seen.get((label, subsection), 0) + 1
+        wordings = groups.setdefault((subsection, occurrence), {})
+        normalised = " ".join(body.split())
+        wordings.setdefault(normalised, (body, []))[1].append(label)
+
+    parts = [
+        f"(This Section is printed in {len(labels)} versions: {'; '.join(labels)}. "
+        "Text common to all versions is given once; where they differ, each text "
+        "is labelled with the versions it belongs to.)"
+    ]
+    for wordings in groups.values():
+        if len(wordings) == 1:
+            body, holders = next(iter(wordings.values()))
+            if set(holders) >= set(labels):
+                parts.append(body)
+                continue
+        for body, holders in wordings.values():
+            named = [h for h in dict.fromkeys(holders) if h]
+            parts.append(f"({'; '.join(named)})\n{body}" if named else body)
+    return parts
+
+
 def _assemble(
     section_id: str, chunks: list[dict], score: float, char_budget: int
 ) -> RetrievedSection:
@@ -409,9 +483,7 @@ def _assemble(
             if ref not in references:
                 references.append(ref)
 
-        body = (chunk.get("content") or "").strip()
-        if not body:
-            continue
+    for body in merge_variants(chunks):
         if used + len(body) > char_budget:
             remaining = max(0, char_budget - used)
             if remaining > 400:
