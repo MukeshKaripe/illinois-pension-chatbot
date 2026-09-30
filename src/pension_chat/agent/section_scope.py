@@ -47,12 +47,16 @@ SECTION_SCOPE: dict[str, Scope] = {
 }
 
 
-def scoped_evidence(sections: list[RetrievedSection], article: int | str | None) -> list[RetrievedSection]:
+def scoped_evidence(
+    sections: list[RetrievedSection], article: int | str | None, *, withhold: bool = True
+) -> list[RetrievedSection]:
     """The sections a derivation for `article` may read, conditions stated first.
 
     A section scoped to other funds is left out; a conditional one is kept with
     its condition at the top of its text, where the model reads it before the
     rate. An unknown Article changes nothing -- scoping needs a determination.
+    `withhold=False` keeps out-of-scope sections: a section asked for by name is
+    read, and only the condition is added.
     """
     if article is None or str(article).strip() == "":
         return sections
@@ -63,7 +67,7 @@ def scoped_evidence(sections: list[RetrievedSection], article: int | str | None)
         if scope is None:
             kept.append(section)
             continue
-        if scope.articles and governing not in scope.articles:
+        if withhold and scope.articles and governing not in scope.articles:
             continue
         if scope.condition:
             section = replace(
@@ -72,6 +76,14 @@ def scoped_evidence(sections: list[RetrievedSection], article: int | str | None)
             )
         kept.append(section)
     return kept
+
+
+def out_of_scope(section_id: str, article: int | str | None) -> bool:
+    """Whether a section belongs to other funds than `article`'s."""
+    scope = SECTION_SCOPE.get(section_id)
+    if scope is None or not scope.articles or article is None or not str(article).isdigit():
+        return False
+    return int(str(article)) not in scope.articles
 
 
 def restricted_sources(source_sections: list[str] | None) -> list[str]:

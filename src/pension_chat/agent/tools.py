@@ -487,7 +487,8 @@ async def _get_section(arguments: dict[str, Any], state: dict) -> tuple[str, dic
     if not section_id:
         return "get_section needs a section id such as '11-134'.", {}
     found = await retrieve([], must_include_sections=[section_id], follow_cross_references=0)
-    rows = [s.to_dict() for s in found]
+    # Asked for by name, so read -- a conditional section with its condition first.
+    rows = [s.to_dict() for s in scoped_evidence(list(found), _scoping_article(state), withhold=False)]
     if not rows:
         return (
             f"Section {section_id} is not in the indexed corpus. "

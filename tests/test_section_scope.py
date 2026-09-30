@@ -128,3 +128,35 @@ async def test_without_a_governing_article_search_evidence_is_unchanged(monkeypa
     monkeypatch.setattr(tools.memory, "recall", recall)
     _, update = await tools._search({"queries": ["x"]}, {})
     assert [r["section"] for r in update["retrieved_sections"]] == ["1-161", "1-162"]
+
+
+@pytest.mark.asyncio
+async def test_following_references_does_not_fetch_another_funds_section(monkeypatch) -> None:
+    # §1-160 refers to §1-161; completing the evidence fetched it for an
+    # anonymous Article 8 question (smoke run 2026-09-30, S1-004).
+    from pension_chat.agent import loop
+
+    fetched: list[str] = []
+
+    async def run_tool(name, arguments, working):
+        fetched.append(arguments["section"])
+        return ("text", {})
+
+    monkeypatch.setattr(loop, "run_tool", run_tool)
+    await loop._read_sections(["1-161", "1-117", "1-162"], {"coverage": {"article": "8"}})
+    assert fetched == ["1-117", "1-162"]
+
+
+@pytest.mark.asyncio
+async def test_asking_for_a_section_by_name_still_returns_it_with_its_condition(monkeypatch) -> None:
+    from pension_chat.agent import tools
+
+    async def retrieve(queries, **kwargs):
+        return [_s(kwargs["must_include_sections"][0], "(g) 1.25%")]
+
+    monkeypatch.setattr(tools, "retrieve", retrieve)
+    state = {"coverage": {"article": "8"}}
+    text_161, _ = await tools._get_section({"section": "1-161"}, state)
+    text_162, _ = await tools._get_section({"section": "1-162"}, state)
+    assert "1.25%" in text_161                       # named, so read -- not withheld
+    assert "[Applies only" in text_162

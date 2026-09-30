@@ -48,11 +48,13 @@ from pension_chat.agent.retrieval import (
     CROSS_CUTTING_ARTICLES,
     extract_article_references,
 )
+from pension_chat.agent.section_scope import out_of_scope
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
     COVERAGE_TOOLS,
     RECOMMENDATION_TOOLS,
     RETRIEVAL_TOOLS,
+    _scoping_article,
     run_tool,
 )
 from pension_chat.agent.worksheet import SUPERSEDED_MARK, WorkSheet
@@ -280,6 +282,10 @@ async def _read_sections(
     and raising costs the member their answer. What is left unread is already
     reported by `unread_references`.
     """
+    # Completing the evidence is not a request for a section: one that belongs
+    # to other funds (§1-161, which §1-160 names) is not fetched for this one's.
+    article = _scoping_article(working)
+    targets = [t for t in targets if not out_of_scope(t, article)]
     if not targets:
         return []
     results = await asyncio.gather(
