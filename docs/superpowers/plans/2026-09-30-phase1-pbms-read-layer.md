@@ -1,19 +1,19 @@
-# Phase 1: MEABF Read Layer and Demo Path — Implementation Plan
+# Phase 1: MEABF Read Layer and Name-Based Demo Path — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** An employer types a MEAB ID, confirms the person, and asks about them. The agent reads that employee's record live from PBMS (SQL Server), read-only, through a fixed set of statements.
+**Goal:** An employer names an employee by first and last name in the chat, chooses the right person when the name is shared, and the agent answers from that employee's PBMS record, read live and read-only.
 
 **Architecture:**
 - A new package, `src/pension_chat/pbms/`, holds four parts:
   - a guard: `PbmsClient`, which runs only named, read-only, allow-listed statements;
   - the SQL: `queries.py`;
-  - the mapping: `provider.py`, where `PbmsProvider` implements the existing `RecordProvider`;
-  - the factory: `build_record_provider`.
-- The app installs the provider process-wide when `RECORD_SOURCE=pbms`.
-- A conversation gains a **subject**: `sessions.subject_meab_id`, passed to the graph as `subject_meab_id`. `fetch_employee_record` loads the record by that key.
-- `triage` turns a MEAB ID typed in a message into a confirm-first suggestion.
-- The UI gets an Employee bar and a suggestion card.
+  - the in-memory name directory: `names.py`, which matches names in a message at no database cost;
+  - the provider: `PbmsProvider`, which implements `RecordProvider` and adds `names_in` and `find_by_name`.
+- The app installs the provider process-wide when `RECORD_SOURCE=pbms`, and refreshes the directory every 6 hours.
+- `triage` turns a name in a message into a choose-first suggestion.
+- The chosen person becomes the session's **subject** (`sessions.subject_meab_id`). The MEAB ID is internal only, and appears in payloads just as an opaque `ref`.
+- `fetch_employee_record` loads the subject's record.
 
 **Tech Stack:**
 - Python 3.12, FastAPI, LangGraph, SQLAlchemy/Alembic (Postgres);
@@ -21,38 +21,32 @@
 - Next.js 16 / React 19 with `node --test`;
 - pytest (`asyncio_mode = "auto"`).
 
-**Spec:** `docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md`. Read it, including §6.1, "Measured".
+**Spec:** `docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md`, revised 2026-09-30 for name lookup. Read all of it, especially §3.4, §4.2 and §6.1.
 
 ## Global Constraints
 
 - **Credentials.** The `sa` login is used **for reads only**. Code enforces this, not convention. Credentials come from `PBMS_SQL_SERVER`, `PBMS_SQL_DATABASE`, `PBMS_SQL_USER` and `PBMS_SQL_PASSWORD`. They are never logged, printed, or placed in an exception message or `repr`.
-- **No real data in the repo.** No real PBMS data may appear in any fixture, test, log or commit. Scripts that touch PBMS print only counts, rates, codes and timings.
+- **No real data in the repo.** No real PBMS data may appear in any fixture, test, log or commit, and that includes the masked names. Scripts that touch PBMS print only counts, rates, codes, shapes and timings.
 - **Never write to PBMS.** Nothing is ever written to it.
-- **Never read personal identifiers.** No statement ever names `Ssn`, `SSN`, `eSSN`, any `CC*` column, `PbsAddress_*`, `Pbs*_Phone`, `PbsEmail`, `Maiden_Name` or `MemberID`.
-- **Session settings.** Every PBMS connection uses `ApplicationIntent=ReadOnly` and `APP=pension-chat-readonly`, and runs at `READ UNCOMMITTED`. Each query has a 5 s timeout.
-- **The MEAB ID is the only stored subject key.** Its canonical form is `M-` followed by six digits (`^M-[0-9]{6}$`). An Employee ID is only a way to find a MEAB ID.
-- **Salary is read through `T_Pen_Ded_Master`.** No statement filters `T_Pen_Ded_Detail` by `Person_Info_Seq_No`: that column is unindexed, and one member's read scans 46.7M rows.
-- **`T_Employees.Status = 'A'` means a live row.** Employment status comes from `Employee_Status_Cd`.
+- **Never read personal identifiers.** No statement ever names `Ssn`, `SSN`, `eSSN`, any `CC*` column, `PbsAddress_*`, `Pbs*_Phone`, `PbsEmail`, `Maiden_Name`, `Middle_Name` or `MemberID`.
+- **Session settings.** Every PBMS connection uses `ApplicationIntent=ReadOnly` and `APP=pension-chat-readonly`, and runs at `READ UNCOMMITTED`. Queries time out after 5 s by default; the name directory load is allowed 30 s.
+- **Employees are found by first and last name only.** The MEAB ID (`^M-[0-9]{6}$`) is the internal subject key. It is never shown in the UI or written into an answer, and it travels in API payloads only as the opaque `ref`.
+- **Active members only.** An active member is a linker row with `MEAB_Id LIKE 'M-%'`, a live employee row (`e.Status = 'A'`) and `e.Employee_Status_Cd = 'A'`.
+- **Salary is read through `T_Pen_Ded_Master`.** No statement filters `T_Pen_Ded_Detail` by `Person_Info_Seq_No`.
 - **Only tier codes `1`, `2` and `3` map to a tier.** Any other code is recorded in `missing["tier"]`.
 - **Gaps stay gaps.** A field PBMS leaves empty is absent, with a reason in `missing`. It is never defaulted, and nothing falls back to Postgres.
+- **Nobody is chosen for the user.** A shared name is always offered as a choice. When more than 12 people share it (`MAX_LISTED = 12`), the department is asked first.
 - **Default behaviour is unchanged.** With `RECORD_SOURCE` unset, which means `postgres`, local development, tests and evals behave exactly as they do today.
 - **Commits.** Every commit message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-**Rulings this plan makes against the spec** (the executor carries them; no further ledger entry is needed):
-- **R1: pyodbc and a small in-house pool, not `aioodbc`.** Queries run through `asyncio.to_thread`, with at most 4 connections and one retry on a stale pooled connection. This means fewer third-party moving parts, and the guard is identical. *Cost if wrong:* swapping in aioodbc later touches only `connection.py`.
-- **R2: `record` and `salary_years` are keyed by MEAB ID** (the linker's unique index), not by sequence numbers. It is one parameter, and it is indexed either way.
-- **R3: Employee lookup lives under the session.** `GET /api/v1/sessions/{id}/employees/lookup` checks that the caller owns the session, instead of an open `/employees/lookup`, so names are never readable by someone with no session. *Cost if wrong:* moving a route.
-- **R4: the ID-in-message suggestion rides in `tool_calls`** (`{"type": "subject_suggestion", …}`), the way the calculation card does, instead of a separate SSE event. `done` already carries `tool_calls`, and a reload restores the card from the stored message.
-- **R6: the chip is restored with `GET /sessions/{id}/subject`,** not by adding `subject` to `done` and to a `GET /sessions/{id}`. That endpoint does not exist, and one small route does the job on reload and after a set.
-- **R5: the current calendar year is left out of salary history** because it is incomplete. Otherwise `current_annual_salary` would be a part-year's pay. Its contribution months still count toward service.
-
 ## Review Focus
 
-1. **A pooled connection the server has dropped:** the next query retries once on a fresh connection instead of failing the turn (Task 2).
-2. **A query in September:** the part-year salary is not reported as the "current annual salary" (Task 3).
-3. **A MEAB ID typed in lower case, or with spaces** (`" m-012345 "`): it resolves to `M-012345` in the lookup, in a message suggestion and in `PUT` (Tasks 3, 5, 6, 7).
-4. **An Employee ID shared across employers:** every match is returned and none is auto-selected, and `PUT` accepts only a MEAB ID (Task 6).
-5. **A connection failure whose driver message echoes the connection string:** the `PbmsUnavailable` text and `repr(client)` never contain the password (Task 2).
+1. **A name typed as "ka_ls ma_lp's", "MA_LP, KA_LS" or "…KA_LS MA_LP?"** is still recognised: case, possessive, `LAST, FIRST` and trailing punctuation are all handled. A name inside a longer token (`XKA_LS`) is not recognised (Task 4).
+2. **A name shared by 109 people** is offered department-first, and nobody is auto-selected (Tasks 6 and 8).
+3. **A follow-up that repeats the current subject's name** passes straight through, instead of asking the user to choose again (Task 6).
+4. **A pooled connection the server has dropped** is retried once on a fresh connection instead of failing the turn (Task 2).
+5. **A driver error message that echoes the connection string** never reaches the exception text or `repr(client)` (Task 2).
+6. **A question asked in September** does not report the part-year salary as the "current annual salary" (Task 3).
 
 ---
 
@@ -63,16 +57,16 @@
 - Modify: `src/pension_chat/config.py` (after `deployment_article`, about line 166)
 - Create: `scripts/pbms_discover.py`
 - Modify: `.env` (local only, never committed): uncomment the four `PBMS_SQL_*` lines (lines 92–95)
-- Modify: `docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md` (add §6.2)
+- Modify: the spec (add §6.2)
 - Test: `tests/test_pbms_config.py`
 
 **Interfaces:**
 - Produces:
-  - `Settings.record_source: Literal["postgres", "pbms"]` (default `"postgres"`);
+  - `Settings.record_source: Literal["postgres", "pbms"] = "postgres"`;
   - `Settings.pbms_sql_server`, `pbms_sql_database` and `pbms_sql_user: str | None`;
   - `Settings.pbms_sql_password: SecretStr | None`;
   - `Settings.pbms_query_timeout_s: float = 5.0`;
-  - the spec's §6.2, which records `SALARY_RULE` (one of `"gross"`, `"rate"` or `"capped"`) and `SERVICE_FROM_PAYROLL` (bool). Task 2 reads both.
+  - the spec's §6.2, which records `SALARY_RULE` (`"gross"`, `"rate"` or `"capped"`) and `SERVICE_FROM_PAYROLL` (bool). Task 2 reads both.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -107,11 +101,11 @@ def test_the_password_is_a_secret() -> None:
 - [ ] **Step 2: Run it to see it fail**
 
 Run: `uv run pytest tests/test_pbms_config.py -v`
-Expected: FAIL, with `AttributeError: 'Settings' object has no attribute 'record_source'`. If `Settings(...)` rejects `_env_file`, check the pydantic-settings version: `_env_file` is its documented init kwarg.
+Expected: FAIL, with `AttributeError: 'Settings' object has no attribute 'record_source'`.
 
 - [ ] **Step 3: Add the settings and the driver**
 
-In `src/pension_chat/config.py`, add `SecretStr` to the pydantic import (`from pydantic import SecretStr, model_validator`) and `from typing import Literal`. Then insert this directly after `deployment_article: int | None = None`:
+In `config.py`, change the pydantic import to `from pydantic import SecretStr, model_validator` and add `from typing import Literal`. Then insert this directly after `deployment_article: int | None = None`:
 
 ```python
     # ── Employee records (Phase 1) ─────────────────────────────────
@@ -135,22 +129,23 @@ Expected: 2 passed.
 
 - [ ] **Step 5: Uncomment the PBMS keys in `.env`**
 
-In `.env`, remove the leading `#` from the four lines `#PBMS_SQL_SERVER=…`, `#PBMS_SQL_DATABASE=…`, `#PBMS_SQL_USER=…` and `#PBMS_SQL_PASSWORD=…`. Edit only those four characters, and do not print the file. `.env` is git-ignored: confirm that with `git check-ignore .env`, which should print `.env`.
+Remove the leading `#` from the four `#PBMS_SQL_…=` lines in `.env`. Edit only those characters, and never print the file. Confirm that `git check-ignore .env` prints `.env`.
 
 - [ ] **Step 6: Write the discovery script**
 
 ```python
 # scripts/pbms_discover.py
-"""Phase 1 discovery against PBMS: which salary PBMS uses, and how it holds service.
+"""Phase 1 discovery against PBMS: which salary PBMS uses, how it holds service, how fast reads are.
 
-Read-only and aggregate-only. It prints counts, rates, codes and medians over a
-sample -- never a name, an ID, a date of birth or an amount belonging to one
+Read-only and aggregate-only. It prints counts, rates, codes, medians and
+timings -- never a name, an ID, a date of birth or an amount belonging to one
 person. Personal values live in memory only while they are compared.
 
     uv run python scripts/pbms_discover.py codes
     uv run python scripts/pbms_discover.py links
     uv run python scripts/pbms_discover.py salary --link-table <table from `links`>
     uv run python scripts/pbms_discover.py service --link-table <table from `links`>
+    uv run python scripts/pbms_discover.py timing        # after Task 4
 """
 from __future__ import annotations
 
@@ -163,7 +158,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 SAMPLE = 60
-_MONEY = {"gross": "SUM(d.Gross)", "rate": "MAX(d.Ann_Sal)", "capped": "SUM(d.Capped_Salary)"}
+_MONEY = ("gross", "rate", "capped")
 
 
 def _connect():
@@ -202,19 +197,19 @@ def codes(conn) -> None:
     for r in _rows(conn, "SELECT e.Employee_Status_Cd AS code, COUNT(*) AS n FROM dbo.T_Employees e "
                          "WHERE e.Status = 'A' GROUP BY e.Employee_Status_Cd ORDER BY 2 DESC"):
         print(f"  {r['code']!r}: {r['n']}")
-    print("== lookup tables that describe Employee_Status_Cd")
+    print("== tables that describe Employee_Status_Cd")
     for r in _rows(conn, "SELECT OBJECT_NAME(c.object_id) AS t FROM sys.columns c JOIN sys.tables t "
                          "ON t.object_id = c.object_id WHERE c.name = 'Employee_Status_Cd' "
                          "AND OBJECT_NAME(c.object_id) LIKE '%Type%'"):
         print(f"  {r['t']}")
-    print("== Status codes on T_Pen_Ded_Master / T_Pen_Ded_Detail for 2024 (code, count)")
+    print("== Status codes on T_Pen_Ded_Master for 2024, and on a server-side sample of its detail rows")
     for r in _rows(conn, "SELECT m.Status AS code, COUNT(*) AS n FROM dbo.T_Pen_Ded_Master m "
                          "WHERE m.Year = 2024 GROUP BY m.Status"):
         print(f"  master {r['code']!r}: {r['n']}")
-    # A sample, aggregated on the server: never pull detail rows to the client.
-    for r in _rows(conn, "SELECT x.code, COUNT(*) AS n FROM (SELECT TOP 200000 d.Status AS code FROM dbo.T_Pen_Ded_Master m "
-                         "JOIN dbo.T_Pen_Ded_Detail d ON d.Pen_Ded_Master_Seq_No = m.Pen_Ded_Master_Seq_No "
-                         "WHERE m.Year = 2024) x GROUP BY x.code"):
+    for r in _rows(conn, "SELECT x.code, COUNT(*) AS n FROM (SELECT TOP 200000 d.Status AS code "
+                         "FROM dbo.T_Pen_Ded_Master m JOIN dbo.T_Pen_Ded_Detail d "
+                         "ON d.Pen_Ded_Master_Seq_No = m.Pen_Ded_Master_Seq_No WHERE m.Year = 2024) x "
+                         "GROUP BY x.code"):
         print(f"  detail {r['code']!r}: {r['n']}")
 
 
@@ -249,9 +244,8 @@ def _best_four(by_year: dict[int, float]) -> float | None:
     if not by_year:
         return None
     last = max(by_year)
-    window = [y for y in range(last - 9, last + 1)]
     best = None
-    for start in window[:-3]:
+    for start in range(last - 9, last - 2):
         run = [by_year.get(y) for y in range(start, start + 4)]
         if all(v is not None for v in run):
             avg = sum(run) / 4
@@ -278,9 +272,9 @@ def service(conn, link: str) -> None:
     people = _sample(conn, link)
     pbms, counted, close = [], [], 0
     for p in people:
-        months = sum(int(r["months"] or 0) for r in _years(conn, p["person"], True))
         if p["svc"] is None:
             continue
+        months = sum(int(r["months"] or 0) for r in _years(conn, p["person"], True))
         pbms.append(float(p["svc"]))
         counted.append(months / 12)
         close += abs(float(p["svc"]) - months / 12) <= 0.5
@@ -296,12 +290,13 @@ def main() -> None:
     ap.add_argument("what", choices=["codes", "links", "salary", "service"])
     ap.add_argument("--link-table")
     args = ap.parse_args()
+    if args.what in ("salary", "service") and not args.link_table:
+        raise SystemExit("--link-table is required; run `links` first")
     conn = _connect()
     try:
-        if args.what in ("salary", "service") and not args.link_table:
-            raise SystemExit("--link-table is required; run `links` first")
         {"codes": lambda: codes(conn), "links": lambda: links(conn),
-         "salary": lambda: salary(conn, args.link_table), "service": lambda: service(conn, args.link_table)}[args.what]()
+         "salary": lambda: salary(conn, args.link_table),
+         "service": lambda: service(conn, args.link_table)}[args.what]()
     finally:
         conn.close()
 
@@ -312,7 +307,6 @@ if __name__ == "__main__":
 
 - [ ] **Step 7: Run discovery**
 
-Run these one at a time, and read each output:
 ```
 uv run python scripts/pbms_discover.py codes
 uv run python scripts/pbms_discover.py links
@@ -321,22 +315,22 @@ uv run python scripts/pbms_discover.py service --link-table <same table>
 ```
 Expected: counts only. If `links` prints nothing, record "no annuity link table: salary rule unverified" and use the defaults below.
 
-- [ ] **Step 8: Record the findings in the spec (§6.2)**
+- [ ] **Step 8: Record the findings as spec §6.2**
 
 Append to the spec after §6.1:
 
 ```markdown
 ### 6.2 Settled by Task 1 (date)
 
-- **Salary rule:** `SALARY_RULE = "<gross|rate|capped>"`, because <the candidate with the most matches>/<n> retirees matched PBMS's FAS within 1% (<the numbers printed>). Status filter: <'A' rows only | all rows>.
-- **Service:** `SERVICE_FROM_PAYROLL = <True|False>`, because <n>/<m> were within half a year of PBMS's `MEAB_Svc` (median PBMS <x>, counted <y>).
-- **Status codes:** <codes printed> -- mapped: `A` -> active; <any other code the lookup table names clearly>.
+- **Salary rule:** `SALARY_RULE = "<gross|rate|capped>"` -- <n>/<m> retirees matched PBMS's FAS within 1% (<all numbers printed>). Status filter: <'A' rows only | all rows>.
+- **Service:** `SERVICE_FROM_PAYROLL = <True|False>` -- <n>/<m> within half a year of `MEAB_Svc` (median PBMS <x>, counted <y>).
+- **Status codes:** <codes printed>; mapped: `A` -> active.
 ```
 
-**Decision rule, stated here so no judgement is needed:**
-- Choose the salary candidate with the most matches. If no candidate reaches 50% of the sample, choose `"gross"`, and add to client question 38: "our three candidate salaries matched PBMS's FAS for at most N of M retirees".
-- Set `SERVICE_FROM_PAYROLL = True` if at least 70% are within half a year. Otherwise set it to `False`.
-- If the detail-row status filter matches worse than "all rows", note it. Task 2 then drops `AND d.Status = 'A'`.
+**Decision rule:**
+- Choose the salary candidate with the most matches. If none reaches 50% of the sample, choose `"gross"`, and add to client question 38: "our three candidate salaries matched PBMS's FAS for at most N of M retirees".
+- Set `SERVICE_FROM_PAYROLL = True` if at least 70% are within half a year, otherwise `False`.
+- If "all rows" matched better than "Status='A' rows only", note it. Task 2 then drops `AND d.Status = 'A'`.
 
 - [ ] **Step 9: Commit**
 
@@ -352,24 +346,26 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 2: The guard and the fixed SQL
 
 **Files:**
-- Create: `src/pension_chat/pbms/__init__.py` (empty for now; Task 3 fills it)
-- Create: `src/pension_chat/pbms/queries.py`
-- Create: `src/pension_chat/pbms/connection.py`
+- Create: `src/pension_chat/pbms/__init__.py` (a docstring only for now)
+- Create: `src/pension_chat/pbms/queries.py`, `src/pension_chat/pbms/connection.py`
 - Modify: `src/pension_chat/records.py` (add `RecordUnavailable`)
 - Test: `tests/test_pbms_queries.py`, `tests/test_pbms_connection.py`
 
 **Interfaces:**
-- Consumes: `SALARY_RULE` and `SERVICE_FROM_PAYROLL` from spec §6.2 (Task 1).
+- Consumes: `SALARY_RULE` and `SERVICE_FROM_PAYROLL` from spec §6.2.
 - Produces:
   - `records.RecordUnavailable(Exception)`;
-  - `pbms.queries.Query(sql: str, params: tuple[str, ...])`;
-  - `REGISTRY: dict[str, Query]`, with the keys `"resolve_meab_id"`, `"resolve_employee_id"`, `"record"` and `"salary_years"`;
-  - `ALLOWED_COLUMNS: frozenset[str]`, `check_statement(sql: str) -> None` (raises `ValueError`), `SALARY_RULE: str` and `SERVICE_FROM_PAYROLL: bool`;
-  - `pbms.connection.PbmsUnavailable(RecordUnavailable)` and `UnknownQuery(Exception)`;
-  - `connection_string(*, server, database, user, password) -> str`;
+  - `pbms.queries.Query(sql: str, params: tuple[str, ...], timeout_s: float | None = None)`;
+  - `REGISTRY: dict[str, Query]`, with the keys `"name_directory"`, `"resolve_name"`, `"resolve_meab_id"`, `"record"` and `"salary_years"`;
+  - `ALLOWED_COLUMNS`, `check_statement(sql)`, `SALARY_RULE` and `SERVICE_FROM_PAYROLL`;
+  - `pbms.connection.PbmsUnavailable(RecordUnavailable)` and `UnknownQuery`;
+  - `connection_string(*, server, database, user, password)`;
   - `PbmsClient(conn_str, *, query_timeout_s=5.0, max_connections=4, connect=None)`, with `async fetch(name, **params) -> list[dict]` and `async close()`.
-- `salary_years` rows have the columns `Year`, `Salary` and `Contribution_Months`.
-- `record` and resolve rows have the columns `MEAB_Id`, `First_Name`, `Last_Name`, `Birth_Date` (record only), `Hire_Date`, `First_Payroll_Date`, `Seperation_Date`, `Employee_Status_Cd`, `Tier_Type_Cd`, `Reciprocal_Flg`, `ER_Type_Cd`, `Er_Type_Short_Desc` and `Department_Short_Desc`. The last three and `Employee_Status_Cd` also appear on resolve rows.
+- Row columns:
+  - `name_directory`: `First_Name`, `Last_Name`;
+  - `resolve_name` and `resolve_meab_id`: `MEAB_Id`, `First_Name`, `Last_Name`, `Birth_Year`, `Employee_Status_Cd`, `ER_Type_Cd`, `Er_Type_Short_Desc`, `Department_Short_Desc`;
+  - `record`: those plus `Birth_Date`, `Hire_Date`, `First_Payroll_Date`, `Seperation_Date`, `Tier_Type_Cd` and `Reciprocal_Flg`;
+  - `salary_years`: `Year`, `Salary`, `Contribution_Months`.
 
 - [ ] **Step 1: Write the failing tests for the SQL**
 
@@ -385,19 +381,28 @@ import pytest
 from pension_chat.pbms.queries import ALLOWED_COLUMNS, REGISTRY, check_statement
 
 
-def test_the_registry_holds_exactly_the_four_statements() -> None:
-    assert set(REGISTRY) == {"resolve_meab_id", "resolve_employee_id", "record", "salary_years"}
+def test_the_registry_holds_exactly_the_five_statements() -> None:
+    assert set(REGISTRY) == {"name_directory", "resolve_name", "resolve_meab_id", "record", "salary_years"}
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY))
 def test_every_statement_passes_the_guard(name: str) -> None:
-    check_statement(REGISTRY[name].sql)          # raises on failure
+    check_statement(REGISTRY[name].sql)
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY))
 def test_placeholders_match_declared_parameters(name: str) -> None:
-    q = REGISTRY[name]
-    assert q.sql.count("?") == len(q.params)
+    assert REGISTRY[name].sql.count("?") == len(REGISTRY[name].params)
+
+
+@pytest.mark.parametrize("name", ["name_directory", "resolve_name", "resolve_meab_id"])
+def test_lookups_cover_active_members_only(name: str) -> None:
+    sql = REGISTRY[name].sql
+    assert "e.Employee_Status_Cd = 'A'" in sql and "e.Status = 'A'" in sql and "LIKE 'M-%'" in sql
+
+
+def test_the_directory_load_may_take_longer() -> None:
+    assert REGISTRY["name_directory"].timeout_s == 30
 
 
 @pytest.mark.parametrize("bad", [
@@ -407,8 +412,7 @@ def test_placeholders_match_declared_parameters(name: str) -> None:
     "SELECT e.SSN FROM dbo.T_Employees e",
     "SELECT p.CCLast FROM dbo.T_Person_Info p",
     "SELECT p.PbsEmail FROM dbo.T_Person_Info p",
-    "SELECT p.Maiden_Name FROM dbo.T_Person_Info p",
-    "SELECT p.Middle_Name FROM dbo.T_Person_Info p",       # not on the allow-list
+    "SELECT p.Middle_Name FROM dbo.T_Person_Info p",
     "SELECT l.MEAB_Id INTO #t FROM dbo.T_Pbs_Linker l",
     "EXEC sp_who",
 ])
@@ -426,7 +430,8 @@ def test_salary_is_read_through_the_master_table() -> None:
 
 def test_no_personal_identifier_is_on_the_allow_list() -> None:
     for col in ALLOWED_COLUMNS:
-        assert not re.fullmatch(r"(?i)e?ssn|cc\w*|pbsaddress\w*|pbsemail|pbs\w*_phone|maiden_name|memberid", col)
+        assert not re.fullmatch(
+            r"(?i)e?ssn|cc\w*|pbsaddress\w*|pbsemail|pbs\w*_phone|maiden_name|middle_name|memberid", col)
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -436,7 +441,7 @@ Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.pbms'`.
 
 - [ ] **Step 3: Write `queries.py`**
 
-`SALARY_RULE` and `SERVICE_FROM_PAYROLL` take the values recorded in spec §6.2. If §6.2 says the detail-status filter hurt matching, remove `AND d.Status = 'A'` from `_PAY_JOIN`.
+Set `SALARY_RULE` and `SERVICE_FROM_PAYROLL` to the §6.2 values. If §6.2 says the detail-status filter hurt matching, remove `AND d.Status = 'A'` from `_PAY_JOIN`.
 
 ```python
 # src/pension_chat/pbms/queries.py
@@ -447,9 +452,10 @@ by `check_statement`, and a test runs the same check, so a statement that
 writes, names a column outside `ALLOWED_COLUMNS`, or reads a personal
 identifier cannot ship.
 
-Salary is read through `T_Pen_Ded_Master`, never by filtering `T_Pen_Ded_Detail`
-on the person: that column has no index, and one member's read scanned 46.7M
-rows and timed out (spec §6.1).
+Employees are found by first and last name among *active* members (spec §3.2);
+the MEAB ID is the internal key a choice resolves to. Salary is read through
+`T_Pen_Ded_Master`, never by filtering `T_Pen_Ded_Detail` on the person: that
+column has no index, and one member's read scanned 46.7M rows (spec §6.1).
 """
 from __future__ import annotations
 
@@ -461,11 +467,12 @@ from dataclasses import dataclass
 class Query:
     sql: str
     params: tuple[str, ...]
+    # Seconds; None means the client's default (5 s).
+    timeout_s: float | None = None
 
 
 # How a year's salary is built from pay periods, and whether service is counted
-# from them. Settled by measurement against PBMS's own annuity calculations
-# (spec §6.2); client question 38 asks the fund to confirm.
+# from them -- settled against PBMS's own annuity calculations (spec §6.2).
 SALARY_EXPRESSIONS = {"gross": "SUM(d.Gross)", "rate": "MAX(d.Ann_Sal)", "capped": "SUM(d.Capped_Salary)"}
 SALARY_RULE = "gross"
 SERVICE_FROM_PAYROLL = True
@@ -475,7 +482,7 @@ ALLOWED_COLUMNS: frozenset[str] = frozenset({
     "First_Name", "Last_Name", "Birth_Date",
     "Hire_Date", "First_Payroll_Date", "Seperation_Date", "Employee_Status_Cd",
     "Tier_Type_Cd", "Reciprocal_Flg", "ER_Type_Cd", "Er_Type_Short_Desc",
-    "Department_Seq_No", "Department_Short_Desc", "Employee_Id", "Status",
+    "Department_Seq_No", "Department_Short_Desc", "Status",
     "Pen_Ded_Master_Seq_No", "PPE", "Gross", "Ann_Sal", "Capped_Salary", "Ded",
 })
 
@@ -483,7 +490,9 @@ _WRITE = re.compile(
     r"\b(insert|update|delete|merge|exec|execute|drop|alter|create|truncate|grant|revoke|into|openrowset|openquery)\b",
     re.IGNORECASE,
 )
-_PERSONAL = re.compile(r"\b(e?ssn|cc\w*|pbsaddress\w*|pbsemail|pbs\w*_phone|maiden_name|memberid)\b", re.IGNORECASE)
+_PERSONAL = re.compile(
+    r"\b(e?ssn|cc\w*|pbsaddress\w*|pbsemail|pbs\w*_phone|maiden_name|middle_name|memberid)\b", re.IGNORECASE
+)
 # Every column is written alias.Column; the aliases are one or two letters.
 _QUALIFIED = re.compile(r"\b[a-z]{1,2}\.([A-Za-z_]+)\b")
 
@@ -491,7 +500,7 @@ _QUALIFIED = re.compile(r"\b[a-z]{1,2}\.([A-Za-z_]+)\b")
 def check_statement(sql: str) -> None:
     """Raise ValueError unless `sql` is one read-only, allow-listed SELECT."""
     body = sql.strip()
-    if not re.match(r"(?is)^(select|with)\b", body):
+    if not re.match(r"(?is)^select\b", body):
         raise ValueError("not a SELECT")
     if ";" in body:
         raise ValueError("more than one statement")
@@ -504,14 +513,20 @@ def check_statement(sql: str) -> None:
         raise ValueError(f"columns outside the allow-list: {sorted(outside)}")
 
 
-_WHO = """
-       l.MEAB_Id, p.First_Name, p.Last_Name,
-       e.Employee_Status_Cd, e.ER_Type_Cd, et.Er_Type_Short_Desc, dp.Department_Short_Desc"""
+_ACTIVE = "l.MEAB_Id LIKE 'M-%' AND e.Status = 'A' AND e.Employee_Status_Cd = 'A'"
 
-_WHO_JOINS = """
+_PEOPLE = """
+  FROM dbo.T_Pbs_Linker l
   JOIN dbo.T_Person_Info p ON p.Person_Info_Seq_No = l.Person_Info_Seq_No
+  JOIN dbo.T_Employees e ON e.Employee_Seq_No = l.Employee_Seq_No"""
+
+_DESCRIBED = """
   LEFT JOIN dbo.T_Employer_Types et ON et.ER_Type_Cd = e.ER_Type_Cd
   LEFT JOIN dbo.T_Departments dp ON dp.Department_Seq_No = e.Department_Seq_No"""
+
+_WHO = """
+       l.MEAB_Id, p.First_Name, p.Last_Name, YEAR(p.Birth_Date) AS Birth_Year,
+       e.Employee_Status_Cd, e.ER_Type_Cd, et.Er_Type_Short_Desc, dp.Department_Short_Desc"""
 
 _PAY_JOIN = """
   FROM dbo.T_Pbs_Linker l
@@ -520,26 +535,25 @@ _PAY_JOIN = """
  WHERE l.MEAB_Id = ? AND m.Status = 'A' AND d.Status = 'A'"""
 
 REGISTRY: dict[str, Query] = {
-    "resolve_meab_id": Query(
-        f"""SELECT{_WHO}
-  FROM dbo.T_Pbs_Linker l
-  LEFT JOIN dbo.T_Employees e ON e.Employee_Seq_No = l.Employee_Seq_No{_WHO_JOINS}
- WHERE l.MEAB_Id = ?""",
-        ("meab_id",),
+    "name_directory": Query(
+        f"""SELECT DISTINCT p.First_Name, p.Last_Name{_PEOPLE}
+ WHERE {_ACTIVE} AND p.First_Name IS NOT NULL AND p.Last_Name IS NOT NULL""",
+        (),
+        timeout_s=30,
     ),
-    "resolve_employee_id": Query(
-        f"""SELECT{_WHO}
-  FROM dbo.T_Employees e
-  JOIN dbo.T_Pbs_Linker l ON l.Employee_Seq_No = e.Employee_Seq_No{_WHO_JOINS}
- WHERE e.Employee_Id = ? AND e.Status = 'A' AND l.MEAB_Id LIKE 'M-%'
-   AND (? IS NULL OR e.ER_Type_Cd = ?)""",
-        ("employee_id", "employer_cd", "employer_cd"),
+    "resolve_name": Query(
+        f"""SELECT{_WHO}{_PEOPLE}{_DESCRIBED}
+ WHERE {_ACTIVE} AND p.First_Name = ? AND p.Last_Name = ?""",
+        ("first_name", "last_name"),
+    ),
+    "resolve_meab_id": Query(
+        f"""SELECT{_WHO}{_PEOPLE}{_DESCRIBED}
+ WHERE {_ACTIVE} AND l.MEAB_Id = ?""",
+        ("meab_id",),
     ),
     "record": Query(
         f"""SELECT{_WHO}, p.Birth_Date,
-       e.Hire_Date, e.First_Payroll_Date, e.Seperation_Date, e.Tier_Type_Cd, e.Reciprocal_Flg
-  FROM dbo.T_Pbs_Linker l
-  JOIN dbo.T_Employees e ON e.Employee_Seq_No = l.Employee_Seq_No{_WHO_JOINS}
+       e.Hire_Date, e.First_Payroll_Date, e.Seperation_Date, e.Tier_Type_Cd, e.Reciprocal_Flg{_PEOPLE}{_DESCRIBED}
  WHERE l.MEAB_Id = ?""",
         ("meab_id",),
     ),
@@ -556,12 +570,14 @@ for _name, _query in REGISTRY.items():
     check_statement(_query.sql)
 ```
 
-Create `src/pension_chat/pbms/__init__.py` containing only `"""The client's PBMS database, read-only (Phase 1)."""`.
+`record` does not filter on active status. A subject chosen while active stays readable if their status changes mid-conversation.
+
+Create `src/pension_chat/pbms/__init__.py` containing `"""The client's PBMS database, read-only (Phase 1)."""`.
 
 - [ ] **Step 4: Run the query tests**
 
 Run: `uv run pytest tests/test_pbms_queries.py -v`
-Expected: all pass. If `test_the_guard_refuses` passes a statement it should refuse, fix `check_statement`, not the test.
+Expected: all pass.
 
 - [ ] **Step 5: Write the failing tests for the connection**
 
@@ -583,13 +599,13 @@ class FakeCursor:
         self.conn, self.description = conn, None
 
     def execute(self, sql, args):
-        self.conn.log.append((sql, args))
+        self.conn.log.append((sql, args, self.conn.timeout))    # the timeout in force for this statement
         if self.conn.fail:
             raise self.conn.fail
         self.description = [("MEAB_Id",), ("First_Name",)]
 
     def fetchall(self):
-        return [("M-000001", "Abcde")]
+        return [("M-000001", "AB_CD")]
 
     def close(self):
         pass
@@ -610,8 +626,7 @@ class FakeConn:
 
 
 def _client(*conns):
-    made = list(conns)
-    opened = []
+    made, opened = list(conns), []
 
     def connect(conn_str, timeout):
         conn = made.pop(0)
@@ -625,8 +640,15 @@ def _client(*conns):
 async def test_a_registry_statement_returns_rows_as_dicts() -> None:
     client, opened = _client(FakeConn())
     rows = await client.fetch("resolve_meab_id", meab_id="M-000001")
-    assert rows == [{"MEAB_Id": "M-000001", "First_Name": "Abcde"}]
+    assert rows == [{"MEAB_Id": "M-000001", "First_Name": "AB_CD"}]
     assert opened[0].setup == ["SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED"]
+    assert opened[0].log[0][2] == 5
+
+
+async def test_a_statement_with_its_own_timeout_uses_it_then_restores_the_default() -> None:
+    client, opened = _client(FakeConn())
+    await client.fetch("name_directory")
+    assert opened[0].log[0][2] == 30
     assert opened[0].timeout == 5
 
 
@@ -640,12 +662,12 @@ async def test_an_unknown_name_never_reaches_the_driver() -> None:
 async def test_a_missing_parameter_is_refused() -> None:
     client, _ = _client(FakeConn())
     with pytest.raises(TypeError):
-        await client.fetch("record")
+        await client.fetch("resolve_name", first_name="AB_CD")
 
 
 async def test_a_driver_failure_is_unavailable_and_carries_no_secret() -> None:
     boom = Exception("08001", f"login failed for DRIVER=...;PWD={SECRET}")
-    client, _ = _client(FakeConn(fail=boom), FakeConn(fail=boom))
+    client, _ = _client(FakeConn(fail=boom))
     with pytest.raises(PbmsUnavailable) as caught:
         await client.fetch("record", meab_id="M-000001")
     assert isinstance(caught.value, RecordUnavailable)
@@ -664,9 +686,8 @@ async def test_a_dropped_pooled_connection_is_retried_once_on_a_fresh_one() -> N
 
 def test_the_connection_string_is_read_only_and_named() -> None:
     cs = connection_string(server="tcp:h,2022", database="PbsMeabDev", user="sa", password=SECRET)
-    assert "ApplicationIntent=ReadOnly" in cs
-    assert "APP=pension-chat-readonly" in cs
-    assert "PWD={pa}}ss-w0rd-XYZ}" in cs                     # braces escaped
+    assert "ApplicationIntent=ReadOnly" in cs and "APP=pension-chat-readonly" in cs
+    assert "PWD={pa}}ss-w0rd-XYZ}" in cs
 ```
 
 - [ ] **Step 6: Run them to see them fail**
@@ -676,7 +697,7 @@ Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.pbms.co
 
 - [ ] **Step 7: Add `RecordUnavailable` to `records.py`**
 
-Add it after the `EmployeeRecord` class:
+Add it after `EmployeeRecord`:
 
 ```python
 class RecordUnavailable(Exception):
@@ -695,10 +716,10 @@ class RecordUnavailable(Exception):
 
 There is no method that takes SQL text. `fetch` takes a statement *name* from
 `queries.REGISTRY`; anything else raises before a connection is touched. Every
-connection declares itself read-only (`ApplicationIntent=ReadOnly`, the driver's
-read-only access mode), names itself to the DBA (`APP=pension-chat-readonly`),
-reads uncommitted so it never holds locks PBMS's own work could wait on, and
-gives up on any statement after the query timeout.
+connection declares itself read-only (`ApplicationIntent=ReadOnly` and the
+driver's read-only access mode), names itself to the DBA
+(`APP=pension-chat-readonly`), reads uncommitted so it never holds locks PBMS's
+own work could wait on, and gives up on a statement after its timeout.
 
 Errors leave as `PbmsUnavailable` with the statement name and SQLSTATE only --
 `from None`, so no driver message (which can echo connection details) rides
@@ -784,14 +805,15 @@ class PbmsClient:
         if missing:
             raise TypeError(f"{name} needs {missing}")
         args = tuple(params[p] for p in query.params)
+        timeout = max(1, int(query.timeout_s or self._timeout))
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._run, name, query, args), timeout=self._timeout * 2 + 1
+                asyncio.to_thread(self._run, name, query, args, timeout), timeout=timeout * 2 + 1
             )
         except TimeoutError:
             raise PbmsUnavailable(f"PBMS query {name} timed out") from None
 
-    def _run(self, name: str, query: Query, args: tuple[Any, ...]) -> list[dict[str, Any]]:
+    def _run(self, name: str, query: Query, args: tuple[Any, ...], timeout: int) -> list[dict[str, Any]]:
         if not self._slots.acquire(timeout=self._timeout):
             raise PbmsUnavailable(f"PBMS query {name}: no connection free")
         try:
@@ -799,6 +821,7 @@ class PbmsClient:
             # idle; that costs one retry on a fresh one, not the user's turn.
             for attempt in (1, 2):
                 conn, reused = self._checkout(fresh=attempt == 2)
+                conn.timeout = timeout
                 try:
                     rows = self._execute(conn, query, args)
                 except Exception as exc:
@@ -806,6 +829,7 @@ class PbmsClient:
                     if attempt == 1 and reused:
                         continue
                     raise PbmsUnavailable(f"PBMS query {name} failed ({_sqlstate(exc)})") from None
+                conn.timeout = self._timeout
                 self._idle.put(conn)
                 return rows
             raise PbmsUnavailable(f"PBMS query {name} failed")  # unreachable
@@ -850,12 +874,11 @@ class PbmsClient:
 - [ ] **Step 9: Run both test files**
 
 Run: `uv run pytest tests/test_pbms_queries.py tests/test_pbms_connection.py -v`
-Expected: all pass. The failure test uses two failing connections: the first attempt is fresh, so it is not retried and raises immediately; the second connection goes unused. That is expected.
+Expected: all pass.
 
 - [ ] **Step 10: Lint, type-check and commit**
 
 Run: `uv run ruff check src/pension_chat/pbms tests/test_pbms_*.py && uv run mypy src/pension_chat/pbms src/pension_chat/records.py`
-Expected: no errors.
 
 ```bash
 git add src/pension_chat/pbms src/pension_chat/records.py tests/test_pbms_queries.py tests/test_pbms_connection.py
@@ -866,33 +889,28 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: `PbmsProvider`, the mapping, and wiring it into the app
+### Task 3: `PbmsProvider`: mapping a record, and wiring it into the app
 
 **Files:**
 - Create: `src/pension_chat/pbms/provider.py`
-- Modify: `src/pension_chat/pbms/__init__.py` (add `build_record_provider`)
+- Modify: `src/pension_chat/pbms/__init__.py` (`build_record_provider`)
 - Modify: `src/pension_chat/records.py`:
-  - `EmployeeMatch.department`;
-  - `EmployeeRecord.source`;
-  - `record_source` in `to_agent_record`;
-  - the MEAB ID helpers;
-  - `set_default_provider`, with `current_provider` falling back to it.
-- Modify: `src/pension_chat/main.py` (lifespan, around line 97)
-- Modify: `src/pension_chat/api/health.py`
-- Modify: `scripts/pbms_discover.py` (add the `timing` subcommand)
+  - add `EmployeeMatch.department` and `EmployeeMatch.birth_year`;
+  - add `EmployeeRecord.source`, carried into the agent record as `record_source`;
+  - add `normalise_meab_id` and `MEAB_ID_PATTERN`;
+  - add `set_default_provider`, with `current_provider` falling back to it.
+- Modify: `src/pension_chat/main.py` (lifespan), `src/pension_chat/api/health.py`
 - Test: `tests/test_pbms_provider.py`
 
 **Interfaces:**
-- Consumes: `PbmsClient.fetch` and the row columns from Task 2; `RecordUnavailable`.
+- Consumes: `PbmsClient.fetch` and the row columns (Task 2), and `RecordUnavailable`.
 - Produces:
-  - `records.normalise_meab_id(text: str | None) -> str | None`;
-  - `records.meab_ids_in(text: str) -> list[str]`;
-  - `records.MEAB_ID_PATTERN = r"^M-[0-9]{6}$"`;
-  - `records.set_default_provider(p: RecordProvider | None) -> None`;
-  - `EmployeeMatch(key, display_name, employer=None, status=None, department=None)`;
-  - `EmployeeRecord(..., source: str | None = None)`, whose agent record then carries `"record_source"`;
-  - `pbms.provider.PbmsProvider(client, *, today=date.today)`, with `find_employees(query, scope=None)`, `get_record(key)`, `get_salary_history(key)` and `close()`;
-  - the pure helpers `record_from_rows(row, salary_rows)`, `salary_from_rows(rows, *, as_of)`, `match_from_row(row)`, `reconcile_tier(code, start) -> tuple[int | None, str | None]` and `tier_from_participation(start) -> int | None`;
+  - `records.MEAB_ID_PATTERN = r"^M-[0-9]{6}$"` and `normalise_meab_id(text) -> str | None`;
+  - `records.set_default_provider(p)`;
+  - `EmployeeMatch(key, display_name, employer=None, status=None, department=None, birth_year=None)`;
+  - `EmployeeRecord(..., source=None)`;
+  - the pure helpers `record_from_rows(row, salary_rows)`, `salary_from_rows(rows, *, as_of)`, `match_from_row(row)`, `reconcile_tier(code, start)` and `tier_from_participation(start)`;
+  - `PbmsProvider(client, *, today=date.today)`, with `find_employees(query, scope=None)` (MEAB ID only), `get_record(key)`, `get_salary_history(key)` and `close()`;
   - `pbms.build_record_provider(settings) -> PbmsProvider | None`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -911,11 +929,11 @@ from pension_chat.pbms.provider import (
     PbmsProvider, match_from_row, reconcile_tier, record_from_rows, salary_from_rows,
 )
 from pension_chat.records import (
-    RecordUnavailable, current_provider, meab_ids_in, normalise_meab_id, set_default_provider, use_provider,
+    RecordUnavailable, current_provider, normalise_meab_id, set_default_provider, use_provider,
 )
 
 ROW = {
-    "MEAB_Id": "M-000123", "First_Name": "Qwxzt", "Last_Name": "Plmrb",
+    "MEAB_Id": "M-000123", "First_Name": "QW_XZ", "Last_Name": "PL_MR", "Birth_Year": 1964,
     "Birth_Date": datetime(1964, 9, 30), "Hire_Date": datetime(2012, 3, 1), "First_Payroll_Date": None,
     "Seperation_Date": None, "Employee_Status_Cd": "A", "Tier_Type_Cd": "2", "Reciprocal_Flg": "N",
     "ER_Type_Cd": "CITY", "Er_Type_Short_Desc": "City of Chicago", "Department_Short_Desc": "Finance",
@@ -934,15 +952,10 @@ def test_meab_ids_are_normalised(raw, want) -> None:
     assert normalise_meab_id(raw) == want
 
 
-def test_ids_are_found_in_text_once_each() -> None:
-    assert meab_ids_in("compare m-000001 with M-000002 and M-000001") == ["M-000001", "M-000002"]
-    assert meab_ids_in("XM-0000012") == []
-
-
 def test_a_full_row_maps_to_the_record() -> None:
     rec = record_from_rows(ROW, PAY)
     assert (rec.key, rec.display_name, rec.employer, rec.department) == (
-        "M-000123", "Qwxzt Plmrb", "City of Chicago", "Finance")
+        "M-000123", "QW_XZ PL_MR", "City of Chicago", "Finance")
     assert rec.birth_date == date(1964, 9, 30) and rec.hire_date == date(2012, 3, 1)
     assert (rec.tier, rec.status, rec.source) == (2, "active", "PBMS")
     assert rec.service_years == Decimal("2.75")                  # 33 months
@@ -964,10 +977,10 @@ def test_no_dates_at_all_leaves_them_absent() -> None:
 
 @pytest.mark.parametrize("code, start, want_tier, note_has", [
     ("2", date(2012, 3, 1), 2, None),
-    ("2", date(2019, 1, 1), 2, "indicates Tier 3"),          # disagreement: PBMS's value, reported
-    ("0", date(2005, 1, 1), 1, "tier code '0'"),              # unmapped: from the dates, reported
-    ("", date(2017, 8, 1), None, "does not settle it"),       # 2017 with no code: unknown
-    ("3", date(2017, 8, 1), 3, None),                         # 2017, PBMS decides
+    ("2", date(2019, 1, 1), 2, "indicates Tier 3"),
+    ("0", date(2005, 1, 1), 1, "tier code '0'"),
+    ("", date(2017, 8, 1), None, "does not settle it"),
+    ("3", date(2017, 8, 1), 3, None),
     ("T", None, None, "not on file"),
 ])
 def test_tier_is_reconciled_with_the_dates(code, start, want_tier, note_has) -> None:
@@ -986,14 +999,13 @@ def test_reciprocal_flag_is_reported_as_a_gap() -> None:
 
 
 def test_the_current_year_is_left_out_of_salary_history() -> None:
-    history = salary_from_rows(PAY, as_of=date(2026, 9, 30))
-    assert [h.year for h in history] == [2024, 2025]
+    assert [h.year for h in salary_from_rows(PAY, as_of=date(2026, 9, 30))] == [2024, 2025]
 
 
-def test_a_match_carries_what_the_confirm_row_shows() -> None:
+def test_a_match_carries_what_the_choice_card_shows() -> None:
     m = match_from_row(ROW)
-    assert (m.key, m.display_name, m.employer, m.department, m.status) == (
-        "M-000123", "Qwxzt Plmrb", "City of Chicago", "Finance", "active")
+    assert (m.key, m.display_name, m.employer, m.department, m.status, m.birth_year) == (
+        "M-000123", "QW_XZ PL_MR", "City of Chicago", "Finance", "active", 1964)
 
 
 class FakeClient:
@@ -1006,7 +1018,7 @@ class FakeClient:
             raise RecordUnavailable("down")
         if name == "salary_years":
             return PAY
-        return [ROW] if params.get("meab_id") == "M-000123" or params.get("employee_id") == 77 else []
+        return [ROW] if params.get("meab_id") == "M-000123" else []
 
     async def close(self):
         pass
@@ -1024,16 +1036,9 @@ async def test_the_provider_reads_record_and_salary_and_caches_salary() -> None:
 
 async def test_a_key_that_is_not_a_meab_id_is_no_record_and_no_query() -> None:
     client = FakeClient()
-    provider = PbmsProvider(client)
-    assert await provider.get_record("3f1c9e2a-uuid-of-a-profile") is None
+    assert await PbmsProvider(client).get_record("3f1c9e2a-a-profile-uuid") is None
+    assert await PbmsProvider(client).find_employees("QW_XZ PL_MR") == []
     assert client.calls == []
-
-
-async def test_find_by_employee_id_passes_the_employer_scope() -> None:
-    client = FakeClient()
-    matches = await PbmsProvider(client).find_employees("77", "CITY")
-    assert matches[0].key == "M-000123"
-    assert client.calls == [("resolve_employee_id", {"employee_id": 77, "employer_cd": "CITY"})]
 
 
 async def test_unavailable_propagates() -> None:
@@ -1051,6 +1056,25 @@ def test_a_context_provider_outranks_the_default() -> None:
     finally:
         set_default_provider(None)
     assert current_provider() is None
+
+
+def _settings(**overrides):
+    from pension_chat.config import Settings
+
+    base = dict(azure_openai_api_key="k", azure_openai_endpoint="https://x", azure_search_api_key="k",
+                azure_search_endpoint="https://x", pghost="h", pguser="u", pgpassword="p", _env_file=None)
+    return Settings(**{**base, **overrides})
+
+
+def test_no_provider_unless_pbms_and_never_half_configured() -> None:
+    from pension_chat.pbms import build_record_provider
+
+    assert build_record_provider(_settings()) is None
+    with pytest.raises(RuntimeError, match="PBMS_SQL_SERVER"):
+        build_record_provider(_settings(record_source="pbms"))
+    assert build_record_provider(_settings(
+        record_source="pbms", pbms_sql_server="s", pbms_sql_database="d",
+        pbms_sql_user="u", pbms_sql_password="p")) is not None
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -1061,8 +1085,8 @@ Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.pbms.pr
 - [ ] **Step 3: Extend `records.py`**
 
 Add these changes:
-- a `department: str | None = None` field, as the last field of `EmployeeMatch`;
-- a `source: str | None = None` field, as the last field of `EmployeeRecord`;
+- `department: str | None = None` and `birth_year: int | None = None` as the last fields of `EmployeeMatch`;
+- `source: str | None = None` as the last field of `EmployeeRecord`;
 - in `to_agent_record`, the line `if self.source: record["record_source"] = self.source` before `return record`.
 
 At module level, add:
@@ -1072,23 +1096,12 @@ import re
 
 MEAB_ID_PATTERN = r"^M-[0-9]{6}$"
 _MEAB_ID = re.compile(MEAB_ID_PATTERN)
-_MEAB_ID_IN_TEXT = re.compile(r"(?<![\w-])M-\d{6}(?![\w-])", re.IGNORECASE)
 
 
 def normalise_meab_id(text: str | None) -> str | None:
-    """`M-######` in canonical form, or None if `text` is not one."""
+    """`M-######` in canonical form, or None if `text` is not one. Internal key only."""
     candidate = (text or "").strip().upper()
     return candidate if _MEAB_ID.fullmatch(candidate) else None
-
-
-def meab_ids_in(text: str) -> list[str]:
-    """Every MEAB ID written in `text`, canonical, first occurrence first."""
-    found: list[str] = []
-    for match in _MEAB_ID_IN_TEXT.finditer(text or ""):
-        value = match.group(0).upper()
-        if value not in found:
-            found.append(value)
-    return found
 ```
 
 Replace `current_provider` and add the default:
@@ -1114,10 +1127,11 @@ def current_provider() -> RecordProvider | None:
 # src/pension_chat/pbms/provider.py
 """PBMS as a RecordProvider: the fund's own records, read live.
 
-The mapping is pure (`record_from_rows`, `salary_from_rows`) so it is tested on
-synthetic rows. A field PBMS leaves empty is absent, with the reason in
-`missing`: MEABF leaves the hire date empty on 80,763 live rows (spec §6.1), and
-a plausible default there would be a wrong figure with a real citation on it.
+The mapping is pure (`record_from_rows`, `salary_from_rows`, `match_from_row`)
+so it is tested on synthetic rows. A field PBMS leaves empty is absent, with
+the reason in `missing`: MEABF leaves the hire date empty on 80,763 live rows
+(spec §6.1), and a plausible default there would be a wrong figure with a real
+citation on it. Name search is added in `names.py` (Task 4).
 """
 from __future__ import annotations
 
@@ -1132,8 +1146,8 @@ from pension_chat.pbms.queries import SERVICE_FROM_PAYROLL
 from pension_chat.records import EmployeeMatch, EmployeeRecord, SalaryYear, normalise_meab_id
 
 _TIER_CODES = {"1": 1, "2": 2, "3": 3}
-# Employee_Status_Cd -> the agent's employment_status. Extended only from the
-# codes Task 1 found described (spec §6.2); anything else is reported, not guessed.
+# Employee_Status_Cd -> the agent's employment_status; extended only from codes
+# spec §6.2 found described. Anything else is reported, not guessed.
 _STATUS = {"A": "active"}
 SERVICE_FROM_PAYROLL_SOURCE = "counted from payroll (months with a pension deduction)"
 
@@ -1203,12 +1217,14 @@ def _status(row: dict[str, Any]) -> tuple[str | None, str | None]:
 def match_from_row(row: dict[str, Any]) -> EmployeeMatch:
     status, code = _status(row)
     key = str(row["MEAB_Id"]).strip().upper()
+    birth_year = row.get("Birth_Year")
     return EmployeeMatch(
         key=key,
-        display_name=_display_name(row) or key,
+        display_name=_display_name(row) or "(no name on file)",
         employer=_employer(row),
         status=status or (f"PBMS status {code}" if code else None),
         department=_text(row.get("Department_Short_Desc")),
+        birth_year=int(birth_year) if birth_year else None,
     )
 
 
@@ -1286,17 +1302,11 @@ class PbmsProvider:
         self._salary: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
     async def find_employees(self, query: str, scope: object | None = None) -> list[EmployeeMatch]:
+        """The active member a MEAB ID (an internal `ref`) names; nothing else is searched here."""
         meab_id = normalise_meab_id(query)
-        if meab_id:
-            rows = await self._client.fetch("resolve_meab_id", meab_id=meab_id)
-        elif query.strip().isdigit() and len(query.strip()) <= 9:
-            rows = await self._client.fetch(
-                "resolve_employee_id", employee_id=int(query.strip()),
-                employer_cd=scope if isinstance(scope, str) else None,
-            )
-        else:
+        if meab_id is None:
             return []
-        return [match_from_row(r) for r in rows]
+        return [match_from_row(r) for r in await self._client.fetch("resolve_meab_id", meab_id=meab_id)]
 
     async def get_record(self, key: str) -> EmployeeRecord | None:
         meab_id = normalise_meab_id(key)
@@ -1330,12 +1340,7 @@ class PbmsProvider:
         await self._client.close()
 ```
 
-- [ ] **Step 5: Run the provider tests**
-
-Run: `uv run pytest tests/test_pbms_provider.py tests/test_records_provider.py -v`
-Expected: all pass. The existing `test_records_provider.py` still passes, because `current_provider()` returns `None` when neither provider is set.
-
-- [ ] **Step 6: Add the factory, then wire it into startup and health**
+- [ ] **Step 5: Add the factory, then wire it into startup and health**
 
 `src/pension_chat/pbms/__init__.py`:
 
@@ -1372,25 +1377,7 @@ def build_record_provider(settings: Settings) -> PbmsProvider | None:
     return PbmsProvider(client)
 ```
 
-Add these tests to `tests/test_pbms_provider.py`:
-
-```python
-def test_no_provider_unless_pbms(monkeypatch) -> None:
-    from pension_chat.pbms import build_record_provider
-    from tests.test_pbms_config import _settings
-
-    assert build_record_provider(_settings()) is None
-    with pytest.raises(RuntimeError, match="PBMS_SQL_SERVER"):
-        build_record_provider(_settings(record_source="pbms"))
-    provider = build_record_provider(_settings(
-        record_source="pbms", pbms_sql_server="s", pbms_sql_database="d",
-        pbms_sql_user="u", pbms_sql_password="p"))
-    assert provider is not None
-```
-
-If `tests` is not importable as a package (check whether `tests/__init__.py` exists), copy the `_settings` helper into this file instead of importing it.
-
-In `src/pension_chat/main.py`, change `lifespan` to:
+In `main.py`, change `lifespan`. Task 4 adds the name refresh here as well.
 
 ```python
 @asynccontextmanager
@@ -1401,7 +1388,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Pension Chat API (env=%s)", settings.app_env)
     # RECORD_SOURCE=pbms: every turn reads employee records from PBMS, live and
-    # read-only. Installed before warming so a misconfiguration fails at start.
+    # read-only. Built before warming so a misconfiguration fails at start.
     record_provider = build_record_provider(settings)
     set_default_provider(record_provider)
     logger.info("Employee records from %s", settings.record_source)
@@ -1421,60 +1408,19 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Pension Chat API")
 ```
 
-In `src/pension_chat/api/health.py`, add `from pension_chat.config import get_settings`, and add `"record_source": get_settings().record_source,` to the returned dict. The UI shows the Employee bar only when this value is `"pbms"`.
+In `api/health.py`, add `from pension_chat.config import get_settings`, and add `"record_source": get_settings().record_source,` to the returned dict.
 
-- [ ] **Step 7: Add the `timing` subcommand to discovery, and run it**
+- [ ] **Step 6: Run the tests**
 
-Add this to `scripts/pbms_discover.py`: a `"timing"` choice, and a `timing()` function that times the real registry statements through `PbmsClient`, three runs each, for three MEAB IDs sampled by count. It prints timings only.
+Run: `uv run pytest tests/test_pbms_provider.py tests/test_records_provider.py -v`, then `uv run pytest -q`
+Expected: all pass. `evals/fixtures.py` builds `EmployeeMatch` positionally with four arguments, which still works because the new fields default to `None`.
 
-```python
-def timing(conn) -> None:
-    import asyncio
-    import time as _t
+- [ ] **Step 7: Lint, type-check and commit**
 
-    from pension_chat.config import get_settings
-    from pension_chat.pbms import build_record_provider
-
-    ids = [r["id"] for r in _rows(conn, "SELECT TOP 3 l.MEAB_Id AS id FROM dbo.T_Pbs_Linker l "
-                                        "JOIN dbo.T_Employees e ON e.Employee_Seq_No = l.Employee_Seq_No "
-                                        "WHERE e.Status = 'A' AND e.Employee_Status_Cd = 'A' "
-                                        "AND l.MEAB_Id LIKE 'M-%' ORDER BY l.Person_Info_Seq_No DESC")]
-    settings = get_settings().model_copy(update={"record_source": "pbms"})
-    provider = build_record_provider(settings)
-    assert provider is not None
-
-    async def run() -> None:
-        base = _t.perf_counter()
-        await provider._client.fetch("resolve_meab_id", meab_id=ids[0])  # warm the pool
-        print(f"  first call (connect + query): {(_t.perf_counter() - base) * 1000:.0f} ms")
-        for name in ("resolve_meab_id", "record", "salary_years"):
-            spent = []
-            for meab in ids:
-                t = _t.perf_counter()
-                await provider._client.fetch(name, meab_id=meab)
-                spent.append((_t.perf_counter() - t) * 1000)
-            print(f"  {name}: " + ", ".join(f"{s:.0f}" for s in spent) + " ms")
-        t = _t.perf_counter()
-        await provider.get_record(ids[1])
-        print(f"  get_record (record + salary in parallel): {(_t.perf_counter() - t) * 1000:.0f} ms")
-        await provider.close()
-
-    print("== timings from this machine (a bare round trip here is ~240 ms)")
-    asyncio.run(run())
-```
-
-Run: `uv run python scripts/pbms_discover.py timing`
-Expected: each statement takes roughly one round trip (about 240–300 ms from this machine). If `salary_years` is more than 1 s above the round trip, stop: the statement is not using the master index. Check `_PAY_JOIN` against spec §6.1.
-
-Append the four timing lines to spec §6.2 as "Timings (dev machine, 240 ms round trip)".
-
-- [ ] **Step 8: Run the suite and commit**
-
-Run: `uv run pytest -q` (the full suite) and `uv run ruff check . && uv run mypy .`
-Expected: all pass, with no new lint or type errors.
+Run: `uv run ruff check . && uv run mypy .`
 
 ```bash
-git add src/pension_chat/pbms src/pension_chat/records.py src/pension_chat/main.py src/pension_chat/api/health.py scripts/pbms_discover.py tests/test_pbms_provider.py docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md
+git add src/pension_chat/pbms src/pension_chat/records.py src/pension_chat/main.py src/pension_chat/api/health.py tests/test_pbms_provider.py
 git commit -m "PBMS: PbmsProvider -- the fund's records mapped to the agent's, gaps kept as gaps; installed when RECORD_SOURCE=pbms
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1482,27 +1428,359 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: The agent reads the conversation's subject
+### Task 4: The name directory and name search
+
+**Files:**
+- Create: `src/pension_chat/pbms/names.py`
+- Modify: `src/pension_chat/pbms/provider.py` (add `load_names`, `names_ready`, `names_in` and `find_by_name`)
+- Modify: `src/pension_chat/pbms/__init__.py` (add `refresh_names_forever`)
+- Modify: `src/pension_chat/main.py` (start and cancel the refresh task)
+- Modify: `src/pension_chat/records.py` (the `NameSearch` protocol)
+- Modify: `scripts/pbms_discover.py` (add `timing`)
+- Test: `tests/test_pbms_names.py`
+
+**Interfaces:**
+- Consumes: the `name_directory` and `resolve_name` statements, `match_from_row`, and `RecordUnavailable`.
+- Produces:
+  - `pbms.names.NameDirectory(pairs: Iterable[tuple[str, str]])`, with `names_in(text) -> list[tuple[str, str]]` and `__len__`;
+  - `PbmsProvider.load_names() -> int`, `names_ready: bool`, `names_in(text) -> list[tuple[str, str]]` and `find_by_name(first, last) -> list[EmployeeMatch]`;
+  - `records.NameSearch` (a `runtime_checkable` Protocol with `names_in` and `find_by_name`);
+  - `pbms.refresh_names_forever(provider, *, every_s=21600, retry_s=60)`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_pbms_names.py
+"""Which employees a message names -- matched in memory; PBMS is asked only on a hit. Synthetic names."""
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from pension_chat.pbms.names import NameDirectory
+from pension_chat.pbms.provider import PbmsProvider
+from pension_chat.records import NameSearch, RecordUnavailable
+
+D = NameDirectory([("KA_LS", "MA_LP"), ("Qw_Xz", "PL_MR"), ("A _BC", "DE_FG"), ("O'_BR", "NO_LA"),
+                   ("A._BC", "XY_ZW"), (" ", "ZZ_ZZ")])
+
+
+@pytest.mark.parametrize("text, want", [
+    ("What would KA_LS MA_LP's pension be at 62?", [("KA_LS", "MA_LP")]),
+    ("pension for ka_ls ma_lp", [("KA_LS", "MA_LP")]),
+    ("MA_LP, KA_LS -- when can they retire?", [("KA_LS", "MA_LP")]),
+    ("is it KA_LS MA_LP?", [("KA_LS", "MA_LP")]),
+    ("compare qw_xz pl_mr and KA_LS MA_LP", [("Qw_Xz", "PL_MR"), ("KA_LS", "MA_LP")]),
+    ("A _BC DE_FG retiring", [("A _BC", "DE_FG")]),
+    ("what about O'_BR NO_LA", [("O'_BR", "NO_LA")]),
+    ("A._BC XY_ZW.", [("A._BC", "XY_ZW")]),
+    ("XKA_LS MA_LP", []),
+    ("KA_LS alone", []),
+    ("What is the Tier 2 formula?", []),
+    ("", []),
+])
+def test_names_in_a_message(text, want) -> None:
+    assert D.names_in(text) == want
+
+
+def test_blank_names_are_not_in_the_directory() -> None:
+    assert len(D) == 5
+
+
+class FakeClient:
+    def __init__(self):
+        self.calls, self.fail = [], False
+
+    async def fetch(self, name, **params):
+        self.calls.append((name, params))
+        if self.fail:
+            raise RecordUnavailable("down")
+        if name == "name_directory":
+            return [{"First_Name": "KA_LS", "Last_Name": "MA_LP"}]
+        if name == "resolve_name":
+            return [{"MEAB_Id": f"M-00000{i}", "First_Name": "KA_LS", "Last_Name": "MA_LP", "Birth_Year": 1960 + i,
+                     "Employee_Status_Cd": "A", "ER_Type_Cd": "CITY", "Er_Type_Short_Desc": "City",
+                     "Department_Short_Desc": "Finance"} for i in range(3)]
+        return []
+
+    async def close(self):
+        pass
+
+
+async def test_the_provider_matches_in_memory_and_asks_pbms_only_on_a_hit() -> None:
+    client = FakeClient()
+    provider = PbmsProvider(client)
+    assert isinstance(provider, NameSearch)
+    assert provider.names_in("KA_LS MA_LP") == [] and not provider.names_ready
+    assert await provider.load_names() == 1
+    assert provider.names_in("is KA_LS MA_LP eligible?") == [("KA_LS", "MA_LP")]
+    assert [c[0] for c in client.calls] == ["name_directory"]
+    matches = await provider.find_by_name("KA_LS", "MA_LP")
+    assert [m.birth_year for m in matches] == [1960, 1961, 1962]
+    assert client.calls[-1] == ("resolve_name", {"first_name": "KA_LS", "last_name": "MA_LP"})
+
+
+async def test_a_failed_reload_keeps_the_directory() -> None:
+    client = FakeClient()
+    provider = PbmsProvider(client)
+    await provider.load_names()
+    client.fail = True
+    with pytest.raises(RecordUnavailable):
+        await provider.load_names()
+    assert provider.names_in("KA_LS MA_LP") == [("KA_LS", "MA_LP")]
+
+
+async def test_refresh_retries_soon_after_a_failed_first_load() -> None:
+    from pension_chat.pbms import refresh_names_forever
+
+    client = FakeClient()
+    client.fail = True
+    provider = PbmsProvider(client)
+    task = asyncio.create_task(refresh_names_forever(provider, every_s=3600, retry_s=0.01))
+    await asyncio.sleep(0.05)
+    client.fail = False
+    await asyncio.sleep(0.05)
+    task.cancel()
+    assert provider.names_ready
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `uv run pytest tests/test_pbms_names.py -v`
+Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.pbms.names'`.
+
+- [ ] **Step 3: Write `names.py`**
+
+```python
+# src/pension_chat/pbms/names.py
+"""Which employees a message names: active members' first and last names, held in memory.
+
+A message cannot be sent to SQL Server to ask whether it contains a name, so
+the directory of names -- and nothing else -- is loaded once and matched here,
+at no database cost; PBMS is asked only when a name actually matches (spec §3.4).
+
+Matching is deterministic and case-insensitive. A name is a run of 2-4
+whitespace-separated tokens (names may hold spaces, `_`, `'` and `.`), written
+"FIRST LAST" or "LAST, FIRST", with surrounding punctuation and a possessive
+"'s" tolerated. A token only ever matches whole: "XKA_LS" is not "KA_LS".
+"""
+from __future__ import annotations
+
+import re
+from collections.abc import Iterable
+
+# Trimmed from token edges. `_`, `'` and `.` inside a token stay: names hold them.
+_EDGE = ".,;:!?\"()[]{}<>*`“”‘’"
+_POSSESSIVE = re.compile(r"(?:'|’)S$")
+_MAX_TOKENS = 4
+
+
+def _norm(part: str) -> str:
+    return " ".join(part.split()).upper()
+
+
+class NameDirectory:
+    def __init__(self, pairs: Iterable[tuple[str, str]] = ()) -> None:
+        self._by_full: dict[str, tuple[str, str]] = {}
+        for first, last in pairs:
+            first, last = (first or "").strip(), (last or "").strip()
+            if first and last:
+                self._by_full.setdefault(f"{_norm(first)} {_norm(last)}", (first, last))
+
+    def __len__(self) -> int:
+        return len(self._by_full)
+
+    def names_in(self, text: str) -> list[tuple[str, str]]:
+        tokens: list[tuple[str, bool]] = []          # (token, followed by a comma)
+        for raw in (text or "").split():
+            token = raw.strip(_EDGE).upper()
+            if token:
+                tokens.append((token, raw.rstrip(".!?;:)\"”").endswith(",")))
+        found: list[tuple[str, str]] = []
+        for i in range(len(tokens)):
+            for j in range(i + 1, min(i + _MAX_TOKENS, len(tokens))):
+                pair = self._match(tokens[i:j + 1])
+                if pair is not None and pair not in found:
+                    found.append(pair)
+        return found
+
+    def _match(self, run: list[tuple[str, bool]]) -> tuple[str, str] | None:
+        words = [t for t, _ in run]
+        variants = [words]
+        if _POSSESSIVE.search(words[-1]):
+            variants.append(words[:-1] + [_POSSESSIVE.sub("", words[-1])])
+        for variant in variants:
+            if pair := self._by_full.get(" ".join(variant)):
+                return pair
+            # "LAST, FIRST": the comma marks where the last name ends.
+            for k in range(1, len(variant)):
+                if run[k - 1][1]:
+                    last, first = " ".join(variant[:k]), " ".join(variant[k:])
+                    if pair := self._by_full.get(f"{first} {last}"):
+                        return pair
+        return None
+```
+
+With the comma form, "MA_LP, KA_LS" tokenises to `[("MA_LP", True), ("KA_LS", False)]`, and `k=1` checks `"KA_LS MA_LP"`. The possessive is removed from the *last token of the run* only: "KA_LS MA_LP's" becomes "KA_LS MA_LP". A run never has more than 4 tokens.
+
+- [ ] **Step 4: Add name search to the provider, and the protocol**
+
+In `records.py`, add below `RecordProvider`:
+
+```python
+from typing import runtime_checkable  # add to the existing typing import
+
+
+@runtime_checkable
+class NameSearch(Protocol):
+    """A record source that can say which employees a message names (PBMS)."""
+
+    def names_in(self, text: str) -> list[tuple[str, str]]: ...
+
+    async def find_by_name(self, first: str, last: str) -> list[EmployeeMatch]: ...
+```
+
+In `provider.py`, add `from pension_chat.pbms.names import NameDirectory`, then add `self._names: NameDirectory | None = None` in `__init__`, and these methods:
+
+```python
+    async def load_names(self) -> int:
+        """(Re)load the directory of active members' names; the old one stays if this fails."""
+        rows = await self._client.fetch("name_directory")
+        self._names = NameDirectory((r["First_Name"], r["Last_Name"]) for r in rows)
+        return len(self._names)
+
+    @property
+    def names_ready(self) -> bool:
+        return self._names is not None
+
+    def names_in(self, text: str) -> list[tuple[str, str]]:
+        return self._names.names_in(text) if self._names is not None else []
+
+    async def find_by_name(self, first: str, last: str) -> list[EmployeeMatch]:
+        rows = await self._client.fetch("resolve_name", first_name=first, last_name=last)
+        return [match_from_row(r) for r in rows]
+```
+
+In `pbms/__init__.py`, add:
+
+```python
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def refresh_names_forever(provider: PbmsProvider, *, every_s: float = 6 * 3600,
+                                retry_s: float = 60) -> None:
+    """Keep the name directory loaded: every 6 hours, or a minute after a failure with none loaded."""
+    from pension_chat.records import RecordUnavailable
+
+    while True:
+        try:
+            count = await provider.load_names()
+            logger.info("PBMS name directory loaded: %d names", count)
+            wait = every_s
+        except RecordUnavailable:
+            logger.warning("PBMS name directory could not be loaded; names will not be recognised until it is"
+                           if not provider.names_ready else
+                           "PBMS name directory could not be refreshed; keeping the previous one")
+            wait = every_s if provider.names_ready else retry_s
+        await asyncio.sleep(wait)
+```
+
+In `main.py`'s `lifespan`, after `set_default_provider(record_provider)`, add:
+
+```python
+    names_task = None
+    if record_provider is not None:
+        from pension_chat.pbms import refresh_names_forever
+
+        names_task = asyncio.create_task(refresh_names_forever(record_provider))
+```
+
+Before `set_default_provider(None)` at shutdown, add `if names_task is not None: names_task.cancel()`. Also make sure `import asyncio` is at the top of `main.py`; `_warm_connections` already uses it.
+
+- [ ] **Step 5: Run the tests**
+
+Run: `uv run pytest tests/test_pbms_names.py tests/test_pbms_provider.py -v`
+Expected: all pass. If a parametrised name case fails, fix `NameDirectory`, not the case. Every case there is a form an employer will type.
+
+- [ ] **Step 6: Add `timing` to discovery, and run it**
+
+In `pbms_discover.py`, add `"timing"` to the choices and this function. Its output is timings and counts only.
+
+```python
+def timing(conn) -> None:
+    import asyncio
+    import random
+    import time as _t
+
+    from pension_chat.config import get_settings
+    from pension_chat.pbms import build_record_provider
+
+    provider = build_record_provider(get_settings().model_copy(update={"record_source": "pbms"}))
+    assert provider is not None
+
+    async def run() -> None:
+        t = _t.perf_counter()
+        count = await provider.load_names()
+        print(f"  name_directory: {count} names in {(_t.perf_counter() - t) * 1000:.0f} ms")
+        pairs = random.sample(list(provider._names._by_full.values()), 3)
+        for first, last in pairs:
+            t = _t.perf_counter()
+            matches = await provider.find_by_name(first, last)
+            print(f"  resolve_name: {len(matches)} matches in {(_t.perf_counter() - t) * 1000:.0f} ms")
+        t = _t.perf_counter()
+        await provider.get_record(matches[0].key)
+        print(f"  get_record (record + salary in parallel): {(_t.perf_counter() - t) * 1000:.0f} ms")
+        t = _t.perf_counter()
+        provider.names_in("What would " + " ".join(pairs[0]) + "'s pension be at 62?")
+        print(f"  names_in (in memory): {(_t.perf_counter() - t) * 1e6:.0f} µs")
+        await provider.close()
+
+    print("== timings from this machine (a bare round trip here is ~250 ms)")
+    asyncio.run(run())
+```
+
+Run: `uv run python scripts/pbms_discover.py timing`
+Expected: `name_directory` takes under 30 s and loads about 12,920 names. `resolve_name` takes roughly 400 ms plus one round trip. `get_record` takes about one round trip. `names_in` takes well under 1 ms. If `resolve_name` exceeds 2 s, stop and report: it would push first-token latency past the 3 s target on name turns.
+
+Append the timings to spec §6.2.
+
+- [ ] **Step 7: Lint, type-check and commit**
+
+Run: `uv run pytest -q && uv run ruff check . && uv run mypy .`
+
+```bash
+git add src/pension_chat/pbms src/pension_chat/records.py src/pension_chat/main.py scripts/pbms_discover.py tests/test_pbms_names.py docs/superpowers/specs/2026-09-30-phase1-pbms-read-layer-design.md
+git commit -m "PBMS: the name directory -- which employees a message names, matched in memory; PBMS asked only on a hit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: The agent reads the conversation's subject
 
 **Files:**
 - Modify: `src/pension_chat/agent/state.py`:
-  - add `subject_meab_id`, `subject_suggestion` and `record_unavailable` to the `PensionAgentState` TypedDict and to `initial_state()`;
+  - add `subject_meab_id`, `subject_suggestion` and `record_unavailable` to the TypedDict and to `initial_state()`;
   - add a `subject_meab_id` parameter to `initial_state` and `turn_input`.
-- Modify: `src/pension_chat/agent/graph.py:208-248`, the `subject_meab_id` parameter of `run_agent_stream`.
-- Modify: `src/pension_chat/agent/nodes.py:290-337` (`fetch_employee_record`).
-- Modify: `src/pension_chat/agent/loop.py:141-183` (`_context`).
-- Modify: `src/pension_chat/agent/card.py:45-100`, which adds `record_label`.
-- Test: `tests/test_subject_record.py`.
+- Modify: `src/pension_chat/agent/graph.py:208-248` (`run_agent_stream`)
+- Modify: `src/pension_chat/agent/nodes.py:290-337` (`fetch_employee_record`)
+- Modify: `src/pension_chat/agent/loop.py:141-183` (`_context`, and a new `_record_notes`)
+- Modify: `src/pension_chat/agent/card.py` (`record_label`)
+- Test: `tests/test_subject_record.py`
 
 **Interfaces:**
-- Consumes: `records.current_provider` and `RecordUnavailable` (Task 3), and the agent record's `record_source`, `display_name`, `employer`, `department`, `service_source` and `missing`.
+- Consumes: `current_provider` and `RecordUnavailable` (Tasks 2–3), and the agent record's `record_source`, `display_name`, `employer`, `department`, `service_source` and `missing`.
 - Produces:
-  - `initial_state(question, session_id, employee_id=None, history=None, *, subject_meab_id=None)`;
-  - `turn_input(question, session_id, employee_id=None, *, subject_meab_id=None)`;
-  - `run_agent_stream(..., subject_meab_id: str | None = None)`;
-  - the state keys `subject_meab_id: str | None`, `subject_suggestion: dict | None` and `record_unavailable: bool`, all per-turn;
-  - `loop._record_notes(record: dict) -> str`;
-  - the calculation card's `"record_label": str | None`.
+  - `initial_state(..., *, subject_meab_id=None)` and `turn_input(..., *, subject_meab_id=None)`;
+  - `run_agent_stream(..., subject_meab_id=None)`;
+  - the per-turn state keys `subject_meab_id`, `subject_suggestion` and `record_unavailable`;
+  - `loop._record_notes(record) -> str`;
+  - the card's `"record_label": "PBMS record" | None`. It deliberately omits the MEAB ID.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1536,7 +1814,7 @@ class _Stub:
         if key != "M-000123":
             return None
         return EmployeeRecord(key="M-000123", tier=2, birth_date=date(1964, 9, 30), hire_date=date(2012, 3, 1),
-                              display_name="Qwxzt Plmrb", department="Finance", status="active",
+                              display_name="QW_XZ PL_MR", department="Finance", status="active",
                               service_years=Decimal("14"), service_source="counted from payroll",
                               missing={"tier": "PBMS records Tier 2, but ..."}, source="PBMS")
 
@@ -1573,24 +1851,24 @@ async def test_an_unreachable_source_is_reported_not_treated_as_no_record() -> N
 
 
 def test_the_context_says_the_record_could_not_be_read() -> None:
-    text = _context({**initial_state("q", "s"), "record_unavailable": True})
-    assert "could not be read" in text
+    assert "could not be read" in _context({**initial_state("q", "s"), "record_unavailable": True})
 
 
-def test_the_record_notes_name_the_employee_and_every_gap() -> None:
-    notes = _record_notes({"id": "M-000123", "display_name": "Qwxzt Plmrb", "department": "Finance",
+def test_the_record_notes_name_the_employee_not_the_internal_key() -> None:
+    notes = _record_notes({"id": "M-000123", "display_name": "QW_XZ PL_MR", "department": "Finance",
                            "record_source": "PBMS", "service_source": "counted from payroll",
                            "missing": {"tier": "PBMS records Tier 2, but ..."}})
-    assert "Qwxzt Plmrb" in notes and "M-000123" in notes and "counted from payroll" in notes
+    assert "QW_XZ PL_MR" in notes and "Finance" in notes and "counted from payroll" in notes
     assert "tier: PBMS records Tier 2" in notes
+    assert "M-000123" not in notes
 
 
-def test_the_card_names_the_pbms_record() -> None:
+def test_the_card_names_the_pbms_record_without_its_key() -> None:
     state = {**initial_state("q", "s"),
              "employee_record": {"id": "M-000123", "article_number": 8, "record_source": "PBMS"},
              "calculation_result": {"r": {"base": {"ok": True, "inputs_used": {}, "annual_amount": "1"}}}}
     card = calculation_card(state, WorkSheet.from_state(state))
-    assert card is not None and card["record_label"] == "PBMS record (M-000123)"
+    assert card is not None and card["record_label"] == "PBMS record"
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -1598,23 +1876,23 @@ def test_the_card_names_the_pbms_record() -> None:
 Run: `uv run pytest tests/test_subject_record.py -v`
 Expected: FAIL, with `TypeError: initial_state() got an unexpected keyword argument 'subject_meab_id'`.
 
-- [ ] **Step 3: Update the state**
+- [ ] **Step 3: Update the state and `run_agent_stream`**
 
-In `state.py`, add to `PensionAgentState` (next to `employee_id`):
+In `state.py`, add to `PensionAgentState` next to `employee_id`:
 
 ```python
-    # The employee this conversation is about (a MEAB ID), set by the employer
-    # and read from `sessions.subject_meab_id` on every turn. Not the principal:
-    # `employee_id` still scopes row-level security and the checkpointer.
+    # The employee this conversation is about -- an internal MEAB ID, never
+    # shown -- read from `sessions.subject_meab_id` on every turn. Not the
+    # principal: `employee_id` still scopes row-level security and checkpoints.
     subject_meab_id: str | None
-    # A MEAB ID the user typed that is not the subject: resolved, not loaded,
-    # and put to the user to confirm (`triage`).
+    # A name the user typed that is not the subject: its candidates, offered
+    # for the user to choose from (`triage`).
     subject_suggestion: dict[str, Any] | None
     # The record source could not be read this turn -- distinct from "no record".
     record_unavailable: bool
 ```
 
-`initial_state` gains a keyword-only parameter `subject_meab_id: str | None = None`, and its returned dict gains `"subject_meab_id": subject_meab_id, "subject_suggestion": None, "record_unavailable": False,`. `turn_input` gains the same parameter and adds `subject_meab_id=subject_meab_id,` to its `fresh.update(...)`. The keys stay out of `DURABLE_KEYS`: the session row is the durable home of the subject.
+`initial_state` gains a keyword-only parameter `subject_meab_id: str | None = None`, and its dict gains `"subject_meab_id": subject_meab_id, "subject_suggestion": None, "record_unavailable": False,`. `turn_input` gains the same parameter and adds `subject_meab_id=subject_meab_id,` to `fresh.update(...)`. The keys stay out of `DURABLE_KEYS`: the session row is the durable home of the subject.
 
 In `graph.py`, `run_agent_stream` gains `subject_meab_id: str | None = None` after `thread_owner`, and passes it through:
 
@@ -1627,7 +1905,7 @@ In `graph.py`, `run_agent_stream` gains `subject_meab_id: str | None = None` aft
 
 - [ ] **Step 4: Update `fetch_employee_record`**
 
-Replace the lines from `employee_id = state.get("employee_id")` through the `record, history = loaded` assignment with:
+Replace the lines from `employee_id = state.get("employee_id")` through `record, history = loaded` with:
 
 ```python
     employee_id = state.get("employee_id")
@@ -1652,11 +1930,11 @@ Replace the lines from `employee_id = state.get("employee_id")` through the `rec
         record, history = loaded
 ```
 
-Add `RecordUnavailable` to the existing `from pension_chat.records import …` line in `nodes.py`.
+Add `RecordUnavailable` to the `from pension_chat.records import …` line in `nodes.py`.
 
 - [ ] **Step 5: Update the context and the card**
 
-In `loop.py`, change the final `else:` branch of the facts block (line 182–183) to:
+In `loop.py`, change the final `else:` of the facts block (lines 182–183) to:
 
 ```python
     elif state.get("record_unavailable"):
@@ -1671,21 +1949,22 @@ In `loop.py`, change the final `else:` branch of the facts block (line 182–183
         lines.append(_record_notes(record))
 ```
 
-Add this function directly above `_context`:
+Add this function above `_context`:
 
 ```python
 def _record_notes(record: dict[str, Any]) -> str:
     """Who this is and what their record could not say -- only for a fund record (PBMS).
 
-    An employer is asking about someone else, so the answer names them; and a
-    gap the record reports (no hire date, a tier PBMS and the dates disagree on)
-    is something to tell the employer, not something to fill.
+    An employer is asking about someone else, so the answer names them -- by
+    name and department, never by the internal MEAB ID. A gap the record reports
+    (no hire date, a tier PBMS and the dates disagree on) is something to tell
+    the employer, not something to fill.
     """
     who = ", ".join(
-        str(v) for v in (record.get("display_name"), record.get("id"),
-                         record.get("department") or record.get("employer")) if v
+        str(v) for v in (record.get("display_name"), record.get("department") or record.get("employer")) if v
     )
-    parts = [f"This conversation is about {who}, from the fund's own records ({record['record_source']})."]
+    parts = [f"This conversation is about {who or 'an employee'}, from the fund's own records "
+             f"({record['record_source']})."]
     if record.get("service_source"):
         parts.append(f"Their service is {record['service_source']}.")
     gaps = record.get("missing") or {}
@@ -1697,25 +1976,19 @@ def _record_notes(record: dict[str, Any]) -> str:
     return " ".join(parts)
 ```
 
-In `card.py`, add this entry to the returned dict, after `"support_level"`:
-
-```python
-            # Whose record the "Record" inputs came from, when it was the fund's.
-            "record_label": _record_label(state),
-```
-
-Add the function below `calculation_card`:
+In `card.py`, add `"record_label": _record_label(state),` after `"support_level"` in the returned dict. Add this below `calculation_card`:
 
 ```python
 def _record_label(state: Mapping[str, Any]) -> str | None:
+    """Whose record the "Record" inputs came from -- the fund's, named without its internal key."""
     record = state.get("employee_record") or {}
-    return f"{record['record_source']} record ({record['id']})" if record.get("record_source") else None
+    return f"{record['record_source']} record" if record.get("record_source") else None
 ```
 
 - [ ] **Step 6: Run the tests**
 
 Run: `uv run pytest tests/test_subject_record.py tests/test_records_provider.py -v`, then `uv run pytest -q`
-Expected: all pass. Tests that snapshot `_context` are unaffected, because fixture and Postgres records carry no `record_source`.
+Expected: all pass.
 
 - [ ] **Step 7: Commit**
 
@@ -1728,7 +2001,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: A MEAB ID in a message becomes a suggestion, never a load
+### Task 6: A name in a message becomes a choice, never a load
 
 **Files:**
 - Modify: `src/pension_chat/agent/nodes.py:116-144` (`triage`)
@@ -1736,17 +2009,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Test: `tests/test_subject_suggestion.py`
 
 **Interfaces:**
-- Consumes: `records.meab_ids_in`, `current_provider`, `RecordUnavailable` and `EmployeeMatch` (Task 3), and the state keys `subject_meab_id` and `subject_suggestion` (Task 4).
+- Consumes: `records.NameSearch` and `current_provider` (Task 4), `RecordUnavailable`, the `EmployeeMatch` fields, and the state keys `subject_meab_id`, `subject_suggestion` and `pinned_record` (Task 5).
 - Produces:
-  - `nodes._subject_suggestion(state, question) -> dict | None`, whose dict has the keys `meab_id`, `found`, `unavailable`, and when found `display_name`, `employer`, `department` and `status`;
-  - `graph.subject_suggestion_message(s: dict) -> str`;
+  - `nodes.MAX_LISTED = 12`;
+  - `nodes._subject_suggestion(state, question) -> dict | None`. Its shape is `{"first_name", "last_name", "question", "unavailable": bool, "candidates": [{"ref", "display_name", "employer", "department", "status", "birth_year"}]}`, with candidates capped at 200;
+  - `graph.subject_suggestion_message(s) -> str`;
   - triage's `out_of_scope_reason == "subject_suggestion"`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_subject_suggestion.py
-"""An ID typed in a message is put to the user to confirm; nobody is loaded on a mention."""
+"""A name typed in a message is offered for the user to choose; nobody is loaded on a mention."""
 from __future__ import annotations
 
 from pension_chat.agent import nodes
@@ -1755,15 +2029,20 @@ from pension_chat.records import EmployeeMatch, RecordUnavailable, use_provider
 
 
 class _Stub:
-    def __init__(self, fail=False):
-        self.found, self.fail = [], fail
+    def __init__(self, count=1, fail=False):
+        self.count, self.fail, self.searched = count, fail, []
 
-    async def find_employees(self, query, scope=None):
-        self.found.append(query)
+    def names_in(self, text):
+        return [("KA_LS", "MA_LP")] if "KA_LS MA_LP" in text.upper() else []
+
+    async def find_by_name(self, first, last):
+        self.searched.append((first, last))
         if self.fail:
             raise RecordUnavailable("down")
-        if query == "M-000123":
-            return [EmployeeMatch("M-000123", "Qwxzt Plmrb", "City of Chicago", "active", "Finance")]
+        return [EmployeeMatch(f"M-{i:06d}", "KA_LS MA_LP", "City of Chicago", "active",
+                              f"Dept {i % 3}", 1960 + i) for i in range(self.count)]
+
+    async def find_employees(self, query, scope=None):
         return []
 
     async def get_record(self, key):
@@ -1773,51 +2052,59 @@ class _Stub:
         raise AssertionError("a mention must not load a record")
 
 
-def _state(q, subject=None):
-    return {"question": q, "messages": [q], "subject_meab_id": subject}
+def _state(q, *, subject=None, subject_name=None):
+    pinned = {"record": {"id": subject, "display_name": subject_name}} if subject else None
+    return {"question": q, "messages": [q], "subject_meab_id": subject, "pinned_record": pinned}
 
 
-async def test_a_new_id_becomes_a_suggestion() -> None:
-    with use_provider(_Stub()):
-        out = await nodes.triage(_state("what about m-000123's pension?"))
+async def test_a_name_becomes_a_choice_carrying_the_question() -> None:
+    with use_provider(_Stub(count=3)):
+        out = await nodes.triage(_state("What would KA_LS MA_LP's pension be at 62?"))
+    s = out["subject_suggestion"]
     assert out["in_scope"] is False and out["out_of_scope_reason"] == "subject_suggestion"
-    assert out["subject_suggestion"]["found"] is True
-    assert out["subject_suggestion"]["meab_id"] == "M-000123"
+    assert (s["first_name"], s["last_name"], len(s["candidates"])) == ("KA_LS", "MA_LP", 3)
+    assert s["question"] == "What would KA_LS MA_LP's pension be at 62?"
+    assert s["candidates"][0] == {"ref": "M-000000", "display_name": "KA_LS MA_LP", "employer": "City of Chicago",
+                                  "department": "Dept 0", "status": "active", "birth_year": 1960}
 
 
-async def test_the_current_subject_passes_straight_through() -> None:
+async def test_the_current_subjects_name_passes_straight_through() -> None:
     stub = _Stub()
     with use_provider(stub):
-        out = await nodes.triage(_state("and M-000123 at 62?", subject="M-000123"))
-    assert out.get("subject_suggestion") is None and stub.found == []
+        out = await nodes.triage(_state("and KA_LS MA_LP at 65?", subject="M-000001", subject_name="KA_LS MA_LP"))
+    assert out.get("subject_suggestion") is None and stub.searched == []
 
 
-async def test_without_a_provider_ids_mean_nothing() -> None:
-    out = await nodes.triage(_state("M-000123"))
-    assert out.get("subject_suggestion") is None
+async def test_without_name_search_names_mean_nothing() -> None:
+    assert (await nodes.triage(_state("KA_LS MA_LP"))).get("subject_suggestion") is None
 
 
-async def test_unknown_and_unavailable_are_told_apart() -> None:
-    with use_provider(_Stub()):
-        unknown = (await nodes.triage(_state("M-000999")))["subject_suggestion"]
+async def test_unavailable_is_said() -> None:
     with use_provider(_Stub(fail=True)):
-        down = (await nodes.triage(_state("M-000999")))["subject_suggestion"]
-    assert unknown == {"meab_id": "M-000999", "found": False, "unavailable": False}
-    assert down == {"meab_id": "M-000999", "found": False, "unavailable": True}
+        s = (await nodes.triage(_state("KA_LS MA_LP")))["subject_suggestion"]
+    assert s["unavailable"] is True and s["candidates"] == []
 
 
-def test_the_messages() -> None:
-    found = {"meab_id": "M-000123", "found": True, "unavailable": False, "display_name": "Qwxzt Plmrb",
-             "employer": "City of Chicago", "department": "Finance", "status": "active"}
-    assert subject_suggestion_message(found).startswith("Did you mean Qwxzt Plmrb (M-000123, Finance, active)?")
-    assert "couldn't find" in subject_suggestion_message({"meab_id": "M-000999", "found": False, "unavailable": False})
-    assert "not answering" in subject_suggestion_message({"meab_id": "M-000999", "found": False, "unavailable": True})
+def _s(count, unavailable=False):
+    return {"first_name": "KA_LS", "last_name": "MA_LP", "question": "q", "unavailable": unavailable,
+            "candidates": [{"ref": f"M-{i:06d}", "display_name": "KA_LS MA_LP", "employer": "City",
+                            "department": "Finance", "status": "active", "birth_year": 1964}
+                           for i in range(count)]}
+
+
+def test_the_messages_by_count() -> None:
+    assert subject_suggestion_message(_s(1)) == (
+        "Did you mean KA_LS MA_LP (Finance, born 1964)? Choose below and I'll answer your question about them.")
+    assert subject_suggestion_message(_s(9)).startswith("There are 9 active employees named KA_LS MA_LP. Which one")
+    assert "Which department" in subject_suggestion_message(_s(40))
+    assert "couldn't find an active employee" in subject_suggestion_message(_s(0))
+    assert "not answering" in subject_suggestion_message(_s(0, unavailable=True))
+    assert "M-0" not in subject_suggestion_message(_s(1))
 
 
 async def test_decline_answers_the_suggestion_without_a_model() -> None:
-    s = {"meab_id": "M-000999", "found": False, "unavailable": False}
-    out = await decline({"out_of_scope_reason": "subject_suggestion", "subject_suggestion": s})
-    assert "M-000999" in out["final_answer"]
+    out = await decline({"out_of_scope_reason": "subject_suggestion", "subject_suggestion": _s(9)})
+    assert "9 active employees" in out["final_answer"]
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -1827,34 +2114,48 @@ Expected: FAIL, with `ImportError: cannot import name 'subject_suggestion_messag
 
 - [ ] **Step 3: Implement**
 
-In `nodes.py`, extend the records import to include `current_provider`, `meab_ids_in` and `RecordUnavailable`. Add this above `triage`:
+In `nodes.py`, extend the records import with `NameSearch`, `current_provider` and `RecordUnavailable`. Add this above `triage`:
 
 ```python
-async def _subject_suggestion(state: PensionAgentState, question: str) -> dict[str, Any] | None:
-    """A MEAB ID the user typed that is not this conversation's subject.
+# More candidates than this and the choice starts with the department (spec §4.2).
+MAX_LISTED = 12
+_MAX_CANDIDATES = 200
 
-    Resolved and put to them -- never loaded on a mention: a mistyped ID in
-    passing would otherwise silently answer about the wrong person. Only when a
-    record provider is in force; in the Postgres path an M- number means nothing.
+
+def _same_name(first: str, last: str, display_name: str | None) -> bool:
+    return " ".join(f"{first} {last}".split()).upper() == " ".join((display_name or "").split()).upper()
+
+
+async def _subject_suggestion(state: PensionAgentState, question: str) -> dict[str, Any] | None:
+    """A name the user typed that is not this conversation's employee: its candidates, to choose from.
+
+    Never loaded on a mention -- a name is shared by up to 109 active members, so
+    choosing for the user would answer about the wrong person. Matched in memory
+    (`names_in`); PBMS is asked only on a hit. Only a provider with name search
+    (PBMS) takes part; the Postgres path and the eval fixtures do not.
     """
     provider = current_provider()
-    if provider is None:
+    if not isinstance(provider, NameSearch):
         return None
-    current = state.get("subject_meab_id")
-    mentioned = [m for m in meab_ids_in(question) if m != current]
-    if not mentioned:
+    pinned = (state.get("pinned_record") or {}).get("record") or {}
+    current_name = pinned.get("display_name") if pinned.get("id") == state.get("subject_meab_id") else None
+    others = [(f, la) for f, la in provider.names_in(question) if not _same_name(f, la, current_name)]
+    if not others:
         return None
-    meab_id = mentioned[0]
+    first, last = others[0]
+    suggestion: dict[str, Any] = {"first_name": first, "last_name": last, "question": question,
+                                  "unavailable": False, "candidates": []}
     try:
-        matches = await provider.find_employees(meab_id)
+        matches = await provider.find_by_name(first, last)
     except RecordUnavailable:
-        return {"meab_id": meab_id, "found": False, "unavailable": True}
-    if not matches:
-        return {"meab_id": meab_id, "found": False, "unavailable": False}
-    match = matches[0]
-    return {"meab_id": match.key, "found": True, "unavailable": False,
-            "display_name": match.display_name, "employer": match.employer,
-            "department": match.department, "status": match.status}
+        suggestion["unavailable"] = True
+        return suggestion
+    suggestion["candidates"] = [
+        {"ref": m.key, "display_name": m.display_name, "employer": m.employer,
+         "department": m.department, "status": m.status, "birth_year": m.birth_year}
+        for m in matches[:_MAX_CANDIDATES]
+    ]
+    return suggestion
 ```
 
 In `triage`, just before the final `return`, add:
@@ -1870,23 +2171,33 @@ In `triage`, just before the final `return`, add:
         }
 ```
 
-In `graph.py`, add this above `decline`:
+In `graph.py`, add `from pension_chat.agent.nodes import MAX_LISTED`, merging it into the existing nodes import. Add this above `decline`:
 
 ```python
 def subject_suggestion_message(suggestion: dict[str, Any]) -> str:
-    """The reply to a MEAB ID typed in a message: confirm, not found, or not checkable."""
-    meab_id = suggestion.get("meab_id", "that ID")
-    if suggestion.get("found"):
-        about = ", ".join(
-            str(v) for v in (meab_id, suggestion.get("department") or suggestion.get("employer"),
-                             suggestion.get("status")) if v
-        )
-        return (f"Did you mean {suggestion.get('display_name') or meab_id} ({about})? "
-                "Confirm below to make them this conversation's employee, then ask your question.")
+    """The reply to a name in a message: choose one, choose a department, not found, or not checkable.
+
+    Names the people by name, department and birth year -- never by the
+    internal MEAB ID the choice card carries as an opaque `ref`.
+    """
+    name = f"{suggestion.get('first_name', '')} {suggestion.get('last_name', '')}".strip()
     if suggestion.get("unavailable"):
-        return (f"I couldn't check {meab_id} just now: the fund's records are not answering. "
+        return (f"I couldn't look up {name} just now: the fund's records are not answering. "
                 "Please try again in a moment.")
-    return f"I couldn't find an employee with MEAB ID {meab_id}. Please check the number."
+    candidates = suggestion.get("candidates") or []
+    if not candidates:
+        return f"I couldn't find an active employee named {name}."
+    if len(candidates) == 1:
+        one = candidates[0]
+        about = ", ".join(v for v in (one.get("department") or one.get("employer"),
+                                      f"born {one['birth_year']}" if one.get("birth_year") else None) if v)
+        return (f"Did you mean {one.get('display_name') or name}{f' ({about})' if about else ''}? "
+                "Choose below and I'll answer your question about them.")
+    if len(candidates) <= MAX_LISTED:
+        return (f"There are {len(candidates)} active employees named {name}. Which one do you mean? "
+                "Choose below and I'll answer your question about them.")
+    return (f"There are {len(candidates)} active employees named {name}. Which department do they work in? "
+            "Choose below.")
 ```
 
 In `decline`, replace the `answer = …` line with:
@@ -1898,6 +2209,8 @@ In `decline`, replace the `answer = …` line with:
         answer = GREETING_MESSAGE if reason == "greeting" else OUT_OF_SCOPE_MESSAGE
 ```
 
+If importing `MAX_LISTED` from `nodes` into `graph` creates a cycle, it won't: `graph.py` already imports `triage` and `fetch_employee_record` from `nodes`.
+
 - [ ] **Step 4: Run the tests**
 
 Run: `uv run pytest tests/test_subject_suggestion.py -v`, then `uv run pytest -q`
@@ -1907,39 +2220,38 @@ Expected: all pass.
 
 ```bash
 git add src/pension_chat/agent/nodes.py src/pension_chat/agent/graph.py tests/test_subject_suggestion.py
-git commit -m "Agent: a MEAB ID in a message is put to the user to confirm, never loaded on a mention
+git commit -m "Agent: a name in a message is offered for the user to choose, never loaded on a mention
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 6: The session's subject — migration, API and audit
+### Task 7: The session's subject: migration, API and audit
 
 **Files:**
 - Create: `alembic/versions/009_session_subject.py`
-- Modify: `src/pension_chat/db/models.py:228-270` (the `Session` columns and check constraint)
-- Create: `src/pension_chat/api/employees.py` (the lookup helper and route)
+- Modify: `src/pension_chat/db/models.py:228-270` (`Session`)
+- Create: `src/pension_chat/api/subject.py`
 - Modify: `src/pension_chat/api/sessions.py`:
-  - the subject routes;
-  - `send_message`, which passes the subject;
-  - the audit trail.
-- Modify: `src/pension_chat/main.py` (register the employees router)
+  - `send_message` passes the subject;
+  - `_subject_trail` joins the audit trail.
+- Modify: `src/pension_chat/main.py` (register the subject router)
 - Test: `tests/test_subject_api.py`
 
 **Interfaces:**
-- Consumes: `records.normalise_meab_id`, `MEAB_ID_PATTERN`, `current_provider`, `RecordUnavailable` and `EmployeeMatch.department` (Task 3); `run_agent_stream(subject_meab_id=…)` (Task 4); the state keys `subject_suggestion` and `employee_record.record_source` (Tasks 4 and 5).
+- Consumes: `normalise_meab_id`, `MEAB_ID_PATTERN`, `current_provider`, `RecordUnavailable` and `EmployeeMatch` (Task 3); `_authorised_session` and `_thread_owner` from `sessions.py`; `run_agent_stream(subject_meab_id=…)` (Task 5); the state keys `subject_suggestion` and `employee_record.record_source`.
 - Produces:
-  - `api.employees.lookup(provider, *, meab_id, employee_id, employer) -> list[dict]`, which raises `HTTPException` 400, 404 or 503;
-  - `api.employees.match_payload(m) -> dict`, with the keys `meab_id`, `display_name`, `employer`, `department` and `status`;
-  - the routes `GET /api/v1/sessions/{id}/employees/lookup`, and `GET`, `PUT` (body `{"meab_id": str}`) and `DELETE` on `/api/v1/sessions/{id}/subject`;
+  - `api.subject.resolve_ref(provider, ref) -> dict`, which raises 400, 404 or 503;
+  - `api.subject.public_match(m) -> dict`, with the keys `display_name`, `employer`, `department`, `status` and `birth_year`, and **no** `ref`;
+  - the routes `GET`, `PUT` (body `{"ref": str}`) and `DELETE` on `/api/v1/sessions/{id}/subject`;
   - `sessions._subject_trail(state) -> list[dict]`.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_subject_api.py
-"""Lookup and subject rules, tested at the helpers the routes are thin wrappers over."""
+"""Choosing, restoring and clearing a conversation's employee; tested at the helpers the routes wrap."""
 from __future__ import annotations
 
 import re
@@ -1948,8 +2260,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from pension_chat.api.employees import lookup
 from pension_chat.api.sessions import _subject_trail
+from pension_chat.api.subject import resolve_ref
 from pension_chat.records import MEAB_ID_PATTERN, EmployeeMatch, RecordUnavailable
 
 
@@ -1958,62 +2270,55 @@ class _Stub:
         self.matches, self.fail, self.asked = list(matches), fail, []
 
     async def find_employees(self, query, scope=None):
-        self.asked.append((query, scope))
+        self.asked.append(query)
         if self.fail:
             raise RecordUnavailable("down")
         return self.matches
 
 
-A = EmployeeMatch("M-000123", "Qwxzt Plmrb", "City of Chicago", "active", "Finance")
-B = EmployeeMatch("M-000456", "Zrtyq Lomnb", "Board of Education", "active", "Schools")
+A = EmployeeMatch("M-000123", "KA_LS MA_LP", "City of Chicago", "active", "Finance", 1964)
 
 
-async def test_a_meab_id_is_normalised_and_returned() -> None:
+async def test_a_ref_is_re_resolved_and_returned_without_the_key() -> None:
     stub = _Stub([A])
-    out = await lookup(stub, meab_id=" m-000123 ", employee_id=None, employer=None)
-    assert stub.asked == [("M-000123", None)]
-    assert out == [{"meab_id": "M-000123", "display_name": "Qwxzt Plmrb", "employer": "City of Chicago",
-                    "department": "Finance", "status": "active"}]
+    key, public = await resolve_ref(stub, " m-000123 ")
+    assert stub.asked == ["M-000123"] and key == "M-000123"
+    assert public == {"display_name": "KA_LS MA_LP", "employer": "City of Chicago", "department": "Finance",
+                      "status": "active", "birth_year": 1964}
 
 
-async def test_an_employee_id_shared_across_employers_returns_every_match() -> None:
-    out = await lookup(_Stub([A, B]), meab_id=None, employee_id="77", employer=None)
-    assert [m["meab_id"] for m in out] == ["M-000123", "M-000456"]
-
-
-@pytest.mark.parametrize("kwargs, status", [
-    ({"meab_id": "M-12", "employee_id": None, "employer": None}, 400),
-    ({"meab_id": None, "employee_id": "abc", "employer": None}, 400),
-    ({"meab_id": None, "employee_id": None, "employer": None}, 400),
-    ({"meab_id": "M-000999", "employee_id": None, "employer": None}, 404),
+@pytest.mark.parametrize("ref, matches, status", [
+    ("KA_LS MA_LP", [A], 400),
+    ("M-12", [A], 400),
+    ("M-000999", [], 404),
 ])
-async def test_bad_or_unknown_input(kwargs, status) -> None:
+async def test_bad_or_unknown_refs(ref, matches, status) -> None:
     with pytest.raises(HTTPException) as caught:
-        await lookup(_Stub([]), **kwargs)
+        await resolve_ref(_Stub(matches), ref)
     assert caught.value.status_code == status
 
 
 async def test_unavailable_is_503_and_no_provider_is_404() -> None:
     with pytest.raises(HTTPException) as down:
-        await lookup(_Stub(fail=True), meab_id="M-000123", employee_id=None, employer=None)
+        await resolve_ref(_Stub(fail=True), "M-000123")
     with pytest.raises(HTTPException) as off:
-        await lookup(None, meab_id="M-000123", employee_id=None, employer=None)
+        await resolve_ref(None, "M-000123")
     assert (down.value.status_code, off.value.status_code) == (503, 404)
 
 
-def test_the_audit_trail_names_the_subject_and_any_suggestion() -> None:
-    state = {"employee_record": {"id": "M-000123", "record_source": "PBMS"},
-             "subject_suggestion": {"meab_id": "M-000456", "found": True}}
+def test_the_audit_trail_names_the_subject_and_any_choice_offered() -> None:
+    suggestion = {"first_name": "KA_LS", "last_name": "MA_LP", "candidates": []}
+    state = {"employee_record": {"id": "M-000123", "record_source": "PBMS"}, "subject_suggestion": suggestion}
     assert _subject_trail(state) == [
-        {"type": "subject", "meab_id": "M-000123"},
-        {"type": "subject_suggestion", "meab_id": "M-000456", "found": True},
+        {"type": "subject", "ref": "M-000123"},
+        {"type": "subject_suggestion", **suggestion},
     ]
     assert _subject_trail({"employee_record": {"id": "x"}}) == []
 
 
 def test_the_migration_checks_the_same_pattern_the_code_uses() -> None:
     text = Path("alembic/versions/009_session_subject.py").read_text(encoding="utf-8")
-    assert "subject_meab_id" in text and "down_revision = \"008_answer_evidence\"" in text
+    assert "subject_meab_id" in text and 'down_revision = "008_answer_evidence"' in text
     assert MEAB_ID_PATTERN in text
     assert re.fullmatch(MEAB_ID_PATTERN, "M-000123") and not re.fullmatch(MEAB_ID_PATTERN, "m-000123")
 ```
@@ -2021,18 +2326,18 @@ def test_the_migration_checks_the_same_pattern_the_code_uses() -> None:
 - [ ] **Step 2: Run them to see them fail**
 
 Run: `uv run pytest tests/test_subject_api.py -v`
-Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.api.employees'`.
+Expected: FAIL, with `ModuleNotFoundError: No module named 'pension_chat.api.subject'`.
 
 - [ ] **Step 3: Write the migration and update the model**
 
 ```python
 # alembic/versions/009_session_subject.py
-"""A conversation's subject: the employee (MEAB ID) an employer is asking about.
+"""A conversation's subject: the employee an employer is asking about.
 
-Not the principal. `sessions.employee_id` is who is chatting and scopes
-row-level security; `subject_meab_id` is who they are asking about, read from
-PBMS. The existing `sessions` policies cover the new columns, so there is no
-new policy. The check is the same pattern as `records.MEAB_ID_PATTERN`.
+Kept as the internal MEAB ID -- the one identifier that is unique; users find
+employees by name and never see it. Not the principal: `sessions.employee_id` is
+who is chatting and scopes row-level security. The existing `sessions` policies
+cover the new columns. The check is `records.MEAB_ID_PATTERN`: ^M-[0-9]{6}$
 
 Revision ID: 009_session_subject
 Revises: 008_answer_evidence
@@ -2067,103 +2372,69 @@ def downgrade() -> None:
 In `models.py`, add these to `Session` after `status`:
 
 ```python
-    # The employee this conversation is about (migration 009). Not the
-    # principal: `employee_id` is who is chatting and scopes RLS.
+    # The employee this conversation is about (migration 009): an internal MEAB
+    # ID, never shown. Not the principal -- `employee_id` scopes RLS.
     subject_meab_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     subject_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 ```
 
 Add `CheckConstraint("subject_meab_id ~ '^M-[0-9]{6}$'", name="ck_sessions_subject_meab_id"),` to its `__table_args__`.
 
-- [ ] **Step 4: Write `api/employees.py`**
+- [ ] **Step 4: Write `api/subject.py`**
 
 ```python
-# src/pension_chat/api/employees.py
-"""Finding an employee by MEAB ID or Employee ID, for the Employee bar.
+# src/pension_chat/api/subject.py
+"""The conversation's employee: chosen from a name's candidates, restored, cleared.
 
-Reads only, through the record provider in force. Scoped to a session the
-caller owns (plan ruling R3): no names are readable without one. Several
-matches -- an Employee ID repeated across employers -- are all returned and the
-user picks; nothing is selected on their behalf.
+The choice card sends back the opaque `ref` it was given; the server re-resolves
+it in PBMS (active members only) before storing it, and never returns it -- the
+MEAB ID is internal (spec §4.1).
 """
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy import update
 
 from pension_chat.api.auth import TokenData, get_current_user
+from pension_chat.db.models import Session
+from pension_chat.db.session import get_db_session
 from pension_chat.records import EmployeeMatch, RecordProvider, RecordUnavailable, current_provider, normalise_meab_id
 
-router = APIRouter(prefix="/api/v1", tags=["employees"])
+router = APIRouter(prefix="/api/v1", tags=["subject"])
 
 
-def match_payload(match: EmployeeMatch) -> dict[str, Any]:
-    return {"meab_id": match.key, "display_name": match.display_name, "employer": match.employer,
-            "department": match.department, "status": match.status}
+class SubjectRequest(BaseModel):
+    ref: str
 
 
-async def lookup(provider: RecordProvider | None, *, meab_id: str | None, employee_id: str | None,
-                 employer: str | None) -> list[dict[str, Any]]:
+def public_match(match: EmployeeMatch) -> dict[str, Any]:
+    return {"display_name": match.display_name, "employer": match.employer,
+            "department": match.department, "status": match.status, "birth_year": match.birth_year}
+
+
+async def resolve_ref(provider: RecordProvider | None, ref: str) -> tuple[str, dict[str, Any]]:
     if provider is None:
-        raise HTTPException(status_code=404, detail="Employee lookup is not enabled")
-    scope: str | None = None
-    if meab_id is not None:
-        query = normalise_meab_id(meab_id)
-        if query is None:
-            raise HTTPException(status_code=400, detail="A MEAB ID is M- followed by six digits")
-    elif employee_id is not None and employee_id.strip().isdigit() and len(employee_id.strip()) <= 9:
-        query, scope = employee_id.strip(), employer
-    else:
-        raise HTTPException(status_code=400, detail="Give a MEAB ID or an Employee ID")
+        raise HTTPException(status_code=404, detail="Employee records are not enabled")
+    key = normalise_meab_id(ref)
+    if key is None:
+        raise HTTPException(status_code=400, detail="Not an employee reference")
     try:
-        matches = await provider.find_employees(query, scope)
+        matches = await provider.find_employees(key)
     except RecordUnavailable:
         raise HTTPException(status_code=503, detail="The fund's records are not answering just now") from None
     if not matches:
-        raise HTTPException(status_code=404, detail="No employee with that ID")
-    return [match_payload(m) for m in matches]
+        raise HTTPException(status_code=404, detail="No active employee with that reference")
+    return matches[0].key, public_match(matches[0])
 
 
-@router.get("/sessions/{session_id}/employees/lookup")
-async def lookup_employees(
-    session_id: str,
-    request: Request,
-    meab_id: str | None = None,
-    employee_id: str | None = None,
-    employer: str | None = None,
-    user: TokenData | None = Depends(get_current_user),
-) -> list[dict[str, Any]]:
-    from pension_chat.api.sessions import _authorised_session
+async def _store(session: Session, meab_id: str | None) -> None:
+    from pension_chat.api.sessions import _thread_owner
 
-    await _authorised_session(uuid.UUID(session_id), request, user)
-    return await lookup(current_provider(), meab_id=meab_id, employee_id=employee_id, employer=employer)
-```
-
-In `main.py`, add `from pension_chat.api.employees import router as employees_router  # noqa: E402` beside the other router imports, and `app.include_router(employees_router)` after `sessions_router`.
-
-- [ ] **Step 5: Add the subject routes and pass the subject to each turn**
-
-In `sessions.py`:
-
-```python
-class SubjectRequest(BaseModel):
-    meab_id: str
-
-
-def _subject_trail(state: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Who this turn was about, and any ID it put to the user -- for the audit and the UI."""
-    trail: list[dict[str, Any]] = []
-    record = state.get("employee_record") or {}
-    if record.get("record_source"):
-        trail.append({"type": "subject", "meab_id": record.get("id")})
-    if suggestion := state.get("subject_suggestion"):
-        trail.append({"type": "subject_suggestion", **suggestion})
-    return trail
-
-
-async def _store_subject(session: Session, meab_id: str | None) -> None:
     async with get_db_session(**_thread_owner(session)) as db:
         await db.execute(
             update(Session).where(Session.id == session.id).values(
@@ -2176,50 +2447,67 @@ async def _store_subject(session: Session, meab_id: str | None) -> None:
 @router.get("/sessions/{session_id}/subject")
 async def get_subject(session_id: str, request: Request,
                       user: TokenData | None = Depends(get_current_user)) -> dict[str, Any] | None:
-    """The conversation's employee, re-read from the record source so the chip is current."""
-    from pension_chat.api.employees import lookup
+    """The conversation's employee, re-read so the chip is current."""
+    from pension_chat.api.sessions import _authorised_session
 
     session = await _authorised_session(uuid.UUID(session_id), request, user)
     if not session.subject_meab_id:
         return None
     try:
-        return (await lookup(current_provider(), meab_id=session.subject_meab_id,
-                             employee_id=None, employer=None))[0]
+        return (await resolve_ref(current_provider(), session.subject_meab_id))[1]
     except HTTPException:
-        # The key is still the subject even when the name cannot be read now.
-        return {"meab_id": session.subject_meab_id, "display_name": None, "employer": None,
-                "department": None, "status": None}
+        # Still the subject even when the name cannot be read right now.
+        return {"display_name": None, "employer": None, "department": None, "status": None, "birth_year": None}
 
 
 @router.put("/sessions/{session_id}/subject")
 async def put_subject(session_id: str, body: SubjectRequest, request: Request,
                       user: TokenData | None = Depends(get_current_user)) -> dict[str, Any]:
-    """Set the conversation's employee: re-resolved in PBMS first, MEAB ID only."""
-    from pension_chat.api.employees import lookup
+    from pension_chat.api.sessions import _authorised_session
 
     session = await _authorised_session(uuid.UUID(session_id), request, user)
-    match = (await lookup(current_provider(), meab_id=body.meab_id, employee_id=None, employer=None))[0]
-    await _store_subject(session, match["meab_id"])
-    return match
+    key, public = await resolve_ref(current_provider(), body.ref)
+    await _store(session, key)
+    return public
 
 
 @router.delete("/sessions/{session_id}/subject")
 async def delete_subject(session_id: str, request: Request,
                          user: TokenData | None = Depends(get_current_user)) -> dict[str, bool]:
+    from pension_chat.api.sessions import _authorised_session
+
     session = await _authorised_session(uuid.UUID(session_id), request, user)
-    await _store_subject(session, None)
+    await _store(session, None)
     return {"cleared": True}
 ```
 
-Add `from pension_chat.records import current_provider` to the imports.
+`resolve_ref` returns `(key, public)`. The test above unpacks it that way.
 
-In `send_message`, add `subject_meab_id=session.subject_meab_id,` to the `run_agent_stream(...)` call. Then change the audit line to:
+In `main.py`, add `from pension_chat.api.subject import router as subject_router  # noqa: E402` and `app.include_router(subject_router)`.
+
+- [ ] **Step 5: Pass the subject to each turn and record it**
+
+In `sessions.py`, add:
+
+```python
+def _subject_trail(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Who this turn was about, and any choice it offered -- for the audit and the choice card."""
+    trail: list[dict[str, Any]] = []
+    record = state.get("employee_record") or {}
+    if record.get("record_source"):
+        trail.append({"type": "subject", "ref": record.get("id")})
+    if suggestion := state.get("subject_suggestion"):
+        trail.append({"type": "subject_suggestion", **suggestion})
+    return trail
+```
+
+In `send_message`, add `subject_meab_id=session.subject_meab_id,` to the `run_agent_stream(...)` call. Change the audit line to:
 
 ```python
         tool_calls = _audit_trail(final_state) + ([card] if card else []) + _subject_trail(final_state)
 ```
 
-`session` here is the ORM object read at the top of `send_message`, whose attributes were loaded before its database session closed. `subject_meab_id` is a plain column, so it is available. `get_db_session(**_thread_owner(session))` passes `employee_id` and `session_token` as strings; `get_db_session` already takes both keyword arguments (see `_scoped` in `send_message`).
+`session` is the ORM object loaded at the top of `send_message`. Its column attributes were loaded before its database session closed, so `subject_meab_id` is available.
 
 - [ ] **Step 6: Run the tests and apply the migration**
 
@@ -2227,22 +2515,22 @@ Run: `uv run pytest tests/test_subject_api.py -v`, then `uv run pytest -q`
 Expected: all pass.
 
 Run: `uv run alembic upgrade head`
-Expected: `Running upgrade 008_answer_evidence -> 009_session_subject`. This touches the project's own Postgres, never PBMS.
+Expected: `Running upgrade 008_answer_evidence -> 009_session_subject`. This touches the project's own Postgres, never PBMS. If the connection is refused, the Postgres firewall does not yet allow this network (49.43.225.208). Record that in the ledger and continue. Apply the migration once the rule exists, and run it before the demo check in Task 9.
 
 - [ ] **Step 7: Lint, type-check and commit**
 
 Run: `uv run ruff check . && uv run mypy .`
 
 ```bash
-git add alembic/versions/009_session_subject.py src/pension_chat/db/models.py src/pension_chat/api/employees.py src/pension_chat/api/sessions.py src/pension_chat/main.py tests/test_subject_api.py
-git commit -m "API: a conversation's subject by MEAB ID -- lookup, set, clear -- passed to every turn and kept in the audit
+git add alembic/versions/009_session_subject.py src/pension_chat/db/models.py src/pension_chat/api/subject.py src/pension_chat/api/sessions.py src/pension_chat/main.py tests/test_subject_api.py
+git commit -m "API: a conversation's employee -- chosen by opaque ref, re-resolved in PBMS, passed to every turn, kept in the audit
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 7: The Employee bar, the suggestion card, and the card label
+### Task 8: The employee chip, the choice card, and the card label
 
 **Files:**
 - Create: `frontend/src/lib/subject.ts`, `frontend/src/lib/subject.test.ts`
@@ -2250,20 +2538,24 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify: `frontend/src/lib/card.ts`:
   - add `record_label` to `CalculationCardData`;
   - add a `recordLabel` parameter to `sourceLabel`.
-- Modify: `frontend/src/components/chat/CalculationCard.tsx:63`, and any other `sourceLabel(` caller (`grep -rn "sourceLabel(" frontend/src`).
-- Create: `frontend/src/components/chat/SubjectBar.tsx`, `frontend/src/components/chat/SubjectSuggestion.tsx`
+- Modify: every `sourceLabel(` caller (`grep -rn "sourceLabel(" frontend/src`)
+- Create: `frontend/src/components/chat/SubjectChip.tsx`, `frontend/src/components/chat/SubjectChoice.tsx`
 - Modify: `frontend/src/components/chat/ChatHeader.tsx`, `ChatMessage.tsx` and `ChatInterface.tsx`
 
 **Interfaces:**
-- Consumes: the Task 6 routes and payload `{meab_id, display_name, employer, department, status}`; `tool_calls` entries `{"type": "subject_suggestion", meab_id, found, unavailable, …}`; the card's `record_label`; `/health`'s `record_source`.
+- Consumes:
+  - the Task 7 routes;
+  - the public match shape `{display_name, employer, department, status, birth_year}`;
+  - the `tool_calls` entry `{"type": "subject_suggestion", first_name, last_name, question, unavailable, candidates: [{ref, …}]}`;
+  - the card's `record_label`;
+  - `/health`'s `record_source`.
 - Produces:
-  - `EmployeeMatch` (TypeScript);
-  - `parseLookup(raw: string): { meab_id: string } | { employee_id: string } | null`;
-  - `chipLabel(m: EmployeeMatch): string`;
-  - `suggestionFrom(toolCalls: unknown): Suggestion | null`;
-  - `lookupEmployee`, `setSubject`, `clearSubject`, `fetchSubject` and `fetchRecordSource`.
+  - `Subject`, `Candidate` and `Suggestion` (TypeScript);
+  - `MAX_LISTED = 12`;
+  - `chipLabel(s)`, `candidateLabel(c)`, `byDepartment(cs)` and `suggestionFrom(toolCalls)`;
+  - `setSubject(sessionId, ref)`, `clearSubject`, `fetchSubject` and `fetchRecordSource`.
 
-Before writing components, read `frontend/AGENTS.md` and the relevant `node_modules/next/dist/docs/` page on client components. These components are `"use client"` leaf components in the same style as `ScenarioChips.tsx`. Use only semantic token utilities (no raw palette classes, gradients or blur), per CLAUDE.md's design-system rule.
+Before writing components, read `frontend/AGENTS.md` and the `node_modules/next/dist/docs/` page on client components. Write `"use client"` leaf components in the style of `ScenarioChips.tsx`, using semantic token utilities only. **Never render `ref`.**
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2272,25 +2564,35 @@ Before writing components, read `frontend/AGENTS.md` and the relevant `node_modu
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { chipLabel, parseLookup, suggestionFrom } from "./subject.ts";
+import { byDepartment, candidateLabel, chipLabel, MAX_LISTED, suggestionFrom } from "./subject.ts";
 
-test("a MEAB ID is normalised, an Employee ID is digits, anything else is refused", () => {
-  assert.deepEqual(parseLookup(" m-012345 "), { meab_id: "M-012345" });
-  assert.deepEqual(parseLookup("4471"), { employee_id: "4471" });
-  assert.equal(parseLookup("M-1234"), null);
-  assert.equal(parseLookup("Smith"), null);
-  assert.equal(parseLookup("1234567890"), null);
+const c = (ref: string, department: string | null, birth_year: number | null = 1964) => ({
+  ref, display_name: "KA_LS MA_LP", employer: "City of Chicago", department, status: "active", birth_year,
 });
 
-test("the chip reads name, ID, then department or employer, without repeats", () => {
-  const m = { meab_id: "M-000123", display_name: "Qwxzt Plmrb", employer: "City", department: "Finance", status: "active" };
-  assert.equal(chipLabel(m), "Qwxzt Plmrb · M-000123 · Finance");
-  assert.equal(chipLabel({ ...m, display_name: null, department: null }), "M-000123 · City");
+test("the chip reads name then department, falling back to employer", () => {
+  assert.equal(chipLabel({ display_name: "KA_LS MA_LP", employer: "City", department: "Finance", status: "active", birth_year: 1964 }),
+    "KA_LS MA_LP · Finance");
+  assert.equal(chipLabel({ display_name: "KA_LS MA_LP", employer: "City", department: null, status: null, birth_year: null }),
+    "KA_LS MA_LP · City");
+});
+
+test("a candidate reads department, employer and birth year, never the ref", () => {
+  const label = candidateLabel(c("M-000001", "Finance"));
+  assert.equal(label, "Finance · City of Chicago · born 1964");
+  assert.ok(!label.includes("M-000001"));
+});
+
+test("more than MAX_LISTED candidates are grouped by department, largest first", () => {
+  const many = [...Array(MAX_LISTED + 3)].map((_, i) => c(`M-${i}`, i % 3 === 0 ? "Streets" : i % 3 === 1 ? "Water" : null));
+  const groups = byDepartment(many);
+  assert.deepEqual(groups.map((g) => [g.department, g.candidates.length]),
+    [["Streets", 5], ["Water", 5], ["No department on file", 5]]);
 });
 
 test("a suggestion is read from tool_calls", () => {
-  const calls = [{ type: "card" }, { type: "subject_suggestion", meab_id: "M-000123", found: true, unavailable: false, display_name: "Q" }];
-  assert.equal(suggestionFrom(calls)?.meab_id, "M-000123");
+  const s = { first_name: "KA_LS", last_name: "MA_LP", question: "q", unavailable: false, candidates: [c("M-1", "F")] };
+  assert.equal(suggestionFrom([{ type: "card" }, { type: "subject_suggestion", ...s }])?.question, "q");
   assert.equal(suggestionFrom([{ type: "card" }]), null);
   assert.equal(suggestionFrom(undefined), null);
 });
@@ -2305,37 +2607,56 @@ Expected: FAIL, with `Cannot find module './subject.ts'`.
 
 ```ts
 // frontend/src/lib/subject.ts
-/** The conversation's employee: who an employer is asking about (Phase 1). */
+/** The conversation's employee: found by name in the chat, chosen by the user (Phase 1). */
 
-export interface EmployeeMatch {
-  meab_id: string;
+export interface Subject {
   display_name: string | null;
   employer: string | null;
   department: string | null;
   status: string | null;
+  birth_year: number | null;
 }
 
-export interface Suggestion extends Partial<EmployeeMatch> {
-  meab_id: string;
-  found: boolean;
+/** One person a name matched. `ref` is opaque: sent back on a choice, never shown. */
+export interface Candidate extends Subject {
+  ref: string;
+}
+
+export interface Suggestion {
+  first_name: string;
+  last_name: string;
+  question: string;
   unavailable: boolean;
+  candidates: Candidate[];
 }
 
-const MEAB_ID = /^M-\d{6}$/;
+/** More candidates than this and the choice starts with the department. */
+export const MAX_LISTED = 12;
 
-/** What the Employee field holds: a MEAB ID (canonical), an Employee ID, or neither. */
-export function parseLookup(raw: string): { meab_id: string } | { employee_id: string } | null {
-  const text = raw.trim().toUpperCase();
-  if (MEAB_ID.test(text)) return { meab_id: text };
-  if (/^\d{1,9}$/.test(text)) return { employee_id: text };
-  return null;
+const NO_DEPARTMENT = "No department on file";
+
+export function chipLabel(s: Subject): string {
+  return [s.display_name, s.department ?? s.employer].filter((p): p is string => Boolean(p)).join(" · ");
 }
 
-export function chipLabel(m: EmployeeMatch): string {
-  const parts = [m.display_name, m.meab_id, m.department ?? m.employer].filter(
-    (part): part is string => Boolean(part),
-  );
-  return [...new Set(parts)].join(" · ");
+export function candidateLabel(c: Candidate): string {
+  return [c.department, c.employer, c.birth_year ? `born ${c.birth_year}` : null]
+    .filter((p): p is string => Boolean(p))
+    .join(" · ");
+}
+
+export function byDepartment(candidates: Candidate[]): { department: string; candidates: Candidate[] }[] {
+  const groups = new Map<string, Candidate[]>();
+  for (const c of candidates) {
+    const key = c.department ?? NO_DEPARTMENT;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  return [...groups.entries()]
+    .map(([department, cs]) => ({ department, candidates: cs }))
+    .sort((a, b) =>
+      b.candidates.length - a.candidates.length ||
+      Number(a.department === NO_DEPARTMENT) - Number(b.department === NO_DEPARTMENT) ||
+      a.department.localeCompare(b.department));
 }
 
 export function suggestionFrom(toolCalls: unknown): Suggestion | null {
@@ -2343,7 +2664,7 @@ export function suggestionFrom(toolCalls: unknown): Suggestion | null {
   const hit = toolCalls.find(
     (t) => t && typeof t === "object" && (t as { type?: unknown }).type === "subject_suggestion",
   ) as (Suggestion & { type: string }) | undefined;
-  if (!hit || typeof hit.meab_id !== "string") return null;
+  if (!hit || !Array.isArray(hit.candidates)) return null;
   const { type: _type, ...rest } = hit;
   return rest;
 }
@@ -2352,35 +2673,18 @@ export function suggestionFrom(toolCalls: unknown): Suggestion | null {
 - [ ] **Step 4: Run the tests**
 
 Run: `cd frontend && npm test`
-Expected: all pass, including the existing suites.
+Expected: all pass.
 
 - [ ] **Step 5: Add the API functions and the card label**
 
-Append to `api.ts`, after `forgetScenario`, and add `import type { EmployeeMatch } from "./subject";` at the top:
+Append to `api.ts`, and add `import type { Subject } from "./subject";` at the top:
 
 ```ts
-export type LookupResult = { ok: true; matches: EmployeeMatch[] } | { ok: false; message: string };
-
-async function detail(response: Response, fallback: string): Promise<string> {
-  const body = await response.json().catch(() => ({}));
-  return typeof body.detail === "string" ? body.detail : fallback;
-}
-
-/** Find an employee by MEAB ID or Employee ID, within a conversation the caller owns. */
-export async function lookupEmployee(
-  sessionId: string,
-  query: { meab_id: string } | { employee_id: string },
-): Promise<LookupResult> {
-  const params = new URLSearchParams(query as Record<string, string>);
-  const response = await fetchWithAuth(`/sessions/${sessionId}/employees/lookup?${params}`);
-  if (response.ok) return { ok: true, matches: await response.json() };
-  return { ok: false, message: await detail(response, "The lookup failed.") };
-}
-
-export async function setSubject(sessionId: string, meabId: string): Promise<EmployeeMatch | null> {
+/** Make a candidate this conversation's employee; resolves to who they are, or null on failure. */
+export async function setSubject(sessionId: string, ref: string): Promise<Subject | null> {
   const response = await fetchWithAuth(`/sessions/${sessionId}/subject`, {
     method: "PUT",
-    body: JSON.stringify({ meab_id: meabId }),
+    body: JSON.stringify({ ref }),
   });
   return response.ok ? response.json() : null;
 }
@@ -2389,12 +2693,12 @@ export async function clearSubject(sessionId: string): Promise<boolean> {
   return (await fetchWithAuth(`/sessions/${sessionId}/subject`, { method: "DELETE" })).ok;
 }
 
-export async function fetchSubject(sessionId: string): Promise<EmployeeMatch | null> {
+export async function fetchSubject(sessionId: string): Promise<Subject | null> {
   const response = await fetchWithAuth(`/sessions/${sessionId}/subject`);
   return response.ok ? response.json() : null;
 }
 
-/** "pbms" when employee records come from the fund; the Employee bar shows only then. */
+/** "pbms" when employee records come from the fund; the employee chip shows only then. */
 export async function fetchRecordSource(): Promise<string> {
   try {
     const response = await fetch(`${API_BASE_URL}/health`);
@@ -2407,13 +2711,13 @@ export async function fetchRecordSource(): Promise<string> {
 
 In `card.ts`:
 - add `record_label?: string | null;` to `CalculationCardData`;
-- change `sourceLabel` to take `(source: string | null | undefined, recordLabel?: string | null)`, returning `recordLabel` when `source === "record" && recordLabel`.
+- make `sourceLabel` take `(source, recordLabel?: string | null)` and return `recordLabel` when `source === "record" && recordLabel`.
 
-Add this test to `card.test.ts`:
+Add this to `card.test.ts`:
 
 ```ts
 test("a record input names the fund's record when the card carries one", () => {
-  assert.equal(sourceLabel("record", "PBMS record (M-000123)"), "PBMS record (M-000123)");
+  assert.equal(sourceLabel("record", "PBMS record"), "PBMS record");
   assert.equal(sourceLabel("record"), "Record");
 });
 ```
@@ -2422,70 +2726,65 @@ Update every `sourceLabel(input.source)` call to `sourceLabel(input.source, card
 
 - [ ] **Step 6: Write the components and wire them in**
 
-`SubjectBar.tsx`:
-- Props: `{ sessionId: string | null; subject: EmployeeMatch | null; onChange: (s: EmployeeMatch | null) => void; disabled?: boolean }`.
-- Local state: `text`, `matches: EmployeeMatch[]`, `message: string | null` and `busy`.
-- **Set:** renders the chip `chipLabel(subject)` with **Change** (clears the local chip view and shows the input; the stored subject stays until a new one is used) and **Clear** (`clearSubject`, then `onChange(null)`).
-- **Empty:** renders an `Input` (placeholder `M-012345 or Employee ID`, `aria-label="Employee"`) and a **Look up** `Button`.
-  - On submit, `parseLookup(text)`. `null` sets `message = "Enter a MEAB ID (M-012345) or an Employee ID"`. Otherwise it calls `lookupEmployee`: on failure it shows `message`; on success it sets `matches`.
-  - For each match it renders one row showing `chipLabel(m)` and `m.status`, with **Use** (`setSubject(sessionId, m.meab_id)`, then `onChange(result)` and clear the matches) and one **Cancel** for the list.
-  - One match still shows the row and requires **Use**: nothing is auto-selected.
+`SubjectChip.tsx`:
+- Props: `{ subject: Subject | null; onClear: () => void; disabled?: boolean }`.
+- With a subject: a chip with `chipLabel(subject)` and a **Clear** button (`aria-label="Clear employee"`).
+- Without one: muted text, "Name an employee in your question".
 
-`SubjectSuggestion.tsx`:
-- Props: `{ suggestion: Suggestion; onConfirm: (meabId: string) => void; confirmed: boolean }`.
-- It renders nothing when `!suggestion.found`, because the message text already says why.
-- Otherwise it shows a bordered row with `chipLabel` and a **Use this employee** button, disabled once `confirmed`.
+`SubjectChoice.tsx`:
+- Props: `{ suggestion: Suggestion; onChoose: (ref: string, question: string) => void; disabled?: boolean }`.
+- Local state: `department: string | null` and `chosen: string | null`.
+- It renders nothing when `suggestion.unavailable` or when there are no candidates, because the message text already says why.
+- **More than `MAX_LISTED` candidates and no department picked:** buttons from `byDepartment`, labelled `${department} (${n})`. Clicking one sets `department`.
+- **Otherwise:** the candidates (filtered to the chosen department if one is set), one row each showing `display_name` and `candidateLabel(c)`, with a **Use** button. It calls `onChoose(c.ref, suggestion.question)` and sets `chosen = c.ref`.
+- Once `chosen` is set, every button is disabled and the chosen row is marked "Chosen". When a department is picked, there is also a "Back to departments" link.
 
-`ChatHeader.tsx` gains an optional `subjectBar?: React.ReactNode` prop, rendered at the right end of the header (`ml-auto`). On narrow screens it wraps below the header row, which avoids horizontal scroll at 360 px.
+`ChatHeader.tsx` gains an optional `subject?: React.ReactNode` rendered at the right end (`ml-auto`). It must wrap rather than scroll horizontally at 360 px.
 
-`ChatMessage.tsx`:
-- reads `const suggestion = suggestionFrom(message.tool_calls);`;
-- renders `<SubjectSuggestion>` under the message body when it is set;
-- takes a new prop, `onConfirmSubject?: (meabId: string) => void`, plus `subjectMeabId?: string | null`, which drives `confirmed`.
+`ChatMessage.tsx` reads `const suggestion = suggestionFrom(message.tool_calls);`, renders `<SubjectChoice>` under the message body when it is set, and takes a new prop `onChooseSubject?: (ref: string, question: string) => void`.
 
 `ChatInterface.tsx`:
 - `const [recordSource, setRecordSource] = useState("postgres")`, loaded once with `fetchRecordSource()` in a mount effect;
-- `const [subject, setSubjectState] = useState<EmployeeMatch | null>(null)`;
-- whenever `sessionId` changes, call `setSubjectState(null)`. When `recordSource === "pbms"` and `sessionId` is set, call `fetchSubject(sessionId).then(setSubjectState)`;
-- pass `subjectBar={recordSource === "pbms" ? <SubjectBar sessionId={sessionId} subject={subject} onChange={setSubjectState} disabled={isStreaming} /> : undefined}` to `ChatHeader`;
-- pass `onConfirmSubject={async (id) => { if (sessionId) { const s = await setSubject(sessionId, id); if (s) setSubjectState(s); } }}` and `subjectMeabId={subject?.meab_id ?? null}` to each `ChatMessage`.
+- `const [subject, setSubjectState] = useState<Subject | null>(null)`;
+- on every `sessionId` change: `setSubjectState(null)`, then, when `recordSource === "pbms"` and `sessionId` is set, `fetchSubject(sessionId).then(setSubjectState)`;
+- `subject={recordSource === "pbms" ? <SubjectChip subject={subject} onClear={async () => { if (sessionId && await clearSubject(sessionId)) setSubjectState(null); }} disabled={isStreaming} /> : undefined}` on `ChatHeader`;
+- `onChooseSubject={async (ref, question) => { if (!sessionId) return; const s = await setSubject(sessionId, ref); if (s) { setSubjectState(s); send(question); } }}` on each `ChatMessage`. `send` is the existing function `EmptyState`'s `onPick` uses. Re-sending the original question is what makes the user not ask twice.
 
 - [ ] **Step 7: Build, lint and test**
 
 Run: `cd frontend && npm test && npm run lint && npm run build`
-Expected: tests pass, lint shows 0 errors (the existing 2 warnings are allowed), and the build succeeds. Grep the new components for raw palette classes (`bg-(red|blue|gray|slate|zinc)-`), `gradient` or `blur`. Expected: no hits.
+Expected: tests pass, lint shows 0 errors (the existing 2 warnings are allowed), and the build succeeds. Run `grep -rnE "bg-(red|blue|gray|slate|zinc)-|gradient|blur|\.ref\b.*<|>\{.*\.ref\}" frontend/src/components/chat/Subject*.tsx`. Expected: no palette, gradient or blur hits, and no `ref` rendered.
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add frontend/src/lib/subject.ts frontend/src/lib/subject.test.ts frontend/src/lib/api.ts frontend/src/lib/card.ts frontend/src/lib/card.test.ts frontend/src/components/chat
-git commit -m "UI: the Employee bar and the confirm-first suggestion; record inputs name the PBMS record
+git commit -m "UI: choose an employee from a name's candidates (department first when many); the chip; record inputs name the PBMS record
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 8: Eval fixtures, the live smoke test, the demo check, and docs
+### Task 9: Eval fixtures, the live smoke test, docs, and the demo check
 
 **Files:**
 - Modify: `src/pension_chat/evals/fixtures.py` (read an optional `source`)
 - Create: `evals/fixtures/employees/pbms_tier_disagreement.yaml`, `evals/fixtures/employees/pbms_payroll_service.yaml`
 - Create: `evals/cases/S4/S4-010.yaml`
-- Modify: `pyproject.toml` (register the `pbms` pytest marker, excluded by default)
+- Modify: `pyproject.toml` (the `pbms` marker, excluded by default)
 - Create: `tests/test_pbms_live.py`
-- Modify: `CLAUDE.md` (a short "PBMS read layer" subsection under Architecture)
-- Modify: `.env.example` (document `RECORD_SOURCE` and the four `PBMS_SQL_*` keys, with empty values)
+- Modify: `CLAUDE.md`, `.env.example`, the spec (add §9 Demo check)
+- Test: `tests/test_evals_fixtures.py` (create it if it does not exist)
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: fixtures with `source: PBMS`, which exercise `_record_notes` in evals; a manual demo checklist in the spec.
+- Produces: PBMS-shaped fixtures that exercise `_record_notes` in evals, and a recorded demo check.
 
-- [ ] **Step 1: Write the failing test for fixture `source`**
-
-Add this to `tests/test_evals_fixtures.py`, or create it if it does not exist:
+- [ ] **Step 1: Write the failing fixture test**
 
 ```python
+# tests/test_evals_fixtures.py  (append if the file exists)
 from datetime import date
 from pathlib import Path
 
@@ -2507,12 +2806,12 @@ Expected: FAIL, with `KeyError: 'pbms_tier_disagreement'`.
 
 In `load_fixtures`, pass `source=raw.get("source"),` to `EmployeeRecord(...)`.
 
-`evals/fixtures/employees/pbms_tier_disagreement.yaml`:
+`evals/fixtures/employees/pbms_tier_disagreement.yaml` (synthetic):
 
 ```yaml
 key: pbms_tier_disagreement
 source: PBMS
-display_name: "Qwxzt Plmrb"
+display_name: "QW_XZ PL_MR"
 employer: City of Chicago
 department: Streets and Sanitation
 age: 62
@@ -2527,12 +2826,12 @@ missing:
 salary: {current: 72000, growth: 0.02, years: 8}
 ```
 
-`evals/fixtures/employees/pbms_payroll_service.yaml`:
+`evals/fixtures/employees/pbms_payroll_service.yaml` (synthetic):
 
 ```yaml
 key: pbms_payroll_service
 source: PBMS
-display_name: "Lkjhg Mnbvc"
+display_name: "LK_JH MN_BV"
 employer: City of Chicago
 department: Finance
 age: 63
@@ -2560,9 +2859,10 @@ employee: pbms_tier_disagreement
 turns:
 - q: What would this employee's annuity be if they retired at the end of this year?
   goal: An answer about this PBMS employee that reports the tier discrepancy instead of choosing silently.
-  reference: 'The record names the employee. PBMS records Tier 2, but participation from 2019 indicates Tier 3; the
-    answer says so and states which tier any figure uses. Under 10 years of service (7.5), no retirement annuity is
-    payable under §1-160 / §8-138(g-1); the answer says so rather than giving an annuity figure.'
+  reference: 'The answer names the employee by name, not by any ID. PBMS records Tier 2, but participation from 2019
+    indicates Tier 3; the answer says so and which tier any figure uses. With 7.5 years of service, under the 10
+    years §1-160 and §8-138(g-1) require, no retirement annuity is payable yet; the answer says so rather than
+    giving an annuity figure.'
   checks:
     ttft_class: heavy
     cites_any:
@@ -2570,26 +2870,19 @@ turns:
     - 8-138
 ```
 
-Run: `uv run pytest tests/test_evals_fixtures.py -v` and `uv run pytest tests -q -k evals`
-Expected: pass. `_check_tier` accepts the disagreement fixture because it states `tier_basis`.
+Run: `uv run pytest tests/test_evals_fixtures.py -v && uv run pytest tests -q -k evals`
+Expected: pass.
 
 - [ ] **Step 3: Add the live smoke test (on demand, never in CI)**
 
-In `pyproject.toml` under `[tool.pytest.ini_options]`:
-
-```toml
-markers = ["pbms: reads the client's PBMS live; run on demand with -m pbms"]
-addopts = "-m 'not pbms'"
-```
-
-If `addopts` already exists, append ` -m 'not pbms'` to it.
+In `pyproject.toml` under `[tool.pytest.ini_options]`, add `markers = ["pbms: reads the client's PBMS live; run on demand with -m pbms"]`, and add `-m 'not pbms'` to `addopts`, creating `addopts` if it is absent.
 
 ```python
 # tests/test_pbms_live.py
-"""On demand only: `uv run pytest -m pbms`. Reads one real record; asserts shapes; prints nothing."""
+"""On demand only: `uv run pytest -m pbms`. Reads PBMS live; asserts shapes and counts; prints nothing."""
 from __future__ import annotations
 
-import os
+import random
 from datetime import date
 
 import pytest
@@ -2597,23 +2890,23 @@ import pytest
 pytestmark = pytest.mark.pbms
 
 
-async def test_one_real_record_has_the_shape_the_agent_reads() -> None:
+async def test_a_name_from_the_directory_resolves_to_a_readable_record() -> None:
     from pension_chat.config import get_settings
     from pension_chat.pbms import build_record_provider
 
-    meab_id = os.environ.get("PBMS_SMOKE_MEAB_ID")
-    if not meab_id:
-        pytest.skip("set PBMS_SMOKE_MEAB_ID")
     provider = build_record_provider(get_settings().model_copy(update={"record_source": "pbms"}))
     assert provider is not None
     try:
-        record = await provider.get_record(meab_id)
-        history = await provider.get_salary_history(meab_id)
+        assert await provider.load_names() > 1000
+        first, last = random.choice(list(provider._names._by_full.values()))
+        assert provider.names_in(f"What would {first} {last}'s pension be at 62?") == [(first, last)]
+        matches = await provider.find_by_name(first, last)
+        assert matches and all(m.status == "active" for m in matches)
+        record = await provider.get_record(matches[0].key)
+        history = await provider.get_salary_history(matches[0].key)
     finally:
         await provider.close()
-    assert record is not None and record.key == meab_id.strip().upper()
-    assert record.source == "PBMS" and record.article_number == 8
-    assert record.birth_date is None or isinstance(record.birth_date, date)
+    assert record is not None and record.source == "PBMS" and record.article_number == 8
     assert record.tier in (None, 1, 2, 3)
     assert all(h.year < date.today().year and h.annual_salary > 0 for h in history)
 ```
@@ -2621,32 +2914,36 @@ async def test_one_real_record_has_the_shape_the_agent_reads() -> None:
 Run: `uv run pytest -q`
 Expected: the live test is deselected.
 
-Then run it once by hand, with an active MEAB ID picked by count (none is printed): `PBMS_SMOKE_MEAB_ID=<an M- id> uv run pytest -m pbms -v`
-Expected: 1 passed.
+Then run it once by hand: `uv run pytest -m pbms -v`
+Expected: 1 passed. Assertion messages could echo a value, so if it fails, report only which assertion failed.
 
 - [ ] **Step 4: Docs**
 
 `.env.example`: add `RECORD_SOURCE=postgres`, `PBMS_SQL_SERVER=`, `PBMS_SQL_DATABASE=`, `PBMS_SQL_USER=` and `PBMS_SQL_PASSWORD=`, with a comment that the read-only login replaces the `sa` credentials with no code change.
 
-`CLAUDE.md`: add a subsection **"PBMS read layer (`pbms/`)"** under Architecture, of at most 12 lines. It states:
+`CLAUDE.md`: add a subsection **"PBMS read layer (`pbms/`)"** under Architecture, of at most 14 lines. It states:
 - `RECORD_SOURCE=pbms` installs `PbmsProvider` process-wide, and evals still use `FixtureProvider`;
 - the guard (named statements only, the allow-list, never SSN or `CC*`);
 - salary is read through `T_Pen_Ded_Master`;
-- the subject (`sessions.subject_meab_id`) is not the principal;
-- a mention is a suggestion, never a load;
+- employees are found by first and last name from the in-memory directory, and PBMS is asked only on a hit;
+- a shared name is always a choice (department first above 12);
+- the subject (`sessions.subject_meab_id`) is an internal MEAB ID, never shown, and is not the principal;
 - gaps go in `missing` and reach the answer through `_record_notes`.
 
 Also add `uv run python scripts/pbms_discover.py timing` to the Commands block.
 
 - [ ] **Step 5: The demo check (manual, recorded in the spec)**
 
-With `RECORD_SOURCE=pbms` in `.env`, run `uv run uvicorn pension_chat.main:app --reload` and `cd frontend && npm run dev`, then in the browser:
-1. The Employee bar is visible. Type a MEAB ID and confirm that **Look up** shows one confirm row, then **Use** shows the chip.
-2. Ask "What would their pension be if they retired at 62?". The answer names the employee (masked name), and the calculation card's record inputs read "PBMS record (M-…)".
-3. In a new chat, type "what about M-<another id>?". The reply is the confirm question with a **Use this employee** card, and no record is loaded.
-4. Stop the network (or set a wrong `PBMS_SQL_SERVER` and restart). A question says the fund's records could not be read, and the lookup shows "The fund's records are not answering just now".
+**Prerequisite:** the Postgres firewall allows this network (49.43.225.208), and migration 009 is applied (`uv run alembic upgrade head`).
 
-Append "§9 Demo check (date): 1 ✓ 2 ✓ 3 ✓ 4 ✓" to the spec, with a note on anything that failed.
+With `RECORD_SOURCE=pbms` in `.env`, run `uv run uvicorn pension_chat.main:app --reload` and `cd frontend && npm run dev`. The server log should show "PBMS name directory loaded: N names". Then in the browser, pick names by count with `scripts/pbms_discover.py`'s sampling or the live test; don't write them down anywhere committed:
+1. Ask a pension question naming someone whose name has one active match. The reply asks to confirm, and **Use** sets the chip and answers the original question. The calculation card's record inputs read "PBMS record", and no MEAB ID appears anywhere on the page.
+2. Name someone whose name is shared by 2–12 people. The list shows department · employer · born YYYY, and choosing one answers the question.
+3. Name someone shared by more than 12. Departments come first, then the people.
+4. With a subject set, a follow-up that repeats the same name is answered directly, without asking again.
+5. Break the connection (set a wrong `PBMS_SQL_SERVER` and restart). A question says the fund's records could not be read.
+
+Append "§9 Demo check (date): 1 ✓ 2 ✓ 3 ✓ 4 ✓ 5 ✓" to the spec, with a note on anything that failed.
 
 - [ ] **Step 6: Run everything and commit**
 
@@ -2660,4 +2957,4 @@ git commit -m "Phase 1: PBMS-shaped eval fixtures, an on-demand live smoke test,
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
-Then run the calculation evals that touch records: `uv run python scripts/run_evals.py --changed`. Record the report's pass counts and heavy-TTFT median in the ledger. No threshold is gated here; the numbers are for comparison with the last run.
+Then run `uv run python scripts/run_evals.py --changed`, and record the pass counts and heavy-TTFT median in the ledger for comparison with the last run.
