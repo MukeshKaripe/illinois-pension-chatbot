@@ -80,6 +80,7 @@ from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
 from pension_chat.db.models import Employee
 from pension_chat.db.session import get_db_session
+from pension_chat.records import agent_history, current_provider
 
 logger = logging.getLogger("pension_chat.agent.nodes")
 
@@ -295,7 +296,7 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
     if (pinned.get("record") or {}).get("id") == str(employee_id):
         record, history = pinned["record"], pinned["salary_history"]
     else:
-        loaded = await _load_record(employee_id)
+        loaded = await _from_provider(str(employee_id)) if current_provider() else await _load_record(employee_id)
         if loaded is None:
             return {"employee_record": None, "salary_history": []}
         record, history = loaded
@@ -311,6 +312,17 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
         "pinned_record": {"record": record, "salary_history": history},
         "timings": {"fetch_employee_record": time.perf_counter() - started},
     }
+
+
+async def _from_provider(key: str) -> tuple[dict, list[dict]] | None:
+    """The record from the provider in force: PBMS in production, fixtures in evals."""
+    provider = current_provider()
+    assert provider is not None
+    record = await provider.get_record(key)
+    if record is None:
+        return None
+    history = await provider.get_salary_history(key)
+    return record.to_agent_record(history), agent_history(history)
 
 
 async def _load_record(employee_id: str) -> tuple[dict, list[dict]] | None:
