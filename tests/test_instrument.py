@@ -94,3 +94,30 @@ async def test_the_semantic_fallback_is_noted(monkeypatch) -> None:
     await retrieval._search_one("tier 2", None, None, 8)
     assert [n[1] for n in inst.notes] == ["semantic_fallback"]
     assert [c.kind for c in inst.calls] == ["search", "search"]
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limit_the_client_gives_up_on_is_noted(monkeypatch) -> None:
+    import httpx
+    from openai import RateLimitError
+
+    from pension_chat.agent import llm
+
+    response = httpx.Response(429, request=httpx.Request("POST", "https://x"))
+
+    class _Completions:
+        async def create(self, **kwargs):
+            raise RateLimitError("429", response=response, body=None)
+
+    class _Client:
+        chat = type("C", (), {"completions": _Completions()})()
+
+    async def no_sleep(_):
+        return None
+
+    monkeypatch.setattr(llm, "get_llm", lambda: _Client())
+    monkeypatch.setattr(llm.asyncio, "sleep", no_sleep)
+    inst = instrument.begin()
+    with pytest.raises(RateLimitError):
+        await llm.complete(node="derive_recipe", messages=[{"role": "user", "content": "x"}])
+    assert ("rate_limit_exhausted", "derive_recipe") in [(n[1], n[2]) for n in inst.notes]

@@ -133,3 +133,24 @@ async def test_an_ungating_judge_that_cannot_answer_does_not_fail_the_turn(monke
                                    options=RunOptions(judge=True, judge_gates=True),
                                    agent=_agent({"q1": ["1-160"]}))
     assert gated.turns[0].status == "unjudged"
+
+
+@pytest.mark.asyncio
+async def test_a_swallowed_rate_limit_is_retried_on_restored_state() -> None:
+    from pension_chat.agent.graph import active_graph
+
+    seen: list[bool] = []
+
+    async def agent(question, session_id, employee_id=None, history=None, thread_owner=None):
+        saver = active_graph().checkpointer
+        seen.append("half-written" in saver.storage)
+        saver.storage["half-written"] = {"turn": question}     # what a 429'd turn leaves behind
+        if len(seen) == 1:
+            instrument.note("rate_limit_exhausted", "derive_recipe")   # the agent swallowed it
+        yield {"type": "token", "text": "x"}
+        yield _done()
+
+    result = await run_conversation(_case("A", ["q1"]), fixtures={}, probe={},
+                                    options=RunOptions(judge=False, rate_limit_backoff=0.0), agent=agent)
+    assert seen == [False, False]          # the retry saw the state from before the first attempt
+    assert result.turns[0].status == "pass"

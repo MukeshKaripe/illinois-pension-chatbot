@@ -13,6 +13,7 @@ reported as flaky rather than as a regression.
 from __future__ import annotations
 
 import asyncio
+import copy
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -67,8 +68,25 @@ class ConversationResult:
 
 
 def _rate_limited(trace: TurnTrace) -> bool:
+    """A 429 the turn died of, or one a node gave up on and the agent swallowed
+    (derivation catches its own failures and carries on without a figure)."""
     error = trace.error or ""
-    return "429" in error or "RateLimit" in error
+    exhausted = any(n.get("kind") == "rate_limit_exhausted" for n in trace.notes)
+    return exhausted or "429" in error or "RateLimit" in error
+
+
+def _snapshot(saver: InMemorySaver) -> tuple[Any, Any, Any]:
+    return copy.deepcopy((saver.storage, saver.writes, saver.blobs))
+
+
+def _restore(saver: InMemorySaver, snapshot: tuple[Any, Any, Any]) -> None:
+    storage, writes, blobs = copy.deepcopy(snapshot)
+    saver.storage.clear()
+    saver.storage.update(storage)
+    saver.writes.clear()
+    saver.writes.update(writes)
+    saver.blobs.clear()
+    saver.blobs.update(blobs)
 
 
 async def _one_turn(agent: Any, question: str, thread: str, employee: str | None,
@@ -91,13 +109,19 @@ async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe
     result = ConversationResult(case)
     history: list[tuple[str, str]] = []
     failed_before = False
-    with use_graph(build_loop_graph(InMemorySaver())), use_provider(FixtureProvider(fixtures)):
+    saver = InMemorySaver()
+    with use_graph(build_loop_graph(saver)), use_provider(FixtureProvider(fixtures)):
         for index, turn in enumerate(case.turns):
             employee = turn.employee or case.employee
             for attempt in range(options.rate_limit_retries + 1):
+                # A turn that ends in a 429 has already checkpointed its question
+                # (durability="exit" persists on error too); retrying on top of
+                # that would put the question in the thread twice.
+                before = _snapshot(saver)
                 trace = await _one_turn(agent, turn.q, thread, employee, case.id, index)
                 if not _rate_limited(trace) or attempt == options.rate_limit_retries:
                     break
+                _restore(saver, before)
                 await asyncio.sleep(options.rate_limit_backoff * (attempt + 1))
             checks = run_checks(turn, trace, latency_gate=options.latency_gate)
             gating_failed = any(not c.passed and c.gating for c in checks)

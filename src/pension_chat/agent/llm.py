@@ -305,6 +305,8 @@ async def call_with_tools(
                 instrument.note("rate_limited", f"{0.4 * (attempt + 1):.2f}")
             await asyncio.sleep(0.4 * (attempt + 1))
 
+    if isinstance(last_error, RateLimitError):
+        instrument.note("rate_limit_exhausted", node)
     raise last_error if last_error else RuntimeError(f"{node} failed with no error")
 
 
@@ -361,6 +363,8 @@ async def complete(
                 instrument.note("rate_limited", f"{0.4 * (attempt + 1):.2f}")
             await asyncio.sleep(0.4 * (attempt + 1))
 
+    if isinstance(last_error, RateLimitError):
+        instrument.note("rate_limit_exhausted", node)
     raise last_error if last_error else RuntimeError(f"{node}: completion failed")
 
 
@@ -414,6 +418,8 @@ async def stream(
                 instrument.note("rate_limited", f"{0.4 * (attempt + 1):.2f}")
             await asyncio.sleep(0.4 * (attempt + 1))
     if response is None:
+        if isinstance(last_error, RateLimitError):
+            instrument.note("rate_limit_exhausted", node)
         raise last_error if last_error else RuntimeError(f"{node}: stream failed to open")
 
     async for chunk in response:
