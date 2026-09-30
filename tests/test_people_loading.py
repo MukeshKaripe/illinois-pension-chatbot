@@ -124,3 +124,14 @@ def test_an_employer_is_never_addressed_as_the_employee() -> None:
     coverage = {"article": "8", "basis": "record"}
     assert _attribution({"coverage": coverage, "employee_record": {"record_source": "PBMS"}}) == ""
     assert "your record" in _attribution({"coverage": coverage, "employee_record": {}})
+
+
+def test_compose_is_told_who_the_answer_is_for() -> None:
+    from pension_chat.agent.loop import _audience
+
+    one = {"employee_record": {"id": "M-1", "record_source": "PBMS", "display_name": "QW_XZ PL_MR"}}
+    text = _audience(one)
+    assert "employer" in text and "QW_XZ PL_MR" in text and "stops working" in text and "never" in text
+    both = {**one, "people": {"M-1": {"label": "QW_XZ PL_MR"}, "M-2": {"label": "KA_LS MA_LP"}}}
+    assert "KA_LS MA_LP" in _audience(both)
+    assert _audience({"employee_record": {"id": "x"}}) == ""        # a member's own conversation: unchanged

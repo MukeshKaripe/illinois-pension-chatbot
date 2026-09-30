@@ -141,3 +141,37 @@ def test_remembered_scenarios_belong_to_their_person() -> None:
     assert _live_options({"scenario_set": held, "turn_people": ["M-1", "M-2"]}) == {}
     member = {**a_turn, "employee_record": {"id": "x"}, "turn_people": []}
     assert list((turn_record(member) or {})["scenario_set"]) == ["at age 65"]          # a member's own: unchanged
+
+
+async def test_every_person_in_a_comparison_gets_a_figure() -> None:
+    # Found live: with A's figure from an earlier turn in view, the model
+    # computed only B -- and wrote its own table around the gap.
+    from pension_chat.agent.loop import _complete_people
+
+    calls = []
+
+    async def run(name, arguments, working):
+        calls.append((name, arguments))
+        ref = next(r for r, b in PEOPLE.items() if b["label"] == arguments["person"])
+        return "ok", {"calculation_result": {**(working.get("calculation_result") or {}),
+                                             f"{arguments['person']} · x": {"person_ref": ref,
+                                                                           "base": {"ok": True}}}}
+
+    only_b = {k: v for k, v in _results().items() if v["person_ref"] == "M-2"}
+    working = {"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": only_b}
+    done = await _complete_people(working, {"benefit": "retirement_annuity", "retirement_age": 65}, run)
+    assert done == ["KA_LS MA_LP"]
+    assert calls == [("compute_benefit", {"benefit": "retirement_annuity", "retirement_age": 65,
+                                          "person": "KA_LS MA_LP"})]
+    assert await _complete_people(working, None, run) == []                       # nothing computed: nothing to copy
+    assert await _complete_people({**working, "people": {"M-1": PEOPLE["M-1"]}}, {"benefit": "x"}, run) == []
+
+
+def test_a_comparison_offers_only_the_people_table() -> None:
+    # Found live: the model dropped <<<WORKED_STEPS>>> into a cell of its own
+    # comparison table. With several people, one person's working is not the answer.
+    from pension_chat.agent.loop import MARKED_VIEWS, _views
+
+    state = {"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": _results()}
+    marked = [slot for slot in _views(state) if slot in MARKED_VIEWS]
+    assert marked == ["PEOPLE"]

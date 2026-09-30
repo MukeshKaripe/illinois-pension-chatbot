@@ -140,6 +140,28 @@ write the member's answer at that point; you will be asked for it next, with the
 rules for how it should read."""
 
 
+def _audience(state: dict[str, Any]) -> str:
+    """Who the answer is for, when the fund's records are in play: the employer.
+
+    Said where the answer is written, not only in the context block -- the
+    live demo run still produced "your estimated pension" and "you stop working
+    today" to an employer asking about someone else.
+    """
+    record = state.get("employee_record") or {}
+    if not record.get("record_source"):
+        return ""
+    people = state.get("people") or {}
+    names = [b.get("label") for b in people.values() if b.get("label")]
+    names = names or [record.get("display_name") or "the employee"]
+    who = " and ".join(names) if len(names) <= 2 else ", ".join(names[:-1]) + f" and {names[-1]}"
+    return (
+        f"You are answering their employer about {who}, not the employee themselves. Refer to each "
+        "employee by name or as 'they' -- never 'you' or 'your' for the employee -- including in what "
+        "you say you assumed (write 'assuming {name} stops working today', not 'you stop working "
+        "today'). You may address the employer as 'you'."
+    ).replace("{name}", names[0])
+
+
 def _record_notes(record: dict[str, Any]) -> str:
     """Who this is and what their record could not say -- only for a fund record (PBMS).
 
@@ -707,6 +729,35 @@ def _read_beyond_prefetch(
     ]
 
 
+async def _complete_people(
+    working: dict[str, Any], last_compute: dict[str, Any] | None, run: Any = None
+) -> list[str]:
+    """Work the last calculation for each person in the turn who has no figure yet.
+
+    Returns the labels it computed for. Nothing when fewer than two people are
+    in the turn, or when nothing was computed to copy the question from.
+    """
+    people = working.get("people") or {}
+    if len(people) < 2 or not last_compute:
+        return []
+    run = run or run_tool
+    have = {
+        (entry or {}).get("person_ref")
+        for entry in (working.get("calculation_result") or {}).values()
+        if (entry or {}).get("person_ref") and ((entry.get("base") or {}).get("ok"))
+    }
+    done: list[str] = []
+    for ref in working.get("turn_people") or list(people):
+        bundle = people.get(ref)
+        if not bundle or ref in have:
+            continue
+        _progress("compute_benefit", {**last_compute, "person": bundle["label"]})
+        _, update = await run("compute_benefit", {**last_compute, "person": bundle["label"]}, working)
+        working.update(update)
+        done.append(bundle["label"])
+    return done
+
+
 async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """Search, read, reconsider, and stop when there is enough.
 
@@ -763,6 +814,8 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # from an empty corpus while the sections it needed sat in this loop.
     working: dict[str, Any] = {**state}
     spent: dict[str, int] = {}
+    # The last calculation asked for, so the rest of a comparison can be worked alike.
+    last_compute: dict[str, Any] | None = None
     withdrawn: set[str] = set()
     exhausted = False
     pushed_back = False
@@ -937,6 +990,8 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             # Before the call, not after it: a step reported on completion is
             # the step the member has already finished waiting for.
             _progress(call.name, call.arguments)
+            if call.name == "compute_benefit":
+                last_compute = {k: v for k, v in call.arguments.items() if k != "person"}
             result, update = await run_tool(call.name, call.arguments, working)
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
@@ -945,6 +1000,20 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
+
+    # ── Several people: every one of them gets a figure ──────────
+    #
+    # With one person's figure already in view from an earlier turn, the model
+    # computed only the other and wrote its own table around the gap. A
+    # comparison is only a comparison with a row for everyone in it, so the rest
+    # are worked here, on the same question, each from their own record.
+    completed = await _complete_people(working, last_compute)
+    if completed:
+        messages.append({
+            "role": "system",
+            "content": "Figures were also worked out, on the same question, for: " + ", ".join(completed)
+            + ". Every person's figure is in the PEOPLE table; do not write the figures yourself.",
+        })
 
     # ── A turn that only browsed has not looked ──────────────────
     #
@@ -1338,6 +1407,11 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
         "ASSUMPTIONS": _assumed(state),
         "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
     }
+    if rendered.get("PEOPLE", "").strip():
+        # Several people: the comparison is the table. One person's worked
+        # steps or options beside it were being dropped into its cells.
+        rendered = {slot: text for slot, text in rendered.items()
+                    if slot == "PEOPLE" or slot not in MARKED_VIEWS}
     return {slot: text for slot, text in rendered.items() if text.strip()}
 
 
@@ -1769,6 +1843,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+
+    if audience := _audience(state):
+        messages.append({"role": "system", "content": audience})
 
     if provision := _worked_from(state):
         messages.append({"role": "system", "content": provision})
