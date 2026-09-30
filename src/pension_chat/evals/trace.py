@@ -113,7 +113,12 @@ def build_trace(
             trace.failure_codes += _codes(report)
             trace.input_sources = dict(state.get("input_sources") or {})
             trace.assumptions = dict(state.get("assumptions") or {})
-            trace.calculation = bool(state.get("calculation_result"))
+            # A figure, not a recipe that ran: every executed recipe is filed,
+            # a failure included (the same test as loop._first_figure).
+            trace.calculation = any(
+                ((entry or {}).get("base") or {}).get("ok")
+                for entry in (state.get("calculation_result") or {}).values()
+            )
             trace.card = event.get("card")
             trace.subject = (state.get("employee_record") or {}).get("id")
             trace.stages = dict(state.get("timings") or {})

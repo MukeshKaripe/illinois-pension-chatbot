@@ -70,3 +70,15 @@ def test_round_trips_through_json() -> None:
     t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
                     events=[(1.0, _done())], instrument=Instrument(), started=0.0)
     assert TurnTrace.from_dict(t.to_dict()) == t
+
+
+def test_a_recipe_that_ran_and_failed_is_not_a_calculation() -> None:
+    # execute_calculations files every recipe it ran, a failure included.
+    failed = {"annuity": {"base": {"ok": False, "error": "not eligible before 60"}}}
+    t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
+                    events=[(1.0, _done(calculation_result=failed))], instrument=Instrument(), started=0.0)
+    assert t.calculation is False
+    worked = {"annuity": {"base": {"ok": True, "annual_amount": 30000}}}
+    t = build_trace(case_id="x", turn_index=0, question="q", employee=None,
+                    events=[(1.0, _done(calculation_result=worked))], instrument=Instrument(), started=0.0)
+    assert t.calculation is True

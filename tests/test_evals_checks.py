@@ -139,3 +139,31 @@ def test_participation_date_covers_the_engines_hire_date() -> None:
     # reaches it as hire_date, and assuming it silently is the policy's worst case.
     t = _trace(input_sources={"hire_date": "assumed"})
     assert not _one(_turn(critical_inputs=["participation_date"]), t).passed
+
+
+def test_a_ledger_entry_from_the_record_is_not_an_assumption() -> None:
+    t = _trace(assumptions={"service_years": {"value": 21.5, "source": "record"}})
+    assert _one(_turn(critical_inputs=["total_service_years"]), t).passed
+    t = _trace(assumptions={"service_years": {"value": 20, "source": "assumed"}})
+    assert not _one(_turn(critical_inputs=["total_service_years"]), t).passed
+
+
+@pytest.mark.parametrize("question", [
+    "Would you like me to show how the final average salary was worked out?",   # "age" inside "average"
+    "Shall I include the percentage reduction?",
+    "Do you want the payment schedule too?",                                     # "pay" inside "payment"
+])
+def test_no_reask_matches_whole_words_only(question) -> None:
+    assert _one(_turn(no_reask=["age", "service"]), _trace(final_answer=question)).passed
+
+
+def test_must_state_is_not_satisfied_by_a_section_number() -> None:
+    t = _trace(final_answer="See Section 1-162 and 40 ILCS 5/1-162(c) for details.")
+    assert not _one(_turn(must_state=["62"]), t).passed
+    t = _trace(final_answer="They can retire at 62 with a reduction (Section 1-160(d)).")
+    assert _one(_turn(must_state=["62"]), t).passed
+
+
+def test_must_state_matches_whole_numbers_not_digits_inside_others() -> None:
+    assert not _one(_turn(must_state=["67"]), _trace(final_answer="Salary of $6,700 a year.")).passed
+    assert _one(_turn(must_state=["9.5%"]), _trace(final_answer="They contribute 9.5% of salary.")).passed

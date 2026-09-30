@@ -61,6 +61,27 @@ def _norm(text: str) -> str:
     return " ".join(text.split())
 
 
+#: A section citation in any of the forms an answer writes one -- "§1-162",
+#: "Section 1-162(c)", "40 ILCS 5/1-162" -- removed before facts are matched, so
+#: "62" is never satisfied by the 62 inside "1-162".
+_CITATION_RE = re.compile(
+    r"(?:§\s*|sections?\s+|40 ilcs 5/)?\b\d{1,2}[a-c]?-\d+(?:\.\d+)?[a-z]?(?:\([a-z0-9-]+\))*"
+)
+
+
+def _states(answer: str, fact: str) -> bool:
+    """Whether the answer states this fact as a whole token, citations aside."""
+    text = _norm(answer)
+    if not _CITATION_RE.fullmatch(_norm(fact)):
+        # A fact that is itself a section number is looked for as one.
+        text = _CITATION_RE.sub(" ", text)
+    return re.search(r"(?<![\w.])" + re.escape(_norm(fact)) + r"(?![\w]|\.\d)", text) is not None
+
+
+def _mentions(question: str, cue: str) -> bool:
+    return re.search(r"\b" + re.escape(cue) + r"\b", question.lower()) is not None
+
+
 def _questions(answer: str) -> list[str]:
     unquoted = re.sub(r"[\"“][^\"”]*[\"”]", " ", answer)
     return [s.strip() for s in re.findall(r"[^.?!\n]*\?", unquoted) if s.strip()]
@@ -87,8 +108,7 @@ def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> Check
                 missing.append(item)
         return CheckResult(name, not missing, f"not rendered to the model: {missing}; rendered {trace.rendered}")
     if name in ("must_state", "must_not_state"):
-        answer = _norm(trace.final_answer)
-        hits = [f for f in value if _norm(str(f)) in answer]
+        hits = [f for f in value if _states(trace.final_answer, str(f))]
         if name == "must_state":
             missing = [f for f in value if f not in hits]
             return CheckResult(name, not missing, f"not stated: {missing}")
@@ -112,7 +132,8 @@ def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> Check
         return CheckResult(name, bool(verified or section) and not outside, f"outside {outside}")
     if name == "critical_inputs":
         assumed = [n for n in value for alias in CRITICAL_ALIASES.get(n, aliases_of(n))
-                   if trace.input_sources.get(alias) == "assumed" or alias in trace.assumptions]
+                   if trace.input_sources.get(alias) == "assumed"
+                   or (trace.assumptions.get(alias) or {}).get("source") == "assumed"]
         return CheckResult(name, not assumed, f"assumed critical inputs: {sorted(set(assumed))}")
     if name == "max_assumed":
         count = sum(1 for o in trace.input_sources.values() if o == "assumed")
@@ -122,7 +143,7 @@ def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> Check
         return CheckResult(name, not codes, f"codes {codes}")
     if name == "no_reask":
         asked = [n for n in value for q in _questions(trace.final_answer)
-                 if any(cue in q.lower() for cue in REASK_CUES.get(n, (n.replace("_", " "),)))]
+                 if any(_mentions(q, cue) for cue in REASK_CUES.get(n, (n.replace("_", " "),)))]
         return CheckResult(name, not asked, f"asked again for {sorted(set(asked))}")
     if name == "max_questions":
         count = len(_questions(trace.final_answer))
