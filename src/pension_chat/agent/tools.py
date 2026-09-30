@@ -36,6 +36,7 @@ from pension_chat.agent.nodes import (
 )
 from pension_chat.agent.objectives import OBJECTIVES, objective_for
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
+from pension_chat.agent.section_scope import scoped_evidence
 from pension_chat.agent.worksheet import (
     SOURCE_STAND_IN,
     SOURCE_STATED,
@@ -404,6 +405,21 @@ def _quality(sections: list[dict[str, Any]]) -> str:
     return f"{len(sections)} section(s), best match {best:.2f} ({verdict})."
 
 
+def _scoping_article(state: dict) -> int | None:
+    """The Article a scoping decision may rest on: one the conversation settled,
+    the record's, or one the user named -- never one inferred from the very
+    sections being scoped."""
+    coverage = state.get("coverage") or {}
+    for candidate in (
+        coverage.get("article"),
+        (state.get("employee_record") or {}).get("article_number"),
+        *(state.get("explicit_articles") or []),
+    ):
+        if candidate is not None and str(candidate).isdigit():
+            return int(candidate)
+    return None
+
+
 async def _search(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
     queries = [str(q) for q in (arguments.get("queries") or []) if str(q).strip()]
     if not queries:
@@ -446,7 +462,11 @@ async def _search(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         logger.warning("Could not recall anything beside the search: %s", hint)
         hint = []
 
-    rows = [s.to_dict() for s in found]
+    # The answer is written from these, so they are scoped as a derivation's
+    # are: §1-161 (Articles 14-16) never reaches an Article 8 member's evidence,
+    # and §1-162 arrives with its "affected fund" condition in front of its
+    # 1.25% -- which an answer otherwise described as the member's Tier 2 rule.
+    rows = [s.to_dict() for s in scoped_evidence(list(found), _scoping_article(state))]
     body = _render(rows, settings.retrieval_context_token_budget * 4)
     remembered = (
         "Sections that previously answered questions like this, and whose "

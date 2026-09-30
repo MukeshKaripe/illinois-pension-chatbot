@@ -90,3 +90,41 @@ async def test_a_recipe_resting_on_a_conditional_section_is_not_saved(monkeypatc
     assert saved == []
     await nodes._persist_new_recipes(state(["8-138", "1-160"]), ok)
     assert len(saved) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_answers_search_evidence_is_scoped_too(monkeypatch) -> None:
+    # The derivation was scoped, and the answer still described "1.25% for each
+    # year" from §1-162 -- it reads the turn's own search results.
+    from pension_chat.agent import tools
+
+    async def retrieve(queries, **kwargs):
+        return [_s("1-160", "(c) age 67"), _s("1-161", "(g) 1.25%"), _s("1-162", "(g) 1.25%")]
+
+    async def recall(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(tools, "retrieve", retrieve)
+    monkeypatch.setattr(tools.memory, "recall", recall)
+    text, update = await tools._search(
+        {"queries": ["tier 2 annuity"]}, {"coverage": {"article": "8", "basis": "record"}}
+    )
+    assert [r["section"] for r in update["retrieved_sections"]] == ["1-160", "1-162"]
+    assert "1-161" not in text
+    assert "[Applies only" in text
+
+
+@pytest.mark.asyncio
+async def test_without_a_governing_article_search_evidence_is_unchanged(monkeypatch) -> None:
+    from pension_chat.agent import tools
+
+    async def retrieve(queries, **kwargs):
+        return [_s("1-161"), _s("1-162")]
+
+    async def recall(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(tools, "retrieve", retrieve)
+    monkeypatch.setattr(tools.memory, "recall", recall)
+    _, update = await tools._search({"queries": ["x"]}, {})
+    assert [r["section"] for r in update["retrieved_sections"]] == ["1-161", "1-162"]
