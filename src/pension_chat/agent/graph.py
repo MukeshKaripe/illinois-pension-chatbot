@@ -30,7 +30,9 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
@@ -153,6 +155,9 @@ def build_loop_graph(checkpointer: Any | None = None):
 loop_graph = build_loop_graph(SqlAlchemyCheckpointSaver())
 
 
+_graph_override: ContextVar[Any | None] = ContextVar("pension_chat_graph_override", default=None)
+
+
 def active_graph():
     """The agent that answers a turn.
 
@@ -160,8 +165,20 @@ def active_graph():
     every caller already goes through it and because a second agent, if one is
     ever built to be measured against this one, needs somewhere to be switched
     in -- which is what this function was for the first time.
+
+    An eval run substitutes a graph compiled over an in-memory checkpointer
+    with `use_graph`, so nothing it does reaches Postgres.
     """
-    return loop_graph
+    return _graph_override.get() or loop_graph
+
+
+@contextmanager
+def use_graph(graph: Any) -> Iterator[Any]:
+    token = _graph_override.set(graph)
+    try:
+        yield graph
+    finally:
+        _graph_override.reset(token)
 
 
 async def run_agent(
