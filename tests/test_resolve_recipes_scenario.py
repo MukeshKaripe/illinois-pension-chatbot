@@ -133,3 +133,38 @@ async def test_a_found_registry_recipe_needs_no_extra_search(monkeypatch, derive
     monkeypatch.setattr(nodes, "retrieve", retrieve)
     await nodes.resolve_recipes({**_state([]), "requires_calculation": False})
     assert searched == []
+
+
+@pytest.mark.asyncio
+async def test_validation_checks_applicability_at_the_scenarios_age(monkeypatch) -> None:
+    # §8-138(g-1): "no earlier than upon attainment of age 60". Asked about 67,
+    # a 58-year-old was blocked -- "requires age 60, but this member has 58".
+    async def no_texts(section_ids, articles=None):
+        return {}
+
+    monkeypatch.setattr(nodes, "fetch_sections", no_texts)
+    spec = {
+        "formula_id": "article_8_retirement_annuity_8-138", "execution_type": "declarative",
+        "inputs": [{"name": "final_average_salary", "type": "money", "required": True}],
+        "parameters": {},
+        "calculation": {"variable": "final_average_salary"},
+        "applicability_predicates": [{
+            "fact": "age_at_annuity_start", "operator": "ge", "value": 60,
+            "description": "annuity begins no earlier than age 60",
+            "source": {"section": "8-138", "subsection": "(g-1)"},
+        }],
+        "output_name": "annual_annuity", "output_type": "money",
+    }
+    state = {**_state([{"label": "at age 67", "retirement_age": 67}]),
+             "recipes": {"retirement_annuity": {"source": "derived", "spec": spec,
+                                                "source_sections": ["8-138"], "section": "8-138"}},
+             "retrieved_sections": [{"section": "8-138"}],
+             "resolved_inputs": {"final_average_salary": 80400.84, "age_at_annuity_start": 58}}
+    def codes(out: dict) -> list[str]:
+        return [e["code"] for e in out["validation_errors"]]
+
+    at_67 = await nodes.validate_recipes(state)
+    assert "APPLICABILITY_NOT_SATISFIED" not in codes(at_67), at_67["validation_errors"]
+
+    today = await nodes.validate_recipes({**state, "scenarios": []})
+    assert "APPLICABILITY_NOT_SATISFIED" in codes(today)     # at 58, today, it does not reach

@@ -1396,8 +1396,13 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     # Predicates are checked against the member's record *and* anything they
     # stated themselves, so an anonymous user who supplies their age and service
     # gets the same applicability test a signed-in member does.
-    checkable_facts = facts_for_evaluation(
-        _available_facts(state), state.get("resolved_inputs")
+    #
+    # And at the age the question is about: "annuity at 67" for a 58-year-old
+    # was blocked by §8-138(g-1)'s "no earlier than age 60", tested against
+    # today. Execution re-asks each scenario at its own age; this gate agrees.
+    checkable_facts = _at_scenario_age(
+        state,
+        facts_for_evaluation(_available_facts(state), state.get("resolved_inputs")),
     )
 
     errors: list[dict] = []
