@@ -36,19 +36,40 @@ def _history(spec: dict[str, Any], today: date) -> list[SalaryYear]:
     return out
 
 
+def _tier_for(hire_date: date) -> int:
+    """Tier as Section 1-160 draws it for Article 8: before 2011, before July 6 2017, after."""
+    if hire_date < date(2011, 1, 1):
+        return 1
+    return 2 if hire_date < date(2017, 7, 6) else 3
+
+
+def _check_tier(path: Path, tier: Any, hire_date: date | None, basis: str | None) -> None:
+    """A fixture's tier must be the one its hire date gives, unless it says why not
+    (a reciprocal member from before 2011, a closed record whose tier was never set)."""
+    if tier is None or hire_date is None or basis:
+        return
+    if int(tier) != _tier_for(hire_date):
+        raise ValueError(f"{path}: tier {tier} contradicts hire date {hire_date} "
+                         f"(tier {_tier_for(hire_date)}); fix one, or state tier_basis")
+
+
 def load_fixtures(root: Path, today: date) -> dict[str, tuple[EmployeeRecord, list[SalaryYear]]]:
     fixtures: dict[str, tuple[EmployeeRecord, list[SalaryYear]]] = {}
     for path in sorted(root.glob("*.yaml")):
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if "hired_years_ago" in raw:
+            raise ValueError(f"{path}: hired_years_ago is relative, but tier depends on the absolute "
+                             "hire date -- give hire_date")
         missing = dict(raw.get("missing") or {})
+        hire_date = raw.get("hire_date")
+        _check_tier(path, raw.get("tier"), hire_date, raw.get("tier_basis"))
         record = EmployeeRecord(
             key=raw["key"],
             display_name=raw.get("display_name"),
             employer=raw.get("employer"),
             department=raw.get("department"),
             birth_date=_years_before(today, int(raw["age"])) if raw.get("age") is not None else None,
-            hire_date=(_years_before(today, int(raw["hired_years_ago"]))
-                       if raw.get("hired_years_ago") is not None else None),
+            hire_date=hire_date,
             status=raw.get("status"),
             tier=raw.get("tier"),
             service_years=(Decimal(str(raw["service_years"]))

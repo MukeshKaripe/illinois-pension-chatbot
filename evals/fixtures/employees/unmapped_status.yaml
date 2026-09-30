@@ -2,7 +2,7 @@ key: unmapped_status
 display_name: "T. Kowalski"
 employer: City of Chicago
 age: 52
-hired_years_ago: 15
+hire_date: 2011-09-30
 tier: 2
 status: "DB7"
 service_years: 14.0

@@ -2,8 +2,9 @@ key: reciprocal
 display_name: "K. Ibrahim"
 employer: City of Chicago
 age: 60
-hired_years_ago: 12
+hire_date: 2014-09-30
 tier: 1
+tier_basis: "first became a member of a reciprocal system before 2011 (§1-160(a))"
 status: active
 service_years: 11.5
 service_source: stored

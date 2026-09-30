@@ -2,7 +2,7 @@ key: no_stored_service
 display_name: "R. Patel"
 employer: Board of Education
 age: 57
-hired_years_ago: 22
+hire_date: 2004-09-30
 tier: 1
 status: active
 salary: {current: 76000, growth: 0.02, years: 10}
