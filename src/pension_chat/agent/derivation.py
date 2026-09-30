@@ -118,6 +118,17 @@ Rules you must follow:
    Do keep branches that the applicable provision itself requires (for example
    an exception that waives a reduction at a stated service threshold).
 
+2a. Read the Code's boundary words exactly; they decide who is inside a rule:
+   - "after attaining age 62", "upon attainment of age 60", "age 62 or over",
+     "at least 10 years", "10 or more years"  -> INCLUSIVE: operator "ge".
+     A member who is exactly 62 HAS attained age 62.
+   - "under age 67", "less than 10 years", "before age 60" -> "lt".
+   - "more than", "in excess of", "over 30 years" -> "gt"; "not exceeding" -> "le".
+   A reduction "for each full month that the member's age is under age 67"
+   applies to a member retiring at 62, 63 ... 66 -- count the months with the
+   member's age at retirement, and let the count reach zero at 67 rather than
+   guarding the reduction with a strict comparison that skips the boundary age.
+
 3a. Where the statute gives the member an ELECTION between formulas ("may elect
    to receive, in lieu of any other annuity provided in this Section..."), the
    member has not told you which they will elect. Derive the one that yields the

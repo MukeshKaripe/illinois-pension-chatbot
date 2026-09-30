@@ -160,3 +160,14 @@ def test_an_unapproved_saved_formula_without_quotes_is_not_reused() -> None:
     assert not _meets_current_validation(unquoted)
     assert _meets_current_validation(quoted)
     assert _meets_current_validation(approved)
+
+
+def test_the_derivation_prompt_says_how_the_code_writes_boundaries() -> None:
+    # Two derivations read "retiring after attaining age 62 ... reduced ... for
+    # each full month that the member's age is under age 67" as `age > 62`, and
+    # paid a 62-year-old unreduced (expected $19,770.89, computed $28,244.13).
+    from pension_chat.agent import derivation
+
+    prompt = derivation._SYSTEM_PROMPT
+    for phrase in ('"after attaining age 62"', '"under age 67"', '"at least 10 years"', '"ge"', '"lt"'):
+        assert phrase in prompt, phrase
