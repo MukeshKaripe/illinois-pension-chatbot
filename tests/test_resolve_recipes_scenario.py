@@ -348,3 +348,32 @@ async def test_an_age_read_from_the_users_words_is_not_also_reported_missing(mon
     out = await nodes.resolve_inputs(state)
     assert out["resolved_inputs"]["age"] == 62
     assert "age" not in [m.get("name") for m in out["missing_inputs"]]
+
+
+@pytest.mark.asyncio
+async def test_a_stated_age_gives_a_birth_date_when_the_recipe_declares_no_age(monkeypatch) -> None:
+    # Live, 2026-10-01: the hand-written core formulas declare `birth_date`, not
+    # an age, so "is 62" was read into nothing and the turn asked for a birth
+    # date the user had already given the means to derive.
+    from langchain_core.messages import HumanMessage
+
+    from pension_chat.agent.facts import age_on
+
+    async def heard_nothing(**kwargs):
+        return '{"resolved": {}}'
+
+    monkeypatch.setattr(nodes, "complete", heard_nothing)
+    said = "An employee who joined in 2015 is 62, earns $80,000 and has 11 years of service."
+    spec = {"formula_id": "f", "execution_type": "declarative",
+            "inputs": [{"name": "birth_date", "type": "date", "required": True}],
+            "parameters": {}, "calculation": {"variable": "birth_date"},
+            "output_name": "annual_annuity", "output_type": "money"}
+    state = {"employee_record": None, "member_facts": {}, "fact_ledger": {}, "salary_history": [],
+             "question": said, "messages": [HumanMessage(content=said)], "turn_index": 1,
+             "coverage": {"article": "8", "basis": "deployment", "record_article": None},
+             "recipes": {"retirement_annuity": {"source": "registry", "spec": spec}},
+             "requires_calculation": True, "assumptions": {}}
+    out = await nodes.resolve_inputs(state)
+    born = date.fromisoformat(out["resolved_inputs"]["birth_date"])
+    assert age_on(born, date.today()) == 62
+    assert "birth_date" not in [m.get("name") for m in out["missing_inputs"]]

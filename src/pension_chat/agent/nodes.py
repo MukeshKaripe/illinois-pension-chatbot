@@ -1522,13 +1522,12 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # A described employee's age, read as written ("is 62", "aged 56", "a
     # 58-year-old") when the extraction step did not hear it -- it varies run to
     # run, and an age the user typed must not become a question back to them.
-    if not state.get("employee_record"):
-        stated_age = _stated_age(spoken)
-        if stated_age is not None:
-            for name in declared:
-                if name in aliases_of("age") and name not in resolved:
-                    resolved[name] = stated_age
-                    taken[name] = stated_age
+    stated_age = None if state.get("employee_record") else _stated_age(spoken)
+    if stated_age is not None:
+        for name in declared:
+            if name in aliases_of("age") and name not in resolved:
+                resolved[name] = stated_age
+                taken[name] = stated_age
 
     statutory = statutory_fills(recipes)
     cited: dict[str, Any] = {}
@@ -1549,6 +1548,11 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # for a described employee with no record -- the salary they stated, which
     # the missing-input policy lets stand, flat, for the averaging period.
     known = {"as_of_date": date.today().isoformat(), **facts, **resolved, **cited}
+    # A stated age is a fact to compute from even when no input declared takes
+    # an age: the core formulas declare `birth_date`, and "is 62" must still
+    # place it rather than become a question back to the user.
+    if stated_age is not None:
+        known.setdefault("age", stated_age)
     if _may_take_stated_salary(state):
         stated_salary = _stated_annual_salary(spoken)
         if stated_salary is not None:
