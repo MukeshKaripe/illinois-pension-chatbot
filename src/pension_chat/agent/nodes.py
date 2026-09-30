@@ -622,6 +622,12 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     article = _governing_article(state)
     tier = employee["tier"] if employee else None
     facts = _at_scenario_age(state, _available_facts(state))
+    if not employee:
+        # A described employee ("joined in 2015, 62, earns $80,000, 11 years"):
+        # their values are extracted only once a recipe exists to declare them,
+        # so without their words a derivation had nothing but an age and could
+        # not tell which provision applies. What they said is the evidence.
+        facts = {**facts, "described_in_conversation": _member_words(state)[-2000:]}
 
     # Tier keys the registry, so an unknown tier is not a missing number -- it
     # is two provisions. Ask for both and price whichever are genuinely

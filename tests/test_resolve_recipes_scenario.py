@@ -168,3 +168,28 @@ async def test_validation_checks_applicability_at_the_scenarios_age(monkeypatch)
 
     today = await nodes.validate_recipes({**state, "scenarios": []})
     assert "APPLICABILITY_NOT_SATISFIED" in codes(today)     # at 58, today, it does not reach
+
+
+@pytest.mark.asyncio
+async def test_a_described_employees_own_words_reach_the_derivation(derived) -> None:
+    # "An employee who joined in 2015 is 62, earns $80,000 and has 11 years" was
+    # derived for with only {age_at_annuity_start: 62}: stated values are
+    # extracted after a recipe exists, so the derivation could not tell which
+    # provision applied and declined. With no record, it reads what was said.
+    from langchain_core.messages import HumanMessage
+
+    said = "An employee who joined in 2015 is 62, earns $80,000 and has 11 years of service."
+    state = {**_state([{"label": "at age 62", "retirement_age": 62}]),
+             "employee_record": None, "salary_history": [], "member_facts": {}, "fact_ledger": {},
+             "question": said, "messages": [HumanMessage(content=said)],
+             "coverage": {"article": "8", "basis": "deployment", "record_article": None}}
+    await nodes.resolve_recipes(state)
+    [facts] = derived
+    assert "joined in 2015" in facts["described_in_conversation"]
+
+
+@pytest.mark.asyncio
+async def test_a_member_with_a_record_is_not_given_the_conversation_as_a_fact(derived) -> None:
+    await nodes.resolve_recipes(_state([]))
+    [facts] = derived
+    assert "described_in_conversation" not in facts
