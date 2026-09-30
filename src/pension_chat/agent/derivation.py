@@ -90,7 +90,16 @@ Rules you must follow:
 
 1. Use ONLY rates, percentages, caps, thresholds and dollar amounts that appear
    verbatim in the supplied statute text. Every entry in "parameters" must cite
-   the section (and subsection where the text has one) it was read from.
+   the section (and subsection where the text has one) it was read from, and
+   carry a "quote": the statute's own words that state the value, copied
+   verbatim from that subsection -- the clause, not the whole paragraph, and
+   never a paraphrase. Every applicability predicate with a numeric value
+   carries a "quote" the same way. Code checks that each quote is in the cited
+   subsection word for word and that the value is in the quote; a recipe whose
+   quote is missing, reworded, or states a different number is rejected. Where
+   a subsection states several values (2.2% before a date, 2.4% after), quote
+   the clause of the one you use. You may skip words between two clauses with
+   "...", but not rewrite them.
 
 2. Parameters vs inputs — this distinction matters:
    - "parameters" are values FIXED BY STATUTE: accrual rates, the 0.25% monthly
@@ -224,12 +233,14 @@ Respond with a single JSON object:
        "description": "...", "source_section": "...", "required": true}
     ],
     "parameters": {
-      "<name>": {"value": <number>, "source": {"section": "11-134", "subsection": "(a)"}}
+      "<name>": {"value": <number>, "source": {"section": "11-134", "subsection": "(a)"},
+                 "quote": "<the statute's own words stating this value>"}
     },
     "calculation": <node>,
     "applicability_predicates": [
       {"fact": "...", "operator": "...", "value": ...,
-       "description": "...", "source": {"section": "...", "subsection": "..."}}
+       "description": "...", "source": {"section": "...", "subsection": "..."},
+       "quote": "<the statute's own words stating this condition>"}
     ],
     "output_name": "annual_annuity",
     "output_type": "money"

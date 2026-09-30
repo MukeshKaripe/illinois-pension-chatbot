@@ -1351,11 +1351,18 @@ async def _parameter_texts(recipes: dict[str, dict]) -> dict[str, dict[str, str]
     found. Fetched whole rather than taken from this turn's retrieval, which is
     budget-trimmed and could cut the very subsection a constant cites.
     """
-    cited = sorted({
-        str((param.get("source") or {}).get("section") or "").split("(")[0].strip()
+    anchors = [
+        anchor
         for recipe in recipes.values()
-        for param in ((recipe.get("spec") or {}).get("parameters") or {}).values()
-        if isinstance(param, dict)
+        for anchor in [
+            *((recipe.get("spec") or {}).get("parameters") or {}).values(),
+            *((recipe.get("spec") or {}).get("applicability_predicates") or []),
+        ]
+        if isinstance(anchor, dict)
+    ]
+    cited = sorted({
+        str((anchor.get("source") or {}).get("section") or "").split("(")[0].strip()
+        for anchor in anchors
     } - {""})
     if not cited:
         return {}
@@ -1419,8 +1426,12 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         spec = recipe.get("spec") or {}
         sources = recipe.get("source_sections") or []
 
+        # A new derivation must anchor every number to the statute's words; a
+        # reused recipe saved before anchoring, or approved by a reviewer, is
+        # not refused for carrying none.
         result = validator.validate(
-            spec, sources, indexed, set(), strict=True, parameter_texts=parameter_texts
+            spec, sources, indexed, set(), strict=True, parameter_texts=parameter_texts,
+            require_quotes=recipe.get("source") == "derived",
         )
         for error in result.errors:
             errors.append({"formula_type": formula_type, **error.to_dict()})

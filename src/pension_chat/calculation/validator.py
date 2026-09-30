@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import re
 from fractions import Fraction
+from typing import Any
 
 from pension_chat.calculation.applicability import validate_predicate
 from pension_chat.calculation.dsl_types import (
@@ -87,6 +88,35 @@ def statutory_forms(value: float) -> list[str]:
                 for word in _FRACTION_WORDS.get(Fraction(part, fraction.denominator), ()):
                     forms += [f"{word} of 1%", f"{word} of one percent", f"{word} percent"]
     return list(dict.fromkeys(forms))
+
+
+_TYPOGRAPHY = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"',
+                             "–": "-", "—": "-", " ": " "})
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.translate(_TYPOGRAPHY).lower().split())
+
+
+def quote_in_text(quote: str, text: str) -> bool:
+    """Whether `quote` is the statute's own words, taken from `text`.
+
+    Verbatim apart from case, spacing and typographic quote marks and dashes.
+    An elision ("..." or "…") splits the quote into fragments that must each
+    appear, in order -- the model may skip words between clauses, never
+    rewrite them.
+    """
+    haystack = _flat(text)
+    position = 0
+    fragments = [f for f in re.split(r"\s*(?:\.\.\.|…)\s*", _flat(quote)) if f]
+    if not fragments:
+        return False
+    for fragment in fragments:
+        found = haystack.find(fragment, position)
+        if found < 0:
+            return False
+        position = found + len(fragment)
+    return True
 
 
 def _drop_trailing_zeros(match: re.Match[str]) -> str:
@@ -172,6 +202,7 @@ class RecipeValidator:
         existing_capabilities: set[str] | None = None,
         strict: bool = False,
         parameter_texts: dict[str, dict[str, str]] | None = None,
+        require_quotes: bool = False,
     ) -> ValidationResult:
         """Run all validation checks on a recipe.
 
@@ -221,6 +252,7 @@ class RecipeValidator:
         self._validate_parameters(spec, result, indexed_sections)
         if parameter_texts is not None:
             self._validate_parameters_in_source(spec, result, parameter_texts)
+            self._validate_quotes(spec, result, parameter_texts, require_quotes)
 
         # 5. Check for dependency cycles
         self._validate_no_cycles(spec, existing_capabilities, result)
@@ -386,6 +418,61 @@ class RecipeValidator:
                     "UNDECLARED_VARIABLE",
                     f"Variable '{var}' is used in the calculation but is not "
                     f"declared as an input or parameter",
+                )
+
+    def _validate_quotes(
+        self,
+        spec: RuleSpecification,
+        result: ValidationResult,
+        parameter_texts: dict[str, dict[str, str]],
+        require: bool,
+    ) -> None:
+        """Each statutory number is anchored to the words it was read from.
+
+        For every parameter, and every applicability condition with a numeric
+        value: the quote must be verbatim in the cited subsection (or, if that
+        subsection's text is not known, the section), and the number must be in
+        the quote. A real number lifted from the wrong clause -- 2.4% used where
+        the quoted words say 2.2% -- fails the second test though it passes
+        "the number is somewhere in the subsection". `require` is set for newly
+        derived recipes; one saved before anchoring or approved by a reviewer
+        is not refused for carrying no quote. Always errors, in either mode.
+        """
+        anchored: list[tuple[str, str, Any, dict[str, Any], str | None]] = [
+            ("PARAMETER", name, p.value, p.source or {}, p.quote)
+            for name, p in spec.parameters.items()
+        ]
+        anchored += [
+            ("PREDICATE", pred.fact, pred.value, pred.source or {}, pred.quote)
+            for pred in spec.applicability_predicates
+            if isinstance(pred.value, (int, float)) and not isinstance(pred.value, bool)
+        ]
+        for kind, name, value, source, quote in anchored:
+            section = str(source.get("section") or "").split("(")[0].strip()
+            subsections = parameter_texts.get(section)
+            if not quote:
+                if require:
+                    result.add_error(
+                        f"{kind}_QUOTE_MISSING",
+                        f"{kind.title()} '{name}' ({value}) gives no quote from Section "
+                        f"{section or '?'}, so it cannot be checked against the statute",
+                    )
+                continue
+            if subsections is None:
+                continue
+            cited = str(source.get("subsection") or "")
+            text = subsections.get(cited) or " ".join(subsections.values())
+            if not quote_in_text(quote, text):
+                result.add_error(
+                    "QUOTE_NOT_IN_SOURCE",
+                    f"{kind.title()} '{name}' quotes words that are not in Section "
+                    f"{section}{cited if cited in subsections else ''}: {quote[:120]!r}",
+                )
+            elif isinstance(value, (int, float)) and not value_in_text(float(value), quote):
+                result.add_error(
+                    "VALUE_NOT_IN_QUOTE",
+                    f"{kind.title()} '{name}' is {value}, but the words it quotes do not state "
+                    f"that value: {quote[:120]!r}",
                 )
 
     def _validate_parameters_in_source(
