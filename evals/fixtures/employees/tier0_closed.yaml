@@ -1,0 +1,10 @@
+key: tier0_closed
+display_name: "P. Russo"
+employer: City of Chicago
+age: 80
+hired_years_ago: 50
+tier: 0
+status: "closed"
+service_years: 20.0
+service_source: stored
+missing: {salary_history: "closed record"}

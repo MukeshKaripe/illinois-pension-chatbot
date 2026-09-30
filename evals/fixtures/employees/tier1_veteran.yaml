@@ -1,0 +1,11 @@
+key: tier1_veteran
+display_name: "M. Okafor"
+employer: City of Chicago
+department: Water Management
+age: 59
+hired_years_ago: 31
+tier: 1
+status: active
+service_years: 30.75
+service_source: stored
+salary: {current: 102000, growth: 0.025, years: 10}

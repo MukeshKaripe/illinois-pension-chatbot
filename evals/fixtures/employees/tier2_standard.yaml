@@ -1,0 +1,11 @@
+key: tier2_standard
+display_name: "A. Rivera"
+employer: City of Chicago
+department: Streets and Sanitation
+age: 58
+hired_years_ago: 13
+tier: 2
+status: active
+service_years: 12.5
+service_source: stored
+salary: {current: 84000, growth: 0.03, years: 4}

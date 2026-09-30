@@ -1,0 +1,11 @@
+key: smith_streets
+display_name: "J. Smith"
+employer: City of Chicago
+department: Streets and Sanitation
+age: 54
+hired_years_ago: 20
+tier: 1
+status: active
+service_years: 19.5
+service_source: stored
+salary: {current: 74000, growth: 0.02, years: 10}

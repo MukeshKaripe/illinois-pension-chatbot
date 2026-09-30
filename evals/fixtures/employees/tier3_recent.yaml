@@ -1,0 +1,11 @@
+key: tier3_recent
+display_name: "L. Nguyen"
+employer: City of Chicago
+department: Public Health
+age: 41
+hired_years_ago: 7
+tier: 3
+status: active
+service_years: 6.9
+service_source: stored
+salary: {current: 68000, growth: 0.03, years: 7}

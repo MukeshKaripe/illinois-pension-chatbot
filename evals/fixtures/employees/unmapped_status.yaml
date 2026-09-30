@@ -1,0 +1,11 @@
+key: unmapped_status
+display_name: "T. Kowalski"
+employer: City of Chicago
+age: 52
+hired_years_ago: 15
+tier: 2
+status: "DB7"
+service_years: 14.0
+service_source: stored
+salary: {current: 66000, growth: 0.02, years: 10}
+missing: {status_meaning: "status code DB7 is not mapped"}

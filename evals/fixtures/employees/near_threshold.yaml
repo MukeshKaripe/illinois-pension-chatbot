@@ -1,0 +1,11 @@
+key: near_threshold
+display_name: "D. Moreno"
+employer: City of Chicago
+department: Aviation
+age: 66
+hired_years_ago: 10
+tier: 2
+status: active
+service_years: 9.8
+service_source: stored
+salary: {current: 71000, growth: 0.02, years: 10}
