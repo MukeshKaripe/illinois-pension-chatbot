@@ -77,12 +77,17 @@ async def _approve(reviewer: str) -> None:
             if formula_id is None:
                 raise SystemExit(f"Tier {formula['tier']}: the registry did not save it")
             async with get_admin_session() as session:
-                await session.execute(
+                result = await session.execute(
                     text("update formula_registry set knowledge_status = 'approved', "
                          "reviewed_by = :who, reviewed_at = :at where formula_id = :id"),
                     {"who": reviewer, "at": datetime.now(UTC), "id": formula_id},
                 )
                 await session.commit()
+            # `persist_recipe` returns the id on a unique-key clash too, so a row
+            # that never landed (a missing pension_articles row, say) would
+            # otherwise be reported as approved.
+            if result.rowcount != 1:
+                raise SystemExit(f"Tier {formula['tier']}: {formula_id} is not in the registry; nothing approved")
             print(f"approved  tier {formula['tier']}  {formula_id}  (reviewer: {reviewer})")
     finally:
         await close_clients()
