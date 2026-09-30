@@ -227,17 +227,22 @@ def render_people(state: dict[str, Any]) -> str:
             first_figure[ref] = entry
     if len(first_figure) < 2:
         return ""
-    rows = ["| Employee | Department | Tier | Worked from | Annual | Monthly |",
-            "|---|---|---|---|---|---|"]
+    rows = ["| Employee | Department | Tier | When | Worked from | Annual | Monthly |",
+            "|---|---|---|---|---|---|---|"]
     for ref in state.get("turn_people") or list(people):
         entry, bundle = first_figure.get(ref), people.get(ref)
         if not entry or not bundle:
             continue
-        record, base = bundle["record"], entry["base"]
+        record = bundle["record"]
+        # The figure the question asked for: its scenario ("at age 62") when it
+        # named one, else the as-of-today figure -- never today's beside a
+        # question about 62 (found live: two figures for one person).
+        scenario = next((sc for sc in entry.get("scenarios") or [] if sc.get("annual_amount")), None)
+        when, figure = (scenario["label"], scenario) if scenario else ("if they retire now", entry["base"])
         section = f"§{entry['section']}{entry.get('subsection') or ''}" if entry.get("section") else ""
         rows.append(f"| {bundle['label']} | {record.get('department') or record.get('employer') or ''} | "
-                    f"{record.get('tier') or ''} | {section} | {_money(base.get('annual_amount'))} | "
-                    f"{_money(base.get('monthly_amount'))} |")
+                    f"{record.get('tier') or ''} | {when} | {section} | {_money(figure.get('annual_amount'))} | "
+                    f"{_money(figure.get('monthly_amount'))} |")
     return "\n".join(rows)
 
 

@@ -175,3 +175,16 @@ def test_a_comparison_offers_only_the_people_table() -> None:
     state = {"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": _results()}
     marked = [slot for slot in _views(state) if slot in MARKED_VIEWS]
     assert marked == ["PEOPLE"]
+
+
+def test_the_people_table_shows_the_figure_the_question_asked_for() -> None:
+    # Found live: "compare all three at 62" tabled each person's figure as of
+    # today, while the model quoted the at-62 figure -- two numbers for one person.
+    results = _results()
+    results["KA_LS MA_LP · retirement_annuity"]["scenarios"] = [
+        {"label": "at age 62", "annual_amount": "31000.00", "monthly_amount": "2583.33"}]
+    table = render_people({"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": results})
+    rows = [line for line in table.splitlines() if line.startswith("| ") and "---" not in line]
+    assert "When" in rows[0]
+    assert "at age 62" in rows[1] and "$31,000.00" in rows[1] and "$27,000.00" not in rows[1]
+    assert "if they retire now" in rows[2] and "$18,000.00" in rows[2]
