@@ -57,7 +57,8 @@ def test_a_full_row_maps_to_the_record() -> None:
     assert (rec.tier, rec.status, rec.source) == (2, "active", "PBMS")
     assert rec.service_years == Decimal("2.75")                  # 33 months
     assert rec.service_source == "counted from payroll (months with a pension deduction)"
-    assert rec.missing == {}
+    # Three salary years cannot support a Tier 2 average -- the one gap, said.
+    assert set(rec.missing) == {"final_average_salary"}
 
 
 def test_no_hire_date_uses_the_first_payroll_date_and_says_so() -> None:
@@ -176,3 +177,22 @@ def test_no_provider_unless_pbms_and_never_half_configured() -> None:
     assert build_record_provider(_settings(
         record_source="pbms", pbms_sql_server="s", pbms_sql_database="d",
         pbms_sql_user="u", pbms_sql_password="p")) is not None
+
+
+def _years(*years):
+    return [{"Year": y, "Salary": Decimal("100000"), "Contribution_Months": 12} for y in years]
+
+
+def test_a_salary_record_too_short_for_the_average_is_reported() -> None:
+    # PBMS Dev holds active members' salary only from 2019: at most 7 complete
+    # years, and Tier 2/3 average 8 (§1-160(b)). Said, so the answer can ask.
+    tier2 = {**ROW, "Tier_Type_Cd": "2", "Hire_Date": datetime(2012, 12, 24)}
+    rec = record_from_rows(tier2, _years(*range(2019, 2026)), as_of=date(2026, 10, 1))
+    assert "7 of the last 10" in rec.missing["final_average_salary"] and "8" in rec.missing["final_average_salary"]
+    ok = record_from_rows(tier2, _years(*range(2016, 2026)), as_of=date(2026, 10, 1))
+    assert "final_average_salary" not in ok.missing
+    tier1 = {**ROW, "Tier_Type_Cd": "1", "Hire_Date": datetime(1995, 1, 1)}
+    assert "final_average_salary" not in record_from_rows(tier1, _years(2022, 2023, 2024, 2025),
+                                                          as_of=date(2026, 10, 1)).missing
+    gappy = record_from_rows(tier1, _years(2019, 2021, 2023, 2025), as_of=date(2026, 10, 1))
+    assert "4 consecutive" in gappy.missing["final_average_salary"]

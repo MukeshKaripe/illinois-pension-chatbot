@@ -106,7 +106,32 @@ def match_from_row(row: dict[str, Any]) -> EmployeeMatch:
     )
 
 
-def record_from_rows(row: dict[str, Any], salary_rows: list[dict[str, Any]]) -> EmployeeRecord:
+# Years a final average salary averages: Tier 1 the best 4 consecutive of the
+# last 10 (§8-138(g-1)); Tiers 2 and 3 the best 96 consecutive months of the
+# last 120 (§1-160(b)).
+_FAS_YEARS = {1: (4, "§8-138(g-1)"), 2: (8, "§1-160(b)"), 3: (8, "§1-160(b)")}
+
+
+def _salary_gap(tier: int | None, salary_rows: list[dict[str, Any]], as_of: date) -> str | None:
+    """Why PBMS's salary record cannot support this tier's average, or None."""
+    if tier not in _FAS_YEARS:
+        return None
+    need, section = _FAS_YEARS[tier]
+    window = range(as_of.year - 10, as_of.year)
+    held = sorted({int(r["Year"]) for r in salary_rows if r.get("Salary") and int(r["Year"]) in window})
+    run = best = 0
+    for year in window:
+        run = run + 1 if year in held else 0
+        best = max(best, run)
+    if best >= need:
+        return None
+    span = f" ({held[0]}-{held[-1]})" if held else ""
+    return (f"PBMS holds salary for {len(held)} of the last 10 complete years{span}, and not {need} consecutive; "
+            f"the Tier {tier} average needs {need} consecutive years ({section}) -- ask for the salary")
+
+
+def record_from_rows(row: dict[str, Any], salary_rows: list[dict[str, Any]], *,
+                     as_of: date | None = None) -> EmployeeRecord:
     missing: dict[str, str] = {}
 
     hire = _day(row.get("Hire_Date"))
@@ -140,6 +165,9 @@ def record_from_rows(row: dict[str, Any], salary_rows: list[dict[str, Any]]) -> 
         source = SERVICE_FROM_PAYROLL_SOURCE
     else:
         missing["service_years"] = "PBMS holds no payroll periods with a pension deduction"
+
+    if gap := _salary_gap(tier, salary_rows, as_of or date.today()):
+        missing["final_average_salary"] = gap
 
     if (_text(row.get("Reciprocal_Flg")) or "").upper() == "Y":
         missing["reciprocal_service_years"] = "PBMS flags reciprocal service but holds no amount of it"
@@ -211,7 +239,7 @@ class PbmsProvider:
         rows, salary = await asyncio.gather(
             self._client.fetch("record", meab_id=meab_id), self._salary_rows(meab_id)
         )
-        return record_from_rows(rows[0], salary) if rows else None
+        return record_from_rows(rows[0], salary, as_of=self._today()) if rows else None
 
     async def get_salary_history(self, key: str) -> list[SalaryYear]:
         meab_id = normalise_meab_id(key)

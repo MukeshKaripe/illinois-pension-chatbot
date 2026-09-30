@@ -135,3 +135,14 @@ def test_compose_is_told_who_the_answer_is_for() -> None:
     both = {**one, "people": {"M-1": {"label": "QW_XZ PL_MR"}, "M-2": {"label": "KA_LS MA_LP"}}}
     assert "KA_LS MA_LP" in _audience(both)
     assert _audience({"employee_record": {"id": "x"}}) == ""        # a member's own conversation: unchanged
+
+
+def test_a_stated_salary_may_stand_in_for_a_fund_records_gap_in_a_one_person_turn() -> None:
+    from pension_chat.agent.nodes import _may_take_stated_salary
+
+    fund = {"employee_record": {"id": "M-1", "record_source": "PBMS"}}
+    assert _may_take_stated_salary({})                                            # no record: as before
+    assert _may_take_stated_salary(fund)
+    assert _may_take_stated_salary({**fund, "people": {"M-1": {}}})
+    assert not _may_take_stated_salary({**fund, "people": {"M-1": {}, "M-2": {}}})  # whose salary? never guess
+    assert not _may_take_stated_salary({"employee_record": {"id": "member-own"}})  # a member's own record

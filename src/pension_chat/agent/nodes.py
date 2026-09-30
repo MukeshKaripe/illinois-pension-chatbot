@@ -735,6 +735,21 @@ def _stated_age(said: str) -> int | None:
     return int(next(g for g in match.groups() if g)) if match else None
 
 
+def _may_take_stated_salary(state: Mapping[str, Any]) -> bool:
+    """Whether a salary the user stated may stand in for a missing average.
+
+    For a described employee with no record, as before. And for one person from
+    the fund's records whose salary record is too short -- PBMS Dev holds active
+    members' salary only from 2019 -- so the employer can supply it. Never when
+    the turn is about several people: whose salary it was is a guess. A
+    member's own record is untouched. It only ever fills an input still missing.
+    """
+    record = state.get("employee_record") or {}
+    if not record:
+        return True
+    return bool(record.get("record_source")) and len(state.get("people") or {}) <= 1
+
+
 def _stated_annual_salary(said: str) -> int | None:
     """An annual salary the user wrote down -- "earns $80,000", "salary is 72,500".
 
@@ -1534,7 +1549,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # for a described employee with no record -- the salary they stated, which
     # the missing-input policy lets stand, flat, for the averaging period.
     known = {"as_of_date": date.today().isoformat(), **facts, **resolved, **cited}
-    if not state.get("employee_record"):
+    if _may_take_stated_salary(state):
         stated_salary = _stated_annual_salary(spoken)
         if stated_salary is not None:
             known["stated_annual_salary"] = stated_salary
