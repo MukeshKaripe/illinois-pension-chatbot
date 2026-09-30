@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardBadge, cardFrom, formatMoney, isStopped, sourceLabel } from "./card.ts";
+import { cardBadge, cardFrom, cardsFrom, formatMoney, isStopped, sourceLabel } from "./card.ts";
 
 const card = {
   type: "card",
@@ -52,4 +52,11 @@ test("the badge says estimate, and experimental when the fund is", () => {
   assert.equal(cardBadge({ estimate: true, support_level: "checked" }), "Estimate");
   assert.equal(cardBadge({ estimate: false, support_level: "experimental" }), "Experimental for this fund");
   assert.equal(cardBadge({ estimate: false, support_level: null }), null);
+});
+
+test("every card in a message, and the fund's record named on record inputs", () => {
+  const calls = [{ type: "card", person: "A" }, { type: "subjects" }, { type: "card", person: "B" }];
+  assert.deepEqual(cardsFrom(calls).map((c) => c.person), ["A", "B"]);
+  assert.equal(sourceLabel("record", "PBMS record"), "PBMS record");
+  assert.equal(sourceLabel("record"), "Record");
 });

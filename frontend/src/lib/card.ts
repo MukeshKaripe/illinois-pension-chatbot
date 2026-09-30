@@ -30,6 +30,10 @@ export type CalculationCardData = {
   blocks: Record<string, string>;
   /** How well the assistant knows the fund the figure was computed under. */
   support_level?: SupportLevel | null;
+  /** "PBMS record" when the record inputs came from the fund's own records. */
+  record_label?: string | null;
+  /** Whose figure, when the turn compared several people. */
+  person?: string | null;
 };
 
 /** The card's badge: an estimate, and whether its fund is experimental. */
@@ -44,9 +48,13 @@ const entries = (toolCalls: unknown): Record<string, unknown>[] =>
     ? toolCalls.filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null)
     : [];
 
+/** Every calculation card in a message: one per person when a turn compared several. */
+export function cardsFrom(toolCalls: unknown): CalculationCardData[] {
+  return entries(toolCalls).filter((t) => t.type === "card") as unknown as CalculationCardData[];
+}
+
 export function cardFrom(toolCalls: unknown): CalculationCardData | null {
-  const found = entries(toolCalls).find((t) => t.type === "card");
-  return found ? (found as unknown as CalculationCardData) : null;
+  return cardsFrom(toolCalls)[0] ?? null;
 }
 
 export function isStopped(toolCalls: unknown): boolean {
@@ -77,5 +85,5 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 /** Empty for an unknown origin: the card shows no label rather than a guess. */
-export const sourceLabel = (source: string | null | undefined): string =>
-  source ? (SOURCE_LABELS[source] ?? source) : "";
+export const sourceLabel = (source: string | null | undefined, recordLabel?: string | null): string =>
+  source === "record" && recordLabel ? recordLabel : source ? (SOURCE_LABELS[source] ?? source) : "";

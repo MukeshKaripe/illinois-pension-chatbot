@@ -23,6 +23,7 @@ export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCard
   const badge = cardBadge(card);
   return (
     <div className="mb-4 rounded-lg border border-border bg-card p-4">
+      {card.person && <div className="mb-1 text-sm font-semibold">{card.person}</div>}
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-xs font-medium text-primary">
           <Calculator className="size-4" />
@@ -60,7 +61,7 @@ export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCard
                 {input.value}
                 {input.source && (
                   <span className="ml-1 text-[11px] text-muted-foreground">
-                    · {sourceLabel(input.source)}
+                    · {sourceLabel(input.source, card.record_label)}
                   </span>
                 )}
               </dd>

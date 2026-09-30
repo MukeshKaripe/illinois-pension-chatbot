@@ -41,7 +41,7 @@ export function CalculationPanel({ card }: { card: CalculationCardData }) {
                   <td className="py-1.5 pr-3">{input.label}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{input.value}</td>
                   <td className="py-1.5 text-right text-xs text-muted-foreground">
-                    {sourceLabel(input.source)}
+                    {sourceLabel(input.source, card.record_label)}
                   </td>
                 </tr>
               ))}

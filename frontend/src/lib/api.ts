@@ -1,3 +1,4 @@
+import type { Person } from "./subject";
 import type { Scenario } from "./types";
 
 export const API_BASE_URL =
@@ -231,4 +232,41 @@ export async function fetchPersonas(): Promise<Persona[]> {
   const response = await fetch(`${API_BASE_URL}/auth/personas`);
   if (!response.ok) throw new Error("Could not load the member presets.");
   return response.json();
+}
+
+export interface People { people: Person[]; active?: string[] }
+
+export async function fetchPeople(sessionId: string): Promise<People> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/subjects`);
+  return response.ok ? response.json() : { people: [], active: [] };
+}
+
+/** Add a chosen candidate to the conversation; resolves to the updated list, or null on failure. */
+export async function addPerson(sessionId: string, ref: string): Promise<People | null> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/subjects`, {
+    method: "POST",
+    body: JSON.stringify({ ref }),
+  });
+  return response.ok ? response.json() : null;
+}
+
+export async function removePerson(sessionId: string, ref: string): Promise<People | null> {
+  const response = await fetchWithAuth(`/sessions/${sessionId}/subjects/${encodeURIComponent(ref)}`, {
+    method: "DELETE",
+  });
+  return response.ok ? response.json() : null;
+}
+
+export async function clearPeople(sessionId: string): Promise<boolean> {
+  return (await fetchWithAuth(`/sessions/${sessionId}/subjects`, { method: "DELETE" })).ok;
+}
+
+/** "pbms" when employee records come from the fund; the chips show only then. */
+export async function fetchRecordSource(): Promise<string> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/health`);
+    return response.ok ? ((await response.json()).record_source ?? "postgres") : "postgres";
+  } catch {
+    return "postgres";
+  }
 }
