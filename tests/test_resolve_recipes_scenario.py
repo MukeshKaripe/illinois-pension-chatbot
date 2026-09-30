@@ -53,8 +53,12 @@ def derived(monkeypatch) -> list[dict]:
         seen.append(dict(facts))
         return SimpleNamespace(ok=False, cannot_derive="stub")
 
+    async def nothing_found(queries, **kwargs):
+        return []
+
     monkeypatch.setattr(nodes, "lookup_recipe", no_recipe)
     monkeypatch.setattr(nodes, "derive_recipe", derive)
+    monkeypatch.setattr(nodes, "retrieve", nothing_found)
     return seen
 
 
@@ -84,3 +88,48 @@ async def test_a_described_employee_is_derived_for_at_the_age_asked_about(derive
     await nodes.resolve_recipes(state)
     [facts] = derived
     assert facts["age_at_annuity_start"] == 62
+
+
+@pytest.mark.asyncio
+async def test_derivation_is_given_the_governing_articles_own_amount_provision(monkeypatch, derived) -> None:
+    # The turn's search ran on "What would their annuity be at 67?" and found the
+    # Tier 2 age rules, never §8-138 -- Article 8's own formula, whose 2.4% is in
+    # (g-1). A derivation reads the Article's amount provision, searched for in
+    # the Code's words and within that Article alone (Articles 1 and 20 bring
+    # other funds' optional-benefit rates).
+    from pension_chat.agent.retrieval import RetrievedSection
+
+    searched: list[dict] = []
+
+    async def retrieve(queries, **kwargs):
+        searched.append({"queries": queries, **kwargs})
+        return [RetrievedSection(section="8-138", article="8", title="Minimum annuities",
+                                 text="(g-1) ... 2.4% if withdrawal is on or after January 1, 2002")]
+
+    monkeypatch.setattr(nodes, "retrieve", retrieve)
+    state = {**_state([{"label": "at age 67", "retirement_age": 67}]),
+             "retrieved_sections": [{"section": "1-160", "article": "1", "text": "(c) age 67"}]}
+    captured: list = []
+
+    async def derive(formula_type, sections, facts):
+        captured.append([s.section for s in sections])
+        return SimpleNamespace(ok=False, cannot_derive="stub")
+
+    monkeypatch.setattr(nodes, "derive_recipe", derive)
+    await nodes.resolve_recipes(state)
+    assert searched and searched[0]["articles"] == ["8"]
+    assert any("final average salary" in q for q in searched[0]["queries"])
+    assert captured == [["8-138", "1-160"]]          # the fund's own provision first, then the turn's
+
+
+@pytest.mark.asyncio
+async def test_a_found_registry_recipe_needs_no_extra_search(monkeypatch, derived) -> None:
+    searched: list = []
+
+    async def retrieve(queries, **kwargs):
+        searched.append(queries)
+        return []
+
+    monkeypatch.setattr(nodes, "retrieve", retrieve)
+    await nodes.resolve_recipes({**_state([]), "requires_calculation": False})
+    assert searched == []

@@ -480,6 +480,53 @@ def _article_of_sections(sections) -> int | None:
     return int(articles.pop()) if len(articles) == 1 else None
 
 
+#: What a derivation searches for, in the Code's own words rather than the
+#: question's. "What would their annuity be at 67?" finds the provisions about
+#: age 67; the amount is set by the Article's formula section, which reads
+#: "... % of final average salary for each year of service".
+_FORMULA_QUERIES: dict[str, list[str]] = {
+    "retirement_annuity": [
+        "retirement annuity equal to a percentage of final average salary for each year of service",
+        "age and service annuity amount computed from final average salary and years of service",
+    ],
+    "survivor_annuity": ["amount of the widow's or surviving spouse's annuity"],
+    "disability_benefit": ["amount of the duty disability and ordinary disability benefit as a percentage of salary"],
+    "refund_of_contributions": ["refund of accumulated employee contributions with interest on withdrawal"],
+    "service_credit": ["periods of service counted as service credit and how service is computed"],
+}
+
+
+async def _derivation_evidence(
+    formula_type: str, article: Any, sections: list[RetrievedSection]
+) -> list[RetrievedSection]:
+    """The governing Article's own provision for this benefit, then the turn's.
+
+    A turn's search runs on the member's question, and the one that derived
+    1.25% for a Tier 2 MEABF member never saw §8-138 -- Article 8's formula,
+    2.4% in (g-1) -- so the derivation borrowed another fund's rate. Searched
+    within the governing Article alone: the cross-cutting Articles are already
+    in the turn's evidence, and searching them here surfaces §1-161 and §1-162,
+    other funds' optional benefits, above the fund's own formula.
+    """
+    queries = _FORMULA_QUERIES.get(formula_type)
+    if not queries or not article:
+        return sections
+    settings = get_settings()
+    try:
+        found = await retrieve(
+            queries,
+            articles=[str(article)],
+            top_sections=settings.derivation_top_sections,
+            char_budget=settings.derivation_context_token_budget * 4,
+            follow_cross_references=0,
+        )
+    except Exception:
+        logger.exception("Derivation search failed for %s under Article %s", formula_type, article)
+        return sections
+    have = {s.section for s in found}
+    return list(found) + [s for s in sections if s.section not in have]
+
+
 def _at_scenario_age(state: PensionAgentState, facts: dict) -> dict:
     """The member as they would be at the retirement the question is about.
 
@@ -653,7 +700,9 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
         if found:
             return
 
-        derived = await derive_recipe(formula_type, sections, facts)
+        derived = await derive_recipe(
+            formula_type, await _derivation_evidence(formula_type, article, sections), facts
+        )
         if not derived.ok:
             failures.append(
                 {"formula_type": formula_type, "reason": derived.cannot_derive or "unknown"}
