@@ -16,7 +16,7 @@ What prompted this is a case the old suite could not diagnose. On 2026-09-30, an
 | # | Decision |
 |---|---|
 | E1 | **Where records come from: fixtures now, a live tier later.** For now, MEABF-shaped fixture records are held in memory; nothing is written to any database. Once Phase 1 exists, the same cases also run against real PBMS records through the production read layer. That live tier is reported but not scored. |
-| E2 | **Scenario families S1–S12, plus S4b** (§4). First-class: S1 (statute questions) and S4/S4b (calculations for a named or described employee). Next in priority: S6 (recommendations). |
+| E2 | **Scenario families S1–S12, plus S4b** (§4). First-class: S1 (statute questions), S4/S4b (calculations for a named or described employee) and S11 (continuity). Next in priority: S6 (recommendations). |
 | E3 | **Missing-input policy** for a described employee (§5). Inputs that change *which rule applies* are asked for, or the answer covers every branch. At most 2 secondary inputs may be assumed, and every assumption must be stated. |
 | E4 | **Grading: code checks can veto, and a judge decides whether the user's goal was met, against a reference** (§7). A turn passes only if every code check passes **and** the judge finds the goal accomplished, the answer relevant and the answer within the boundary. Soft qualities (voice, hedging, clarity) are scored beside the result and never decide it. |
 | E5 | **Ragas is not used as the harness.** Its agent metrics (goal accuracy, topic adherence) are applied in one judge call per turn rather than several. Ragas re-judges faithfulness, which our deterministic verification already enforces. Recorded traces can be exported to it later if the client wants those numbers. |
@@ -97,10 +97,10 @@ Any field can be absent, with the reason recorded, because MEABF data has gaps (
 | S8 | Several employees in one chat | | pending `find_employee` |
 | S9 | Same-name disambiguation | | pending `find_employee` |
 | S10 | Boundary refusals (another fund's law, questions across employees (D1), off-topic) | | partly |
-| S11 | Continuity (corrections, follow-ups, a held scenario) | | partly |
+| S11 | Continuity (corrections, follow-ups, a held scenario) | **First-class** | partly |
 | S12 | Journeys: 6–10 turns combining families | | partly |
 
-**Starting inventory:** about 85 turns in family conversations, plus about 60 in journeys, so about 145 in a full run. At 8 conversations in parallel and about 20 s per turn locally, that is roughly 6 minutes of turns; the longest journey (10 turns, about 3.5 min) sets the minimum run time.
+**Starting inventory:** about 95 turns in family conversations, plus about 60 in journeys, so about 155 in a full run. At 8 conversations in parallel and about 20 s per turn locally, that is roughly 6 minutes of turns; the longest journey (10 turns, about 3.5 min) sets the minimum run time.
 
 | Family | Conversations | Turns |
 |---|---|---|
@@ -108,7 +108,8 @@ Any field can be absent, with the reason recorded, because MEABF data has gaps (
 | S4 | 6 | ~16 |
 | S4b | 6 | ~14 |
 | S6 | 3 | ~7 |
-| S2, S3, S5, S7, S10, S11 | 1–2 each | ~18 |
+| S11 | 5 | ~16 |
+| S2, S3, S5, S7, S10 | 1–2 each | ~12 |
 | S8, S9 | 2 each | ~8 |
 | S12 | 8 | ~60 |
 
