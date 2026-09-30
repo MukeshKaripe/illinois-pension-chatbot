@@ -195,7 +195,7 @@ The plan's first task is a read-only discovery script. It uses aggregates and co
   | `2` | 16,237 |
   | `3` | 32,233 |
   | `0` | 5,043 |
-  | `T` | ? (not counted) |
+  | `T` | 0 (defined in `T_Tier_Types`, unused on live rows) |
   | blank | 738 |
 
   Only `1`, `2` and `3` map to tiers. Any other code (`0`, `T`, blank) gives `tier=None` with its code in `missing["tier"]`, and the tier is then taken from the dates. What `0` and `T` mean goes to the client (question 38).
