@@ -37,6 +37,8 @@ class EmployeeMatch:
     status: str | None = None
     department: str | None = None
     birth_year: int | None = None
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 @dataclass

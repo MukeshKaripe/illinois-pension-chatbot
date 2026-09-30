@@ -103,6 +103,7 @@ def test_a_match_carries_what_the_choice_card_shows() -> None:
     m = match_from_row(ROW)
     assert (m.key, m.display_name, m.employer, m.department, m.status, m.birth_year) == (
         "M-000123", "QW_XZ PL_MR", "City of Chicago", "Finance", "active", 1964)
+    assert (m.first_name, m.last_name) == ("QW_XZ", "PL_MR")
 
 
 class FakeClient:

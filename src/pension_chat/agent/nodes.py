@@ -83,7 +83,13 @@ from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
 from pension_chat.db.models import Employee
 from pension_chat.db.session import get_db_session
-from pension_chat.records import RecordUnavailable, agent_history, current_provider
+from pension_chat.records import (
+    EmployeeMatch,
+    NameSearch,
+    RecordUnavailable,
+    agent_history,
+    current_provider,
+)
 
 logger = logging.getLogger("pension_chat.agent.nodes")
 
@@ -114,6 +120,39 @@ def _history(state: PensionAgentState, turns: int) -> str:
 
 # ── 1. Triage ─────────────────────────────────────────────────────
 
+_MAX_CANDIDATES = 200
+
+
+def _candidate(m: EmployeeMatch) -> dict[str, Any]:
+    return {"ref": m.key, "display_name": m.display_name, "first_name": m.first_name, "last_name": m.last_name,
+            "employer": m.employer, "department": m.department, "status": m.status, "birth_year": m.birth_year}
+
+
+async def _suggestion(provider: Any, decided: people_mod.TurnPeople, subjects: list[dict],
+                      question: str) -> dict[str, Any] | None:
+    """The choice a turn puts to the user instead of answering (spec §4.2), or None."""
+    if decided.which_of:
+        roster = {s["ref"]: s for s in subjects}
+        return {"kind": "which_one", "question": question,
+                "choices": [{"first_name": None, "last_name": None, "unavailable": False,
+                             "candidates": [roster[r] for r in decided.which_of if r in roster]}]}
+    if not decided.unfamiliar:
+        return None
+
+    async def choices_for(first: str, last: str) -> dict[str, Any]:
+        choice: dict[str, Any] = {"first_name": first, "last_name": last, "unavailable": False, "candidates": []}
+        try:
+            matches = await provider.find_by_name(first, last)
+        except RecordUnavailable:
+            choice["unavailable"] = True
+            return choice
+        choice["candidates"] = [_candidate(m) for m in matches[:_MAX_CANDIDATES]]
+        return choice
+
+    choices = await asyncio.gather(*(choices_for(f, la) for f, la in decided.unfamiliar))
+    return {"kind": "choose", "question": question, "choices": list(choices)}
+
+
 async def triage(state: PensionAgentState) -> dict:
     """Deterministic gate before anything expensive runs.
 
@@ -138,6 +177,36 @@ async def triage(state: PensionAgentState) -> dict:
     scope = guardrails.classify_scope(
         question, has_history=len(state.get("messages") or []) > 1
     )
+
+    # Who this turn is about (spec §4.2) -- only where there are people to be
+    # about: a conversation with people in it, or a record source that can find
+    # them by name. Everywhere else this turn is exactly as it was.
+    subjects = list(state.get("subjects") or [])
+    provider = current_provider()
+    name_search = provider if isinstance(provider, NameSearch) else None
+    if subjects or name_search is not None:
+        decided = people_mod.decide(
+            question, subjects, list(state.get("last_people") or []),
+            name_search.names_in(question) if name_search is not None else [],
+        )
+        suggestion = await _suggestion(name_search, decided, subjects, question)
+        if suggestion is not None:
+            return {
+                "in_scope": False,
+                "out_of_scope_reason": "subject_suggestion",
+                "subject_suggestion": suggestion,
+                "turn_people": decided.people,
+                "timings": {"triage": time.perf_counter() - started},
+            }
+        return {
+            "in_scope": scope.in_scope,
+            "out_of_scope_reason": scope.reason,
+            "override_signal": guardrails.detect_instruction_override(question).to_dict(),
+            "explicit_sections": extract_section_references(question),
+            "explicit_articles": extract_article_references(question),
+            "turn_people": decided.people,
+            "timings": {"triage": time.perf_counter() - started},
+        }
 
     return {
         "in_scope": scope.in_scope,

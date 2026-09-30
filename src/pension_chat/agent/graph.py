@@ -62,6 +62,7 @@ from pension_chat.agent.nodes import (
     fetch_employee_record,
     triage,
 )
+from pension_chat.agent.people import MAX_LISTED
 from pension_chat.agent.state import CLEAR, PensionAgentState, initial_state, turn_input
 from pension_chat.agent.worksheet import NOW_LABEL, SUPERSEDED_MARK, WorkSheet
 from pension_chat.config import get_settings
@@ -98,6 +99,40 @@ GREETING_MESSAGE = (
 )
 
 
+def _choice_sentence(choice: dict[str, Any]) -> str:
+    name = f"{choice.get('first_name') or ''} {choice.get('last_name') or ''}".strip()
+    if choice.get("unavailable"):
+        return f"I couldn't look up {name} just now: the fund's records are not answering."
+    candidates = choice.get("candidates") or []
+    if not candidates:
+        return f"I couldn't find an active employee named {name}."
+    if len(candidates) == 1:
+        one = candidates[0]
+        about = ", ".join(v for v in (one.get("department") or one.get("employer"),
+                                      f"born {one['birth_year']}" if one.get("birth_year") else None) if v)
+        return f"Did you mean {one.get('display_name') or name}{f' ({about})' if about else ''}?"
+    if len(candidates) <= MAX_LISTED:
+        return f"There are {len(candidates)} active employees named {name}; which one do you mean?"
+    return f"There are {len(candidates)} active employees named {name}; which department do they work in?"
+
+
+def subject_suggestion_message(suggestion: dict[str, Any]) -> str:
+    """The reply to a choice turn -- people named by name, department and birth year,
+    never by the internal key the cards carry as `ref`."""
+    choices = suggestion.get("choices") or []
+    if suggestion.get("kind") == "which_one":
+        names = [c.get("display_name") or "this employee" for c in (choices[0].get("candidates") if choices else [])]
+        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else "".join(names)
+        return f"Which of them do you mean: {listed}? Choose below."
+    text = " ".join(_choice_sentence(c) for c in choices)
+    if any(c.get("candidates") for c in choices):
+        if len(choices) == 1 and len(choices[0]["candidates"]) == 1:
+            text += " Choose below and I'll answer your question about them."
+        else:
+            text += " Once you've chosen below, I'll answer your question."
+    return text
+
+
 async def decline(state: PensionAgentState) -> dict:
     """Answer an out-of-scope or conversational message without a model call.
 
@@ -106,7 +141,10 @@ async def decline(state: PensionAgentState) -> dict:
     cannot hallucinate.
     """
     reason = state.get("out_of_scope_reason", "")
-    answer = GREETING_MESSAGE if reason == "greeting" else OUT_OF_SCOPE_MESSAGE
+    if reason == "subject_suggestion":
+        answer = subject_suggestion_message(state.get("subject_suggestion") or {})
+    else:
+        answer = GREETING_MESSAGE if reason == "greeting" else OUT_OF_SCOPE_MESSAGE
     return {
         "final_answer": answer,
         "answer_messages": [],

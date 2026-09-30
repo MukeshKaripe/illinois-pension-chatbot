@@ -101,6 +101,8 @@ def match_from_row(row: dict[str, Any]) -> EmployeeMatch:
         status=status or (f"PBMS status {code}" if code else None),
         department=_text(row.get("Department_Short_Desc")),
         birth_year=int(birth_year) if birth_year else None,
+        first_name=_text(row.get("First_Name")),
+        last_name=_text(row.get("Last_Name")),
     )
 
 
