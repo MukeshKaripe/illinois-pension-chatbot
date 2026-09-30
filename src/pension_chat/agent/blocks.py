@@ -41,8 +41,13 @@ _MARKER_RE = re.compile(r"<<<([A-Z_]{1,32})>>>")
 _MAX_MARKER = len("<<<") + 32 + len(">>>")
 
 _LABELS = {
-    "final_average_salary": "Highest average salary (best 4 years)",
+    # The generic name's window depends on the tier (4 years, or 8 under
+    # §1-160(b)), so its label names none; the windowed names say theirs.
+    "final_average_salary": "Final average salary",
     "highest_average_annual_salary_4yr": "Highest average salary (best 4 years)",
+    "final_average_salary_8_year": "Final average salary (best 8 of the last 10 years)",
+    "final_average_salary_96_months": "Final average salary (best 8 of the last 10 years)",
+    "tier_2_final_average_salary": "Final average salary (best 8 of the last 10 years)",
     "service_years": "Years of service",
     "years_of_service": "Years of service",
     "creditable_service_years": "Years of service",

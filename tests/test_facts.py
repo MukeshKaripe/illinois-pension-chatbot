@@ -321,3 +321,13 @@ def test_a_tier_1_member_keeps_the_4_year_average():
     history = _rising(10)
     facts = build_member_facts(_tiered(1, date(1996, 3, 1)), history, today=date(2026, 9, 14))
     assert facts["final_average_salary"] == facts["highest_average_annual_salary_4yr"]
+
+
+def test_the_generic_final_average_salary_label_names_no_window():
+    # It is 4 years for Tier 1 and 8 for Tier 2; a label naming either is wrong
+    # for the other. The windowed names say their own window.
+    from pension_chat.agent.blocks import _label
+
+    assert "4 years" not in _label("final_average_salary")
+    assert "8" in _label("final_average_salary_8_year")
+    assert "4 years" in _label("highest_average_annual_salary_4yr")
