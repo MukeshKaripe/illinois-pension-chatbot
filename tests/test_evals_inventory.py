@@ -54,3 +54,10 @@ def test_every_section_a_reference_names_exists_in_the_corpus(cases) -> None:
                 if f"(40 ILCS 5/{section})" not in corpus:
                     missing.append(f"{c.id}: §{section}")
     assert not missing, missing
+
+
+def test_the_member_first_harness_is_gone() -> None:
+    root = Path(__file__).parents[1]
+    assert not (root / "scripts" / "eval_agent.py").exists()
+    assert [p.name for p in (root / "evals").glob("*.yaml")] == ["rubric.yaml"], "old suite files in evals/"
+    assert not (root / "evals" / "_captured").exists()

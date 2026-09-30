@@ -20,7 +20,7 @@ Values inside a persona are editable within bounds — see `apply_edits`, and no
 what it does to the salary history, which is not optional bookkeeping.
 
 **One definition, three consumers.** The signup picker, `seed_synthetic_data.py`
-and `eval_agent.py` all read this module. Before it existed, the two seeded
+and the member-first eval harness (`eval_agent.py`, retired 2026-09-30) all read this module. Before it existed, the two seeded
 members got their ids from `gen_random_uuid()` while `eval_agent.py` and
 `gold_coverage.yaml` each hard-coded one of those ids — so a fresh database
 re-seeded fine and silently bound those cases to nothing. The ids below are
@@ -130,7 +130,7 @@ class Persona:
 # benchmark also tests.
 
 ARTICLE_11_STANDARD = Persona(
-    # The id `eval_agent.py` has always used as its default member.
+    # The id the retired `eval_agent.py` used as its default member.
     id=uuid.UUID("de75c498-20cc-446d-8858-ec26303349fa"),
     key="article-11-standard",
     article_number=11,
@@ -215,7 +215,7 @@ ARTICLE_11_RETIRED = Persona(
 )
 
 ARTICLE_12_STANDARD = Persona(
-    # The id `gold_coverage.yaml` names, for the case where a member describes
+    # The id the retired `gold_coverage.yaml` named, for the case where a member describes
     # themselves as a park employee and their record agrees.
     id=uuid.UUID("8b33966a-8d4d-47e5-8fbf-fc950239f111"),
     key="article-12-standard",

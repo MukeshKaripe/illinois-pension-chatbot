@@ -77,7 +77,7 @@ async def seed():
         #
         # The two pilot members come from `personas.py`, which is also what the
         # signup picker and the eval harness read. They carry explicit ids on
-        # purpose: `eval_agent.py` and `gold_coverage.yaml` name those ids
+        # purpose: the retired `eval_agent.py` and `gold_coverage.yaml` named those ids
         # outright, and while the column defaulted to `gen_random_uuid()` a
         # freshly seeded database bound both cases to nothing at all -- without
         # failing, because a case with no such employee simply runs anonymous.
