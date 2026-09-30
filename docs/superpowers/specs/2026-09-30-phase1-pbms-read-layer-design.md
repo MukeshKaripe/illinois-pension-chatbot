@@ -1,44 +1,58 @@
-# Phase 1: the MEABF read layer and the demo path
+# Phase 1: the MEABF read layer, people in context, and the demo path
 
-**Status:** design approved 2026-09-30, then **revised the same day**: employees are found by first and last name typed in the chat, never by MEAB ID. This written spec awaits review.
-**Scope:** `docs/superpowers/specs/2026-09-29-employer-first-scope.md` (Phase 1; client questions 35–38).
+**Status:** design approved 2026-09-30. It was revised twice: first so employees are found by first and last name in the chat (never by MEAB ID), then on 2026-10-01 for **several people in one conversation** and **comparisons in one turn**. This written spec awaits review.
+**Scope:** `docs/superpowers/specs/2026-09-29-employer-first-scope.md` (Phase 1; D1 "questions across employees within the same article"; client questions 35–38).
 
 ## 1. What this builds
 
-An employer names an employee in the chat, confirms which person is meant, and the chatbot answers from that employee's PBMS record:
+An employer names employees in the chat, chooses who is meant when a name is shared, and the chatbot answers from their PBMS records. It can do this for one person at a time or for several side by side:
 
 > "What would KA_LS MA_LP's pension be if they retired at 62?"
-> → "There are 9 active employees named KA_LS MA_LP. Which one?" *(a list: department, birth year)*
-> *(picks "Streets & Sanitation, born 1964")* → the question is answered for that person.
+> → "There are 9 active employees named KA_LS MA_LP. Which one?" *(a list: department, employer, birth year)*
+> *(picks "Streets & Sanitation, born 1964")* → the question is answered for that person, and a chip for them appears in the header.
+> "And at 65?" → still about them; the chip stays highlighted.
+> "Compare that with QW_XZ PL_MR." → QW_XZ PL_MR is chosen the same way, then both figures come back in one table, each labelled, and both chips are highlighted.
 
-It has two halves:
+It has three parts:
 
 - **The read layer.** `PbmsProvider` implements the existing `RecordProvider` interface (`src/pension_chat/records.py`) over the client's SQL Server (`PbsMeabDev`), with live, parameterised, read-only queries and no sync.
-- **The demo path.**
-  - A conversation has a **subject**: the employee being asked about.
-  - The subject is found from a first and last name in the user's message, and becomes the subject only after the user confirms which person is meant.
-  - Internally the subject is keyed by MEAB ID, the one identifier that is unique. **Users never type or see it** (§4.1).
+- **People in context** (§4). A conversation keeps the people chosen in it, at most 4, most recent first, shown as chips in the header.
+  - **Who a turn is about** is decided deterministically, before any model call. The next section gives the rules.
+  - **A new person joins only when named, and only after the user chooses them.**
+  - The chips update the moment a turn's people are decided, before any answer text arrives.
+  - Internally each person is keyed by MEAB ID, the one unique identifier. **Users never type or see it.**
+- **One loop for several people** (§5). A question about 2–4 people runs **one** agent loop:
+  - the law is read once;
+  - each record is loaded in parallel;
+  - the calculation engine runs once per person (in milliseconds; the model never does the arithmetic);
+  - the answer is written once, around a code-rendered comparison table.
+
+  Each person's figure is computed only from that person's own record.
 
 ### Success criteria
 
-1. **Naming one employee.** A message naming an active employee by first and last name produces a confirm-or-choose card. Choosing a person answers the original question for them, and record-derived inputs on the calculation card read "PBMS record".
+1. **Naming one employee.** A message naming an active employee produces a choose card. Choosing a person answers the original question for them, and adds them as a chip.
 2. **Ambiguous names.** An ambiguous name never selects anyone. The user always chooses. When more than 12 people share the name, the card asks for the department first.
-3. **Read-only access.** No statement outside the fixed query registry can reach SQL Server, and no query reads a column outside the allow-list (§3.2).
-4. **PBMS unavailable.** When PBMS is unreachable or slow, the turn still answers and says the record could not be read. Nothing falls back to Postgres or invents a value.
-5. **Speed.**
-   - Checking a message for a name costs no database time and no model call.
-   - The candidate lookup is one query, and happens only when a name in the message actually matches.
-   - The first-turn record read is at most 300 ms in-region.
-   - Later turns reuse the pinned record.
-6. **Nothing else changes.** Local development, the unit tests and the eval suite are unchanged unless `RECORD_SOURCE=pbms`.
+3. **Who a turn is about follows the rules in §4.2.** Naming someone already in the conversation needs no card. A question naming nobody stays with the people of the previous turn. A singular pronoun ("her") when that turn covered several people is asked about, never guessed.
+4. **The chips.** They show the conversation's people. The ones the current turn is about are highlighted, and they update before the first answer token. Answers about one person need not repeat the name.
+5. **Comparisons.** A question about 2–4 people is answered in one turn with one figure per person, each computed from that person's record and labelled in a code-rendered table. First-token latency is within 1 s of a single-person turn.
+6. **Read-only access.** No statement outside the fixed query registry can reach SQL Server, and no query reads a column outside the allow-list (§3.2).
+7. **PBMS unavailable.** When PBMS is unreachable or slow, the turn still answers and says whose record could not be read. Nothing falls back to Postgres or invents a value.
+8. **Speed.**
+   - Checking a message for names costs no database time and no model call.
+   - A candidate lookup is one query per unfamiliar name.
+   - Records are read in parallel, at most 300 ms in-region.
+   - Later turns reuse each pinned record.
+9. **Nothing else changes.** Local development, the unit tests and the existing eval cases are unchanged unless `RECORD_SOURCE=pbms`, or unless an eval case declares `people`.
 
 ### Not in this phase
 
 - **Search by anything other than first and last name.** No Employee ID, no MEAB ID, no partial names.
-- **Employees who are not active members.** Retirees, inactive and deferred members are out of scope; the lookup covers `Employee_Status_Cd = 'A'` only.
-- **Scoping employers to their own employees.** This covers who may see whom, and belongs to Phase 3 along with the client's identity provider.
-- **PBMS estimate comparison** (`T_Intf_Estimate`/`T_Estimate_Detail`) as an eval reference. That comes after Phase 1.
-- **Reading the Tier 2/3 cap table** (question 36).
+- **Employees who are not active members.** The lookup covers `Employee_Status_Cd = 'A'` only.
+- **Questions about groups.** For example "everyone in Finance who is Tier 2", or "who retires next year". They need counting across the database rather than reading records, and get their own design.
+- **More than 4 people in a conversation.** The least recently used person leaves when a fifth is chosen.
+- **Scoping employers to their own employees** (Phase 3, with the client's identity provider).
+- **PBMS estimate comparison as an eval reference, and the Tier 2/3 cap table** (question 36).
 
 ## 2. Constraints
 
@@ -153,67 +167,115 @@ The two are compared:
 
 People with no first name on file (8,708 persons across all statuses) cannot be found by name; that is part of client question 37.
 
-## 4. The conversation's subject
+## 4. People in context
 
-### 4.1 Identity versus subject
+### 4.1 Identity versus the people asked about
 
 `employee_id` in agent state is the **principal**. It is the Postgres UUID of the signed-in profile, and it scopes row-level security and the checkpointer. It does not change.
 
-The **subject** is the employee being asked about.
+The **people in context** are the employees the conversation is about.
 
-- **Storage.** Migration `009_session_subject` adds `sessions.subject_meab_id text NULL` (with a `CHECK` for `^M-[0-9]{6}$`) and `sessions.subject_set_at timestamptz NULL`. The existing `sessions` row-level policies cover the new columns.
-- **State.** `subject_meab_id` is added to `PensionAgentState`, and is passed on every turn from the session row.
-- **Loading.** `fetch_employee_record` loads by `subject_meab_id` when a provider is in force. The pin rule is unchanged: a pinned record is reused only while its `id` equals the key, so a new subject reloads, and earlier answers keep the facts they rested on.
+- **Storage.** Migration `009_session_subjects` adds `sessions.subjects jsonb NOT NULL DEFAULT '[]'`, with `CHECK (jsonb_array_length(subjects) <= 4)`.
+  - It holds the conversation's people, most recent first: `[{"ref", "display_name", "department", "employer", "birth_year"}]`.
+  - `ref` is the internal MEAB ID. Code validates it against `^M-[0-9]{6}$` before storing.
+  - Names are stored so a returning name is recognised without a query; the transcript already holds them, under the same row-level policies.
+- **Choosing.** Choosing a person puts them first. A fifth person pushes out the least recently used one.
+- **Recency.** A turn about people already in the list moves them to the front.
 - **The MEAB ID is internal.**
   - It is never shown in the UI or written into an answer.
-  - In API payloads it travels only as the opaque field `ref`, which the UI sends back when the user picks a person.
-  - The answer prompt names the employee by name and department, not by MEAB ID.
-- **Audit.** Each assistant message's audit trail (`session_messages.tool_calls`) records the subject the turn used, and any candidates it offered.
+  - In API payloads it travels only as the opaque `ref`, which the UI sends back to choose or remove someone.
+  - The prompt names people by name and department.
+- **Audit.** Each assistant message's audit trail (`session_messages.tool_calls`) records the refs its turn was about, and any choice it offered.
 
-### 4.2 A name in a message: offer, never load
+### 4.2 Who a turn is about (deterministic, in `triage`)
 
-This runs in `triage`. It is deterministic and costs no model call. The database is queried only when a name matches.
+Nothing here calls a model, and the database is asked only to resolve an unfamiliar name.
 
-1. **Finding a name.** `names_in(question)` is checked. A name equal to the current subject's name passes straight through; the question is about them. If nothing else matches, the turn proceeds normally.
-2. **Resolving it.** For the first other name found, `find_by_name(first, last)` returns the candidates, and the turn does **not** answer the question yet. The reply is:
+1. **Names in the message.**
+   - They are matched against the conversation's people first, by display name, case-insensitive.
+   - When PBMS name search is in force, they are also matched against the name directory (§3.4).
+   - A name found in both counts as the person in context.
+2. **An unfamiliar name.** If the message names anyone not yet in context, the turn becomes a **choice turn**:
+   - every unfamiliar name gets its candidates (one query each, at most 4 names), and the reply offers one card per name;
+   - nobody is loaded, and the question is not answered yet;
+   - the suggestion carries the question, so the UI re-sends it once every name in it has been chosen;
+   - names already in context ride along untouched.
+3. **Only familiar names.** The turn is about exactly those people, in the order named, at most 4.
+4. **No names.** The turn is about the **previous turn's people** (`last_people`, durable in the checkpoint):
+   - "And at 65?" after a comparison stays a comparison.
+   - There is one exception. If the previous turn covered several people and this message uses a singular personal pronoun (`he`, `she`, `him`, `her`, `his`, `hers`), the turn becomes a **which-one turn**. The reply asks "Which of them do you mean?" and offers a card of those people, with no query.
+   - With no previous turn, the turn is about the first person in the list. With nobody in context, it is about no one, and the question is answered from the Code.
+5. **The result.** The result is `turn_people`, a list of refs, and it is emitted at once as a `people` event (§4.4) so the chips update before any answer text arrives.
+6. **Choosing ends a choice turn.** The UI adds the chosen person with `POST /sessions/{id}/subjects` and re-sends the question. That turn finds only familiar names, and answers.
 
-   | Candidates | Reply |
-   |---|---|
-   | 1 | "Did you mean KA_LS MA_LP (Streets & Sanitation, born 1964)?" plus a card with **Use this employee** |
-   | 2–12 | "There are N active employees named KA_LS MA_LP. Which one?" plus a card listing each with department, employer and birth year |
-   | more than 12 | "There are N active employees named KA_LS MA_LP. Which department?" plus a card that shows the departments (with counts) first, then the people in the chosen one |
-   | 0 | not reachable: `names_in` only returns names in the directory, so a directory hit with no active match (the directory is up to 6 hours old) says "I couldn't find an active employee named …" |
-   | PBMS unavailable | "I couldn't look up KA_LS MA_LP just now: the fund's records are not answering." |
+### 4.3 Loading records
 
-3. **Choosing a person.** The card calls `PUT /sessions/{id}/subject {ref}`. The server re-resolves `ref` in PBMS before storing it. **The UI then re-sends the user's original question**, which the suggestion carries, so the user never has to ask twice.
+`fetch_employee_record` loads every person in `turn_people` **in parallel**, through the provider.
 
-### 4.3 API
+- **Pinning.** Each person's first load is pinned in `pinned_people` (durable, keyed by ref), and later turns reuse the pin. An answer resting on facts that changed mid-conversation would contradict the one before it.
+- **The per-person bundle.** It is `people: {ref: {"record", "salary_history", "member_facts", "label"}}`. `label` is the display name, suffixed with the department when two people in context share a name.
+- **The first person also fills the existing single-member keys** (`employee_record`, `salary_history`, `member_facts`). So a one-person turn is exactly today's path, and nothing downstream changes for it.
+- **A person whose record cannot be read** is listed in `unavailable_people`, and the answer says whose record could not be read.
+- **With no provider**, the Postgres profile path is unchanged.
 
-- `PUT /api/v1/sessions/{id}/subject {"ref": "<opaque>"}` re-resolves `ref` with `resolve_meab_id`, stores it and returns the match without a `ref`. It returns:
-  - 400 when `ref` is not a well-formed MEAB ID;
-  - 404 when no active member has it;
-  - 503 when PBMS is unavailable.
-- `GET /api/v1/sessions/{id}/subject` returns the current match without a `ref` (or `null`), so a reload restores the chip.
-- `DELETE /api/v1/sessions/{id}/subject` clears the subject.
-- All three check that the caller owns the session, as the scenario routes do.
-- `/health` reports `record_source`. The UI shows the employee chip only when it is `"pbms"`.
+### 4.4 API and events
 
-## 5. UI
+- `GET /api/v1/sessions/{id}/subjects` returns `{"people": [...], "active": [refs]}`. `active` is the last turn's people, read from the checkpoint, so a reload restores the highlight.
+- `POST /api/v1/sessions/{id}/subjects {"ref"}` re-resolves `ref` in PBMS (active members only), puts that person first, drops the fifth if there is one, and returns the list.
+  - It returns 400 for a malformed `ref`, 404 when no active member has it, and 503 when PBMS is unavailable.
+- `DELETE /api/v1/sessions/{id}/subjects/{ref}` removes one person, and `DELETE /api/v1/sessions/{id}/subjects` removes all.
+- All of these check that the caller owns the session.
+- **The `people` SSE event:** `{"active": [refs]}` is sent as soon as `triage` has decided the turn's people, before any answer token.
+- **After a turn,** the session's list is reordered by recency, with one write only when the order changed.
+- `/health` reports `record_source`. The UI shows the chips only when it is `"pbms"`.
+
+## 5. One loop for several people
+
+A question about several people runs the **same single loop** as a question about one. Only the calculation step and the tables are per person.
+
+| Step | How many times | Cost |
+|---|---|---|
+| Decide the turn's people | once (deterministic, `triage`) | none |
+| Read the law (search, sections) | **once**; all active members are Article 8 | unchanged |
+| Load records | once per person, **in parallel** | about one round trip |
+| Resolve the formula | once per tier; people sharing a tier share it | usually already saved |
+| Calculate | once per person, in the deterministic engine | milliseconds each |
+| Write the answer | **once** | a few more lines |
+
+- **The calculation tool is told whose figure it computes.** With more than one person in the turn:
+  - `compute_benefit` takes a required `person`, one of the labels the context block lists.
+  - The model calls it once per person. Calls in the same model step run one after another in milliseconds, since no model call happens between them.
+  - The handler runs the existing chain (`resolve_recipes → resolve_inputs → validate_recipes → execute_calculations`) on a slice of state carrying **only that person's** record, salary history and facts. B's salary can never reach A's figure: the same rule that keeps one fund's record out of another fund's formula.
+- **Results are kept per person.**
+  - Each result entry carries `person` (the label) and `person_ref`. Its key is prefixed with the label, so a second person's figure never overwrites the first's.
+  - Scenario labels are prefixed the same way (`"KA_LS MA_LP — at age 62"`).
+  - A one-person turn keeps today's keys and labels exactly.
+- **The comparison table is code-rendered.**
+  - With figures for two or more people, the view `PEOPLE` renders one row per person, in turn order: person · department · tier · formula (section) · annual · monthly.
+  - It is a marked view like `COMPARISON`: the model places the marker, never writes the figures, and cannot swap two people's numbers.
+  - The prose around it may compare, but the numbers come from the table.
+- **Verification.** A figure in the answer may trace to *any* turn person's record or computed result. Each record's facts are offered to the verifier under keys prefixed by the person's ref, so two people's values never collide into one key. Which number belongs to whom is guaranteed by the code-rendered table, not by the verifier.
+- **Cards.** Each person with a figure gets their own calculation card, titled with their label. The card's record inputs read "PBMS record". A one-person turn's card is unchanged.
+- **Context for the model.** With several people, the context block lists each one with their label, department, age, service and tier, and says to call `compute_benefit` once per person with `person`. Each person's record gaps (`missing`) are listed under their own label.
+
+## 5a. UI
 
 This uses the existing design tokens and adds no new visual language.
 
-- **`SubjectChip.tsx`**, in `ChatHeader`, shown only when `record_source` is `"pbms"`:
-  - **No subject:** it shows nothing, or a muted hint: "Name an employee in your question".
-  - **Subject set:** a chip showing `KA_LS MA_LP · Streets & Sanitation`, with **Clear**.
-- **`SubjectChoice.tsx`** renders a `subject_suggestion` (from the message's `tool_calls`) beneath its message:
+- **`PeopleChips.tsx`**, in `ChatHeader`, shown only when `record_source` is `"pbms"`:
+  - **Nobody in context:** a muted hint, "Name an employee in your question".
+  - **Otherwise:** one small chip per person, `KA_LS MA_LP · Finance`, most recent first. Chips for the current turn's people are highlighted (filled). The others are outlined. Each chip has a small ✕ that removes that person.
+  - The highlight changes as soon as the `people` event arrives, before the answer streams.
+  - At 360 px the chips wrap below the title rather than scroll.
+- **`SubjectChoice.tsx`**, one per unfamiliar name (or one for a which-one turn), beneath its message:
   - **One candidate:** a row with **Use this employee**.
-  - **2–12 candidates:** one row per person (department · employer · born YYYY), each with **Use**.
-  - **More than 12:** department buttons with counts. Clicking one shows its people.
-  - **After a choice:** the card is marked chosen and disabled, the chip updates, and the original question is re-sent.
-- **Calculation card:** record-derived inputs read "PBMS record".
+  - **2–12 candidates:** one row each (department · employer · born YYYY) with **Use**.
+  - **More than 12:** department buttons with counts first, then the people.
+  - **After choosing:** the card is marked chosen, the chips update, and **once every card in that message has a choice, the original question is re-sent once**.
+- **Calculation cards:** one per person, titled with the person's label when the turn had several. Record inputs read "PBMS record".
 - **Code:**
-  - `lib/api.ts` gains `setSubject`, `clearSubject`, `fetchSubject` and `fetchRecordSource`;
-  - grouping and labels live in `lib/subject.ts`, tested with `npm test`.
+  - `lib/api.ts` gains `fetchPeople`, `addPerson`, `removePerson`, `clearPeople` and `fetchRecordSource`;
+  - the pure logic (labels, department grouping, reading suggestions from `tool_calls`, "all chosen?") lives in `lib/subject.ts`, tested with `npm test`.
 - **Unchanged:** the existing profile and persona flow when the source is `postgres`.
 
 ## 6. Settled by measurement first (plan Task 1)
@@ -261,10 +323,14 @@ The plan's first task is a read-only discovery script. It uses aggregates and co
 
 | Condition | Behaviour |
 |---|---|
-| PBMS unreachable, login fails, or a query exceeds its timeout | The chat turn continues with no record, and the answer says the fund's records could not be read. A name lookup replies that it could not look the name up. Subject endpoints return 503. |
-| The name directory has never loaded | Names are not recognised. The server logs a warning and retries at the next refresh (every 6 hours; the first retry is 1 minute after a failed startup load). |
+| PBMS unreachable, login fails, or a query exceeds its timeout | The turn continues. Each person whose record could not be read is in `unavailable_people`, and the answer names them. A name lookup replies that it could not look the name up. Subject endpoints return 503. |
+| One of several records fails to load | The others are answered. The answer says whose record could not be read, and the table has no row for them. |
+| The name directory has never loaded | Names already in context are still recognised (they are matched against the conversation's own list). New names are not. The server logs a warning, and retries 1 minute after a failed startup load and every 6 hours after that. |
 | A name shared by several people | All candidates are offered, and nobody is chosen for the user. |
-| A `ref` that is malformed, or not an active member | 400 or 404 on `PUT`. |
+| A singular pronoun after a turn about several people | A which-one card is offered; nobody is guessed. |
+| A fifth person chosen | The least recently used person leaves the list, and the chips show it. |
+| `compute_benefit` without `person` in a turn about several people, or with an unknown label | The tool answers with the labels it accepts, and computes nothing. |
+| A `ref` that is malformed, or not an active member | 400 or 404 on `POST`. |
 | Field empty in PBMS | `missing[field] = reason`, and the missing-input policy applies. |
 | PBMS tier disagrees with the dates | PBMS's value is used, and the discrepancy is reported. |
 
@@ -280,13 +346,40 @@ Nothing ever falls back to Postgres or to a default value.
   - the pool's single retry;
   - name matching: case, possessives, `LAST, FIRST`, names with spaces and apostrophes, and no match inside a longer token;
   - the directory refresh keeping the old directory on failure.
-- **Agent and API tests:**
-  - the subject outranking the principal;
-  - an unreadable record being said;
-  - a name producing 1, 2–12 or more than 12 candidates;
-  - the current subject's name passing through;
-  - `PUT`, `GET` and `DELETE` on the subject, including a bad or unknown `ref`;
+- **Who a turn is about (§4.2)**, one test per rule:
+  - familiar names;
+  - an unfamiliar name giving a choice turn with one card per name;
+  - no names following `last_people`;
+  - a singular pronoun after a multi-person turn;
+  - the first person when nothing precedes;
+  - nobody in context;
+  - the cap of 4.
+- **Loading:** records loaded in parallel; per-person pins reused; one failing record reported while the others load; a one-person turn filling exactly today's keys.
+- **Several people:**
+  - `compute_benefit` with `person` computing from that person's record only (a test gives two people different salaries and checks each figure);
+  - result keys and scenario labels prefixed;
+  - the `PEOPLE` view;
+  - verification accepting either person's figure;
+  - one card per person;
+  - a missing or unknown `person` refused.
+- **API and events:**
+  - `GET`, `POST` and `DELETE` on the subject list, including a malformed or unknown `ref` and the fifth-person eviction;
+  - the recency reorder;
+  - the `people` event being emitted before the first token;
   - the audit trail.
-- **Frontend:** `lib/subject.ts` (grouping by department, labels, reading a suggestion), run with `npm test`.
+- **Frontend:** `lib/subject.ts`, run with `npm test`. It covers:
+  - chip and candidate labels;
+  - department grouping;
+  - reading every suggestion in a message;
+  - "every card chosen";
+  - applying a `people` event.
 - **Live smoke test:** `pytest -m pbms` is on demand only, never in CI. It loads the directory, resolves one name drawn from it and reads that person's record. It asserts types and counts only, and prints no values.
-- **Evals:** new fixtures shaped like PBMS gaps (service counted from payroll, a tier disagreement) join S4. Evals keep `FixtureProvider`, which has no name search, so the name path is untouched by them.
+- **Evals:**
+  - New fixtures shaped like PBMS gaps join S4.
+  - A new family, **S13 "people in context"**, runs on fixtures with name search enabled. A case lists its conversation's people in `people:`, as if already chosen. The cases cover:
+    - switching between two people by name;
+    - returning to an earlier one;
+    - a follow-up with no name;
+    - a comparison of two and of three people (the expected figures are worked per person);
+    - a singular pronoun after a comparison, which must ask.
+  - Cases without `people:` run exactly as before.
