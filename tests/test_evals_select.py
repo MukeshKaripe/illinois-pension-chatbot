@@ -53,3 +53,15 @@ def test_tier_family_and_id_filters() -> None:
 
 def test_nodes_holds_prompts_and_input_resolution_so_it_is_core() -> None:
     assert areas_for(["src/pension_chat/agent/nodes.py"]) == set(AREAS)
+
+
+def test_naming_a_case_finds_it_whatever_its_tier() -> None:
+    # S4-001 is full-tier only; `run_evals.py --id S4-001` must not select nothing.
+    assert [c.id for c in select(CASES, tier=None, ids=["S4-001"])] == ["S4-001"]
+    assert [c.id for c in select(CASES, tier=None, families=["S4"])] == ["S4-001"]
+    changed = select(CASES, tier=None, changed=["src/pension_chat/calculation/dsl_interpreter.py"])
+    assert {c.id for c in changed} == {"S1-001", "S4-001"}
+
+
+def test_with_no_filter_and_no_tier_the_default_is_smoke() -> None:
+    assert {c.id for c in select(CASES, tier=None)} == {"S1-001", "S11-001"}

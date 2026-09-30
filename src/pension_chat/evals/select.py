@@ -49,8 +49,12 @@ def changed_files(base: str = "main") -> list[str]:
     return sorted(set(committed) | set(working))
 
 
-def select(cases: list[Case], *, tier: str = "full", families: list[str] | None = None,
+def select(cases: list[Case], *, tier: str | None = "full", families: list[str] | None = None,
            ids: list[str] | None = None, changed: list[str] | None = None) -> list[Case]:
+    """`tier=None` means: smoke when nothing else narrows the run, otherwise every
+    tier -- a case named by id, family or a change is found whatever its tier."""
+    if tier is None:
+        tier = "full" if (families or ids or changed is not None) else "smoke"
     picked = [c for c in cases if tier in c.tiers or tier == "full"]
     if families:
         picked = [c for c in picked if c.family in families]

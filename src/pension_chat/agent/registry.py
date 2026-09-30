@@ -264,7 +264,7 @@ async def verify_freshness(
 
 async def _mark(row: FormulaRegistry, **values: Any) -> None:
     """Write to one registry row, or do nothing if there is no row to write to."""
-    if getattr(row, "id", None) is None:
+    if getattr(row, "id", None) is None or not get_settings().registry_writes_enabled:
         return
     async with async_session_factory() as db:
         await db.execute(
@@ -281,7 +281,7 @@ async def _mark_by_formula_id(formula_id: str, **values: Any) -> None:
     in a checkpoint is a detached instance waiting to happen -- so the string is
     the only handle a downstream node has.
     """
-    if not formula_id:
+    if not formula_id or not get_settings().registry_writes_enabled:
         return
     async with async_session_factory() as db:
         await db.execute(

@@ -19,10 +19,23 @@ import time
 from datetime import date
 from pathlib import Path
 
-# Nothing a run does may write to the client's databases or the repo.
-for key, value in {"APP_ENV": "test", "LOG_LEVEL": "WARNING", "CAPTURE_FAILURES": "false",
-                   "ANSWER_MEMORY_ENABLED": "false", "PERSIST_DERIVED_RECIPES": "false"}.items():
-    os.environ.setdefault(key, value)
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("LOG_LEVEL", "WARNING")
+
+
+def _force_no_writes(with_memory: bool) -> None:
+    """Nothing a run does may write to the client's databases or the repo.
+
+    Assigned, not defaulted: a shell that exports ANSWER_MEMORY_ENABLED=true
+    must not turn an eval run into one that writes. `--with-memory` opens the
+    production knowledge path (answer memory, derived recipes, registry
+    counters) on purpose; failure capture into the repo stays off either way.
+    """
+    knowledge = "true" if with_memory else "false"
+    os.environ["CAPTURE_FAILURES"] = "false"
+    for key in ("ANSWER_MEMORY_ENABLED", "PERSIST_DERIVED_RECIPES", "REGISTRY_WRITES_ENABLED"):
+        os.environ[key] = knowledge
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -31,7 +44,8 @@ EVALS = ROOT / "evals"
 
 def _args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--tier", choices=["smoke", "full"], default="smoke")
+    p.add_argument("--tier", choices=["smoke", "full"], default=None,
+                   help="default: smoke, unless --id/--family/--changed narrow the run (then every tier)")
     p.add_argument("--family", action="append")
     p.add_argument("--id", action="append")
     p.add_argument("--changed", action="store_true")
@@ -60,9 +74,7 @@ async def _calibrate(run_dir: Path) -> int:
 
 async def main() -> int:
     args = _args()
-    if args.with_memory:
-        os.environ["ANSWER_MEMORY_ENABLED"] = "true"
-        os.environ["PERSIST_DERIVED_RECIPES"] = "true"
+    _force_no_writes(args.with_memory)
     if args.calibrate:
         return await _calibrate(args.from_run)
 

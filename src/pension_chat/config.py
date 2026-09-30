@@ -157,6 +157,10 @@ class Settings(BaseSettings):
 
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
+    # Reuse counts, contested counts and staleness marks on formula_registry.
+    # The eval suite turns this off: a run must not move production's view of
+    # which recipes are load-bearing, nor mark one stale.
+    registry_writes_enabled: bool = True
     # Recipes the agent derives itself are estimates, never authoritative.
     derived_recipe_execution_policy: str = "estimate"
 
