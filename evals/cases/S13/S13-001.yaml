@@ -10,8 +10,7 @@ turns:
     one-half of 1% for each of the 60 months under 67 (§8-138(g-1), §1-160). About $19,770.89 a year.'
   checks:
     calculation: true
-    expected_figures:
-    - {person: "RO_BK TA_NE", annual: 19770.89}
+    expected_figure: {annual: 19770.89}
     ttft_class: heavy
 - q: And what about LI_MO GA_RD if they retired now?
   goal: The annuity for LI_MO GA_RD, from their own record -- not RO_BK TA_NE's.
@@ -19,8 +18,7 @@ turns:
     (§1-160(d)). $25,200.00 a year.'
   checks:
     calculation: true
-    expected_figures:
-    - {person: "LI_MO GA_RD", annual: 25200.00}
+    expected_figure: {annual: 25200.00}
     ttft_class: heavy
 - q: Back to RO_BK TA_NE -- how many years of service do they have?
   goal: RO_BK TA_NE's service, from their record.
