@@ -21,6 +21,7 @@ turns:
     - record
     - engine
     - statute
+    - assumed
 - q: Show me how that was worked out.
   goal: The working behind the figure.
   reference: 'The steps: final average salary from the salary history, years of service, the rate, and any reduction,
