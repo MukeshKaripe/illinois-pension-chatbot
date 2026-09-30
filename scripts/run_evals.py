@@ -52,6 +52,8 @@ def _args() -> argparse.Namespace:
     p.add_argument("--base", default="main")
     p.add_argument("--concurrency", type=int, default=8)
     p.add_argument("--no-judge", action="store_true")
+    p.add_argument("--judge-all", action="store_true",
+                   help="judge every turn, even ones the code checks failed (for calibration)")
     p.add_argument("--latency-gate", action="store_true")
     p.add_argument("--with-memory", action="store_true",
                    help="let the run write answer memory and derived recipes (the production knowledge path)")
@@ -97,6 +99,7 @@ async def main() -> int:
     measured = await probe(get_settings())
     calibrated = is_calibrated(EVALS, EVALS / "rubric.yaml")
     options = RunOptions(concurrency=args.concurrency, judge=not args.no_judge, judge_gates=calibrated,
+                         judge_all=args.judge_all,
                          latency_gate=args.latency_gate, rubric_path=EVALS / "rubric.yaml",
                          cache_dir=EVALS / ".judge_cache")
     started = time.perf_counter()

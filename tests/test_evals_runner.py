@@ -154,3 +154,25 @@ async def test_a_swallowed_rate_limit_is_retried_on_restored_state() -> None:
                                     options=RunOptions(judge=False, rate_limit_backoff=0.0), agent=agent)
     assert seen == [False, False]          # the retry saw the state from before the first attempt
     assert result.turns[0].status == "pass"
+
+
+@pytest.mark.asyncio
+async def test_judge_all_judges_turns_the_code_checks_failed_without_changing_their_status(monkeypatch) -> None:
+    # Calibration needs a verdict on every turn a person labels, including the
+    # ones the code checks already failed.
+    from pension_chat.evals import runner as runner_mod
+    from pension_chat.evals.judge import Verdict
+
+    judged: list[str] = []
+
+    async def verdict(turn, trace, history, **kwargs):
+        judged.append(trace.question)
+        return Verdict("no", True, True, "answer", 3, 3, 3)
+
+    monkeypatch.setattr(runner_mod, "judge_turn", verdict)
+    result = await run_conversation(_case("A", ["q1", "q2"]), fixtures={}, probe={},
+                                    options=RunOptions(judge=True, judge_all=True),
+                                    agent=_agent({"q1": [], "q2": ["1-160"]}))
+    assert judged == ["q1", "q2"]
+    assert [t.status for t in result.turns] == ["fail", "after_failure"]
+    assert all(t.verdict is not None for t in result.turns)

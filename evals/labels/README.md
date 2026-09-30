@@ -7,5 +7,6 @@ Label about 20 turns from a saved run (`evals/runs/<ts>/traces/*.json`). Each fi
       relevant: true
       within_boundary: true
 
-Then run `uv run python scripts/run_evals.py --calibrate --from evals/runs/<ts>`.
+Label turns from a run made with `--judge-all` (so every turn has a verdict to compare), then run
+`uv run python scripts/run_evals.py --calibrate --from evals/runs/<ts>`.
 The judge gates pass/fail only when it agrees on at least 18 of 20 for the current rubric version.

@@ -42,6 +42,10 @@ class RunOptions:
     cache_dir: Path = Path("evals/.judge_cache")
     rate_limit_retries: int = 2
     rate_limit_backoff: float = 10.0
+    #: Judge every turn, whatever the code checks said -- for calibration,
+    #: where each turn a person labels needs a verdict to compare. Statuses
+    #: are unchanged; only verdicts are added.
+    judge_all: bool = False
 
 
 @dataclass
@@ -146,6 +150,9 @@ async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe
                     status = "fail"
                 else:
                     status = "pass"
+            if options.judge_all and verdict is None and not trace.error:
+                verdict = await judge_turn(turn, trace, history, rubric_path=options.rubric_path,
+                                           cache_dir=options.cache_dir)
             failed_before = failed_before or status in ("fail", "error", "unjudged")
             result.turns.append(TurnResult(case.id, index, trace, checks, verdict, status,
                                            estimate_in_region(trace, probe) if probe else None,
