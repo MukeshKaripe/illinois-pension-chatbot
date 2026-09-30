@@ -94,7 +94,7 @@ There are four named, parameterised statements (`?` placeholders):
 | `department` | `T_Employees.Department_Seq_No`, described by `T_Departments.Department_Short_Desc` |
 | `hire_date` | `T_Employees.Hire_Date`, else `First_Payroll_Date` with `missing["hire_date"]` noting the substitution |
 | `termination_date` | `T_Employees.Seperation_Date` |
-| `status` | `T_Employees.Status` (and `Employee_Status_Cd`) |
+| `status` | `T_Employees.Employee_Status_Cd`. `Status = 'A'` only marks a live row (§6.1). |
 | `tier` | see "Tier" below |
 | `service_years`, `service_source` | PBMS service rows (`T_Payroll_Service_Detail`/`Master`) where present, with `service_source="PBMS service record"`; otherwise counted from pay periods with contributions, with `service_source="counted from payroll"` |
 | `reciprocal_service_years` | `T_Employees.Reciprocal_Flg`/`Reciprocal_Employers` presence only. Otherwise absent, with a reason in `missing` (the `T_Reciprocal_*` tables are empty in Dev) |
@@ -178,6 +178,28 @@ The plan's first task is a read-only discovery script. It uses aggregates and co
 2. **The service source.** It measures how often PBMS service rows exist for active members, and how a count from payroll compares with them where both exist.
 3. **Indexes and timing.** It checks whether `T_Pen_Ded_Detail` (46.7M rows) and `T_Pen_Ded_Master` can be read per person through an index, and times each of the four statements for a sample of members. If the salary read cannot meet 300 ms in-region, it reads through `T_Pen_Ded_Master`, or the salary rows are fetched in parallel with the record.
 4. **Tier codes.** It maps `T_Tier_Types` codes to tiers 1, 2 and 3, and counts active members whose PBMS tier disagrees with the tier derived from their dates.
+
+### 6.1 Measured 2026-09-30 (counts and codes only)
+
+- **Salary must be read through `T_Pen_Ded_Master`.** `T_Pen_Ded_Detail` has no index on `Person_Info_Seq_No`, and one member's rows read directly scanned 46.7M rows and timed out after 120 s. Two indexes support the indexed route:
+  - `T_Pen_Ded_Master` is indexed on `(Person_Info_Seq_No, Year, Pen_Ded_Master_Seq_No)`;
+  - detail rows are then found by `Pen_Ded_Master_Seq_No`, which leads `Idx_Select_Combination`.
+
+  That route took 240 ms from the dev machine, the same as a bare `SELECT 1` round trip. Server time is therefore negligible, and in-region cost is network only. `salary_years` joins in this order, and a test asserts that the statement filters on `T_Pen_Ded_Master.Person_Info_Seq_No` and never on the detail table's column.
+- **`T_Employees.Status` is the row's own active flag, not employment status.** 206,320 rows are `A`, against the 44,138 active members counted from `Employee_Status_Cd`. `status` is therefore mapped from `Employee_Status_Cd`, and `Status = 'A'` only selects live rows.
+- **Tier codes (on live rows):**
+
+  | Code | Rows |
+  |---|---|
+  | `1` | 152,069 |
+  | `2` | 16,237 |
+  | `3` | 32,233 |
+  | `0` | 5,043 |
+  | `T` | ? (not counted) |
+  | blank | 738 |
+
+  Only `1`, `2` and `3` map to tiers. Any other code (`0`, `T`, blank) gives `tier=None` with its code in `missing["tier"]`, and the tier is then taken from the dates. What `0` and `T` mean goes to the client (question 38).
+- **Dates.** `Hire_Date` is empty on 80,763 of the 206,320 live rows; `First_Payroll_Date` is empty on 5,867. The `First_Payroll_Date` fallback (§3.3) therefore matters for most records, and is disclosed each time.
 
 ## 7. Failures
 
