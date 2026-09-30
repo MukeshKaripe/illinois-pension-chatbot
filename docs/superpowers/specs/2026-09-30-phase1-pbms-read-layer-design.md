@@ -319,6 +319,24 @@ The plan's first task is a read-only discovery script. It uses aggregates and co
   - About a quarter of the names are stored in mixed case, so matching ignores case.
   - `T_Person_Info` has no index keyed on names. One name lookup across active members took about 400 ms on the server (667 ms from here, against a 258 ms round trip).
 
+### 6.2 Settled by Task 1 (2026-10-01)
+
+- **Salary rule: `SALARY_RULE = "gross"`**, the sum of `Gross` per calendar year.
+  - **PBMS's final average salary (`T_Annuity_Calc`) didn't work as a check.** Measured against it (60 retirees, best 4 of the last 10 years), no candidate matched: `gross` 0/60, `rate` 1/60, `capped` 2/60, with or without the status filter. That comparison mixes in PBMS's own window and averaging rules.
+  - **PBMS's own per-year basis settles it.** `T_Annuity_Calc_SerSalByYear` covers 60 annuity calculations and 1,376 person-years. PBMS stores each year's salary **monthly**: `BestSal` = annual ÷ 12.
+  - Summed `Capped_Salary` is exactly 12 × `BestSal` (median ratio 12.000), but it exists for only 215 of 1,376 years (16%, the recent ones).
+  - Summed `Gross` is 11.957 × `BestSal` at the median (within 0.4%), and it exists for every year.
+  - `MAX(Ann_Sal)` is 11.61 ×.
+  - Status filter kept (`m.Status = 'A' AND d.Status = 'A'`); it made no difference.
+  - Client question 38 asks the fund to confirm gross pay per calendar year as the salary basis.
+- **Service: `SERVICE_FROM_PAYROLL = True`.** Months with a pension deduction ÷ 12, per year, match PBMS's own per-year service:
+  - `MonthCount/12`: 1,242 of 1,376 person-years (90%);
+  - `PaidServ`: 1,082 of 1,376 (79%);
+  - `RegServ`: 1,075 of 1,376 (78%).
+
+  All are within 0.05 of a year. The retiree-level comparison against `MEAB_Svc` (3/60) is not comparable: its median of 43 includes non-payroll service.
+- **Status codes (live rows).** `DB4` 62,411; `DB1` 53,290; **`A` 44,125**; `I` 24,461; `DB8` 8,885; `DB3` 4,687; `DB2` 4,134; `DB9` 2,517; `DB7` 1,312; `UK` 168; none 164; `DB6` 85; `SRA` 41; `NM` 40. No table describes these codes. Only `A` → active is mapped, and the lookup covers `A` only.
+
 ## 7. Failures
 
 | Condition | Behaviour |

@@ -13,6 +13,8 @@ dependencies = [
     # Database
     "sqlalchemy[asyncio]>=2.0.30",
     "asyncpg>=0.30.0",
+    # PBMS (client SQL Server), read-only -- Phase 1
+    "pyodbc>=5.1.0",
     "alembic>=1.14.0",
     "greenlet>=3.0.0",
     # AI / LLM

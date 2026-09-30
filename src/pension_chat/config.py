@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Shipped as the default so local development and tests can construct
@@ -164,6 +165,17 @@ class Settings(BaseSettings):
     # The one fund this deployment serves, when it serves one (D4: MEABF -> 8).
     # Governs a question with no record and nothing said about coverage.
     deployment_article: int | None = None
+
+    # ── Employee records (Phase 1) ─────────────────────────────────
+    # Where an employee's record comes from. "pbms" reads the client's SQL
+    # Server live and read-only through `pension_chat.pbms`; "postgres" is the
+    # original path. Evals ignore this -- they install their own provider.
+    record_source: Literal["postgres", "pbms"] = "postgres"
+    pbms_sql_server: str | None = None
+    pbms_sql_database: str | None = None
+    pbms_sql_user: str | None = None
+    pbms_sql_password: SecretStr | None = None
+    pbms_query_timeout_s: float = 5.0
     # Recipes the agent derives itself are estimates, never authoritative.
     derived_recipe_execution_policy: str = "estimate"
 
