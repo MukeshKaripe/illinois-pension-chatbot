@@ -92,6 +92,14 @@ class EmployeeRecord:
         return record
 
 
+class RecordUnavailable(Exception):  # noqa: N818 -- a state, not a programming error
+    """The record source could not answer (unreachable, timed out, refused).
+
+    Distinct from "no such employee", which is `None`. The agent reports this
+    one to the user rather than answering as if there were no record.
+    """
+
+
 def agent_history(history: list[SalaryYear]) -> list[dict[str, Any]]:
     """Salary rows in the shape `fetch_employee_record` returns."""
     return [
