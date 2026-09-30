@@ -56,3 +56,7 @@ alembic/__pycache__/
 /test_results_2.txt
 /test_Questions_results.txt
 /scenario based testing.txt
+
+# Eval runs and the judge's cache (evals/baseline.json is committed)
+evals/runs/
+evals/.judge_cache/

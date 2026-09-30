@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from pension_chat.evals.cases import Case, Turn
+from pension_chat.evals.checks import CheckResult
+from pension_chat.evals.report import diff, exit_code, render_markdown, summarise
+from pension_chat.evals.runner import ConversationResult, TurnResult
+from pension_chat.evals.trace import TurnTrace
+
+
+def _conv(cid, family, statuses, critical=False, ttft=2.0, flaky=False) -> ConversationResult:
+    case = Case(id=cid, family=family, areas=["retrieval"], path=Path("x"),
+                turns=[Turn("q", "g", "r", checks={"ttft_class": "simple"}) for _ in statuses], critical=critical)
+    fallback = [{"at": 0, "kind": "semantic_fallback", "detail": ""}]
+    turns = [TurnResult(cid, i, TurnTrace(case_id=cid, turn_index=i, question="q", employee=None, ttft=ttft,
+                                          guardrail_passed=True, notes=fallback),
+                        [CheckResult("x", s == "pass")], None, s, ttft - 1.0, {"model": 1.0})
+             for i, s in enumerate(statuses)]
+    return ConversationResult(case, turns, flaky=flaky)
+
+
+RESULTS = [
+    _conv("S1-001", "S1", ["pass", "pass"], critical=True),
+    _conv("S4-001", "S4", ["pass", "fail", "after_failure"]),
+    _conv("S8-001", "S8", ["pending"]),
+]
+
+
+def test_family_rates_count_scored_turns_only() -> None:
+    r = summarise(RESULTS, judge_calibrated=False, probe={})
+    assert r["families"]["S1"] == {"passed": 2, "scored": 2, "first_class": True}
+    assert r["families"]["S4"] == {"passed": 1, "scored": 2, "first_class": True}   # after_failure not scored
+    assert r["families"]["S8"]["scored"] == 0
+    assert r["semantic_fallbacks"] == 6
+
+
+def test_a_critical_failure_fails_the_run() -> None:
+    bad = [_conv("S1-001", "S1", ["fail"], critical=True)]
+    r = summarise(bad, judge_calibrated=False, probe={})
+    assert r["critical_failures"] == ["S1-001#0"]
+    assert exit_code(r, diff(r, None)) == 1
+
+
+def test_diff_against_baseline() -> None:
+    base = summarise([_conv("S4-001", "S4", ["pass", "pass", "pass"])], judge_calibrated=False, probe={})
+    now = summarise(RESULTS, judge_calibrated=False, probe={})
+    changes = diff(now, base)
+    assert changes["new_failures"] == ["S4-001#1"]
+    assert exit_code(now, changes) == 1
+
+
+def test_markdown_leads_with_changes() -> None:
+    now = summarise(RESULTS, judge_calibrated=False, probe={})
+    text = render_markdown(now, diff(now, None))
+    assert text.index("Changes since baseline") < text.index("Families")
+    assert "judge not calibrated" in text.lower()
+    assert "estimated" in text.lower()
