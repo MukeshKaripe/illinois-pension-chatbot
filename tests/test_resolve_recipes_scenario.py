@@ -227,3 +227,73 @@ async def test_resolve_recipes_looks_up_only_the_stated_tier(monkeypatch, derive
              "coverage": {"article": "8", "basis": "deployment", "record_article": None}}
     await nodes.resolve_recipes(state)
     assert looked == [2]
+
+
+def _age_rule(minimum: int) -> dict:
+    return {
+        "formula_id": f"f{minimum}", "execution_type": "declarative",
+        "inputs": [{"name": "final_average_salary", "type": "money", "required": True}],
+        "parameters": {},
+        "calculation": {"variable": "final_average_salary"},
+        "applicability_predicates": [{"fact": "service_years", "operator": "ge", "value": minimum,
+                                      "description": f"{minimum} or more years",
+                                      "source": {"section": "8-138", "subsection": "(b)"}}],
+        "output_name": "annual_annuity", "output_type": "money",
+    }
+
+
+@pytest.mark.asyncio
+async def test_one_ruled_out_branch_does_not_block_the_other(monkeypatch) -> None:
+    # Tier unknown: the Tier 1 formula (20 years) is ruled out at 11 years, and
+    # used to block the turn although the Tier 2 formula (10 years) applies.
+    async def no_texts(section_ids, articles=None):
+        return {}
+
+    monkeypatch.setattr(nodes, "fetch_sections", no_texts)
+    recipes = {
+        "retirement_annuity@tier1": {"source": "registry", "spec": _age_rule(20), "source_sections": ["8-138"]},
+        "retirement_annuity@tier2": {"source": "registry", "spec": _age_rule(10), "source_sections": ["8-138"]},
+    }
+    state = {**_state([]), "employee_record": None, "member_facts": {}, "fact_ledger": {},
+             "recipes": recipes, "retrieved_sections": [{"section": "8-138"}],
+             "resolved_inputs": {"final_average_salary": 80000, "service_years": 11}}
+    out = await nodes.validate_recipes(state)
+    assert out["can_execute"] is True and out["execution_blocked"] is None
+    assert recipes["retirement_annuity@tier1"]["blocked"] == "applicability_not_satisfied"
+    assert "blocked" not in recipes["retirement_annuity@tier2"]
+
+
+@pytest.mark.asyncio
+async def test_when_every_branch_is_ruled_out_the_turn_is_blocked(monkeypatch) -> None:
+    async def no_texts(section_ids, articles=None):
+        return {}
+
+    monkeypatch.setattr(nodes, "fetch_sections", no_texts)
+    recipes = {"retirement_annuity": {"source": "registry", "spec": _age_rule(20), "source_sections": ["8-138"]}}
+    state = {**_state([]), "employee_record": None, "member_facts": {}, "fact_ledger": {},
+             "recipes": recipes, "retrieved_sections": [{"section": "8-138"}],
+             "resolved_inputs": {"final_average_salary": 80000, "service_years": 11}}
+    out = await nodes.validate_recipes(state)
+    assert out["can_execute"] is False and out["execution_blocked"] == "applicability_not_satisfied"
+
+
+@pytest.mark.asyncio
+async def test_execution_skips_a_ruled_out_branch_and_runs_the_other() -> None:
+    def recipe(name: str, blocked: str | None = None) -> dict:
+        r = {"source": "registry", "formula_name": name, "section": "8-138",
+             "spec": {"formula_id": name, "execution_type": "declarative",
+                      "inputs": [{"name": "final_average_salary", "type": "money", "required": True}],
+                      "parameters": {"rate": {"value": 0.5, "source": {"section": "8-138"}}},
+                      "calculation": {"operation": "multiply",
+                                      "operands": [{"variable": "rate"}, {"variable": "final_average_salary"}]},
+                      "output_name": "annual_annuity", "output_type": "money"}}
+        if blocked:
+            r["blocked"] = blocked
+        return r
+
+    state = {**_state([]), "can_execute": True,
+             "recipes": {"retirement_annuity@tier1": recipe("t1", "applicability_not_satisfied"),
+                         "retirement_annuity@tier2": recipe("t2")},
+             "resolved_inputs": {"final_average_salary": 80000}}
+    out = await nodes.execute_calculations(state)
+    assert list(out["calculation_result"]) == ["retirement_annuity@tier2"]

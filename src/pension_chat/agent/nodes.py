@@ -1506,6 +1506,7 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     parameter_texts = await _parameter_texts(recipes)
 
     for formula_type, recipe in recipes.items():
+        recipe.pop("blocked", None)          # decided afresh on every validation
         spec = recipe.get("spec") or {}
         sources = recipe.get("source_sections") or []
 
@@ -1522,8 +1523,7 @@ async def validate_recipes(state: PensionAgentState) -> dict:
             warnings.append({"formula_type": formula_type, **warning.to_dict()})
 
         if not result.is_valid:
-            can_execute = False
-            blocked = "validation_failed"
+            recipe["blocked"] = "validation_failed"
 
         # The gate the whole applicability layer exists for: a recipe may not
         # produce a figure for a member the provision demonstrably does not
@@ -1535,8 +1535,7 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         )
         recipe["applicability_check"] = applicable.to_dict()
         if applicable.blocks_execution:
-            can_execute = False
-            blocked = "applicability_not_satisfied"
+            recipe.setdefault("blocked", "applicability_not_satisfied")
             for failure in applicable.failed:
                 errors.append(
                     {
@@ -1580,6 +1579,15 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         if recipe.get("policy") == "no_execute":
             can_execute = False
             blocked = "execution_policy_no_execute"
+
+    # A formula ruled out -- by validation, or by a condition this member does
+    # not meet -- is skipped at execution, not a reason to compute nothing: with
+    # the tier unknown, the Tier 1 formula's 20-year condition used to block the
+    # Tier 2 formula that applied. The turn is blocked only when none is left.
+    reasons = [r.get("blocked") for r in recipes.values() if r.get("blocked")]
+    if can_execute and len(reasons) == len(recipes):
+        can_execute = False
+        blocked = "validation_failed" if "validation_failed" in reasons else reasons[0]
 
     if can_execute and state.get("missing_inputs"):
         can_execute = False
@@ -1751,6 +1759,8 @@ async def execute_calculations(state: PensionAgentState) -> dict:
     unresolved: list[dict] = []
 
     for formula_type, recipe in recipes.items():
+        if recipe.get("blocked"):
+            continue
         spec = recipe.get("spec") or {}
         output_name = spec.get("output_name", "result")
 
