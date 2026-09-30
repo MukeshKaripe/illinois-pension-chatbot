@@ -98,11 +98,11 @@ async def main() -> int:
     fixtures = load_fixtures(EVALS / "fixtures" / "employees", date.today())
     cases = select(load_cases(EVALS / "cases", set(fixtures)), tier=args.tier, families=args.family,
                    ids=args.id, changed=changed_files(args.base) if args.changed else None)
-    print(f"{len(cases)} conversations, {sum(len(c.turns) for c in cases)} turns")
+    print(f"{len(cases)} conversations, {sum(len(c.turns) for c in cases)} turns", flush=True)
     measured = await probe(get_settings())
     calibrated = is_calibrated(EVALS, EVALS / "rubric.yaml")
     options = RunOptions(concurrency=args.concurrency, judge=not args.no_judge, judge_gates=calibrated,
-                         judge_all=args.judge_all,
+                         judge_all=args.judge_all, progress=True,
                          latency_gate=args.latency_gate, rubric_path=EVALS / "rubric.yaml",
                          cache_dir=EVALS / ".judge_cache")
     started = time.perf_counter()

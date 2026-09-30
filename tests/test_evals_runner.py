@@ -176,3 +176,15 @@ async def test_judge_all_judges_turns_the_code_checks_failed_without_changing_th
     assert judged == ["q1", "q2"]
     assert [t.status for t in result.turns] == ["fail", "after_failure"]
     assert all(t.verdict is not None for t in result.turns)
+
+
+@pytest.mark.asyncio
+async def test_each_finished_conversation_prints_a_flushed_progress_line(capsys) -> None:
+    # A 20-minute run printed nothing until it ended; now each conversation says
+    # it is done, how it went, and how far along the run is.
+    await run_suite([_case("A", ["qa"]), _case("B", ["qb"])], fixtures={}, probe={},
+                    options=RunOptions(judge=False, concurrency=1, progress=True),
+                    agent=_agent({"qa": ["1-160"], "qb": []}))
+    out = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("[1/2]") and "A" in line and "pass" in line for line in out)
+    assert any(line.startswith("[2/2]") and "B" in line and "fail" in line for line in out)

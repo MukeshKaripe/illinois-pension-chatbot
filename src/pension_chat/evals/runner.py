@@ -46,6 +46,8 @@ class RunOptions:
     #: where each turn a person labels needs a verdict to compare. Statuses
     #: are unchanged; only verdicts are added.
     judge_all: bool = False
+    #: Print one flushed line per finished conversation (the CLI turns it on).
+    progress: bool = False
 
 
 @dataclass
@@ -164,8 +166,25 @@ async def run_conversation(case: Case, *, fixtures: dict[str, Any], probe: Probe
 async def run_suite(cases: list[Case], *, fixtures: dict[str, Any], probe: Probe, options: RunOptions,
                     agent: Any = None) -> list[ConversationResult]:
     gate = asyncio.Semaphore(options.concurrency)
+    finished = 0
+    started = time.perf_counter()
+
+    def report(result: ConversationResult) -> None:
+        nonlocal finished
+        finished += 1
+        if not options.progress:
+            return
+        statuses = " ".join(t.status for t in result.turns)
+        verdict = "pass" if result.passed else "fail"
+        print(f"[{finished}/{len(cases)}] {result.case.id} {verdict} ({statuses}) "
+              f"{time.perf_counter() - started:.0f}s", flush=True)
 
     async def guarded(case: Case) -> ConversationResult:
+        result = await _guarded(case)
+        report(result)
+        return result
+
+    async def _guarded(case: Case) -> ConversationResult:
         async with gate:
             try:
                 return await run_conversation(case, fixtures=fixtures, probe=probe, options=options,
@@ -180,7 +199,10 @@ async def run_suite(cases: list[Case], *, fixtures: dict[str, Any], probe: Probe
     results = list(await asyncio.gather(*(guarded(c) for c in cases)))
     for i, first in enumerate(results):
         if not first.passed:
-            second = await guarded(first.case)
+            second = await _guarded(first.case)
+            if options.progress:
+                print(f"[re-run] {first.case.id} {'pass (flaky)' if second.passed else 'fail again'}",
+                      flush=True)
             if second.passed:
                 second.flaky = True
                 results[i] = second
