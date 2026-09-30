@@ -104,8 +104,8 @@ def _reduced(unreduced_age_param: str) -> dict[str, Any]:
     }
 
 
-def _spec(formula_id: str, inputs: list[dict], parameters: dict, calculation: dict,
-          predicates: list[dict]) -> dict[str, Any]:
+def _spec(formula_id: str, inputs: list[dict[str, Any]], parameters: dict[str, Any],
+          calculation: dict[str, Any], predicates: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "formula_id": formula_id,
         "execution_type": "declarative",
