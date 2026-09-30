@@ -34,7 +34,7 @@ from pension_chat.records import use_provider
 
 @dataclass
 class RunOptions:
-    concurrency: int = 8
+    concurrency: int = 2
     judge: bool = True
     judge_gates: bool = False
     latency_gate: bool = False

@@ -53,7 +53,8 @@ def _args() -> argparse.Namespace:
     p.add_argument("--id", action="append")
     p.add_argument("--changed", action="store_true")
     p.add_argument("--base", default="main")
-    p.add_argument("--concurrency", type=int, default=8)
+    p.add_argument("--concurrency", type=int, default=2,
+                   help="default: 2 -- at 8 the model deployment returns 429s mid-run")
     p.add_argument("--no-judge", action="store_true")
     p.add_argument("--judge-all", action="store_true",
                    help="judge every turn, even ones the code checks failed (for calibration)")
