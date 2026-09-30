@@ -114,3 +114,13 @@ def test_the_card_names_the_pbms_record_without_its_key() -> None:
              "calculation_result": {"r": {"base": {"ok": True, "inputs_used": {}, "annual_amount": "1"}}}}
     card = calculation_card(state, WorkSheet.from_state(state))
     assert card is not None and card["record_label"] == "PBMS record"
+
+
+def test_an_employer_is_never_addressed_as_the_employee() -> None:
+    from pension_chat.agent.loop import _attribution
+
+    notes = _record_notes({"id": "M-1", "display_name": "QW_XZ PL_MR", "record_source": "PBMS"})
+    assert "employer" in notes and "never as 'you'" in notes
+    coverage = {"article": "8", "basis": "record"}
+    assert _attribution({"coverage": coverage, "employee_record": {"record_source": "PBMS"}}) == ""
+    assert "your record" in _attribution({"coverage": coverage, "employee_record": {}})

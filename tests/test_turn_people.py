@@ -142,3 +142,11 @@ async def test_decline_answers_the_suggestion_without_a_model() -> None:
     out = await decline({"out_of_scope_reason": "subject_suggestion",
                          "subject_suggestion": {"kind": "choose", "question": "q", "choices": [_choice(9)]}})
     assert "9 active employees" in out["final_answer"]
+
+
+def test_a_comparison_naming_one_new_person_keeps_the_previous_ones() -> None:
+    # "Compare that with B" -- "that" is the person the last turn was about.
+    d = decide("Compare that with QW_XZ PL_MR retiring at the end of this year.", [B, A], ["M-1"], [])
+    assert d.people == ["M-1", "M-2"]
+    assert decide("QW_XZ PL_MR at 62?", [B, A], ["M-1"], []).people == ["M-2"]      # no comparison: just B
+    assert decide("both of them vs RO_BK TA_NE", [A, B, C], ["M-1", "M-2"], []).people == ["M-1", "M-2", "M-3"]

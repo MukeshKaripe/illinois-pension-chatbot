@@ -150,7 +150,8 @@ def _record_notes(record: dict[str, Any]) -> str:
         str(v) for v in (record.get("display_name"), record.get("department") or record.get("employer")) if v
     )
     parts = [f"This conversation is about {who or 'an employee'}, from the fund's own records "
-             f"({record['record_source']})."]
+             f"({record['record_source']}). The person asking is their employer, not this employee: "
+             "refer to the employee by name or as 'they', never as 'you' or 'your'."]
     if record.get("service_source"):
         parts.append(f"Their service is {record['service_source']}.")
     gaps = record.get("missing") or {}
@@ -166,6 +167,8 @@ def _people_context(state: dict[str, Any]) -> str:
     """Several people in one turn: who each is, and how to compute for each (spec §5)."""
     people = state.get("people") or {}
     lines = [
+        "The person asking is their employer, not one of these employees: refer to each by name, "
+        "never as 'you' or 'your'.",
         f"This question is about {len(people)} employees. Call compute_benefit once for each, with "
         "person set to the label shown. Their figures are put side by side for you at <<<PEOPLE>>>; "
         "do not write the figures yourself."
@@ -1396,6 +1399,11 @@ def _attribution(state: dict[str, Any]) -> str:
     """
     coverage = state.get("coverage") or {}
     if coverage.get("basis") != coverage_mod.BASIS_RECORD:
+        return ""
+    # A fund record (PBMS) is an employer asking about someone else: "your
+    # record places you in Article 8" addresses the wrong person, and the
+    # fund's own record is not the user's to correct.
+    if (state.get("employee_record") or {}).get("record_source"):
         return ""
     article = coverage.get("article")
     if not article:

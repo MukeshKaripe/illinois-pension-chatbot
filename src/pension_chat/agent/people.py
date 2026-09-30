@@ -35,6 +35,10 @@ def labels(subjects: list[dict[str, Any]]) -> dict[str, str]:
 
 # A singular personal pronoun: after a turn about several people, it is asked about.
 _SINGULAR = re.compile(r"\b(he|she|him|her|his|hers)\b", re.IGNORECASE)
+# Wording that sets a named person beside the people already being discussed:
+# "compare that with B" keeps the previous turn's people in the turn.
+_COMPARING = re.compile(r"\b(compare[ds]?|comparison|comparing|versus|vs\.?|both|side by side|against)\b",
+                        re.IGNORECASE)
 
 
 @dataclass
@@ -68,9 +72,12 @@ def decide(question: str, subjects: list[dict[str, Any]], last_people: list[str]
 
     if unfamiliar:
         return TurnPeople(people=familiar[:MAX_PEOPLE], unfamiliar=unfamiliar[:MAX_PEOPLE])
-    if familiar:
-        return TurnPeople(people=familiar[:MAX_PEOPLE])
+
     continuing = [r for r in last_people if r in roster_refs]
+    if familiar:
+        if _COMPARING.search(question):
+            familiar = continuing + [r for r in familiar if r not in continuing]
+        return TurnPeople(people=familiar[:MAX_PEOPLE])
     if continuing:
         if len(continuing) > 1 and _SINGULAR.search(question):
             return TurnPeople(which_of=continuing)
