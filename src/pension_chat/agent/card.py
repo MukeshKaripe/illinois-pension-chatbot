@@ -97,5 +97,13 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
                 (state.get("coverage") or {}).get("article")
                 or (state.get("employee_record") or {}).get("article_number")
             ),
+            # Whose record the "Record" inputs came from, when it was the fund's.
+            "record_label": _record_label(state),
         }
     return None
+
+
+def _record_label(state: Mapping[str, Any]) -> str | None:
+    """Whose record the "Record" inputs came from -- the fund's, named without its internal key."""
+    record = state.get("employee_record") or {}
+    return f"{record['record_source']} record" if record.get("record_source") else None

@@ -42,6 +42,7 @@ from pension_chat.agent.nodes import (
     _governing_article,
     _record_coverage,
 )
+from pension_chat.agent.people import labels as people_labels
 from pension_chat.agent.presentation import select_rung
 from pension_chat.agent.registry import recipes_for
 from pension_chat.agent.retrieval import (
@@ -138,6 +139,28 @@ write the member's answer at that point; you will be asked for it next, with the
 rules for how it should read."""
 
 
+def _record_notes(record: dict[str, Any]) -> str:
+    """Who this is and what their record could not say -- only for a fund record (PBMS).
+
+    Named by name and department, never by the internal MEAB ID. A gap the
+    record reports is something to tell the employer, not something to fill.
+    """
+    who = ", ".join(
+        str(v) for v in (record.get("display_name"), record.get("department") or record.get("employer")) if v
+    )
+    parts = [f"This conversation is about {who or 'an employee'}, from the fund's own records "
+             f"({record['record_source']})."]
+    if record.get("service_source"):
+        parts.append(f"Their service is {record['service_source']}.")
+    gaps = record.get("missing") or {}
+    if gaps:
+        parts.append(
+            "What the record could not say, and why -- report these rather than filling them: "
+            + "; ".join(f"{name}: {why}" for name, why in sorted(gaps.items())) + "."
+        )
+    return " ".join(parts)
+
+
 def _context(state: dict[str, Any]) -> str:
     """What is known about this member, re-rendered every iteration.
 
@@ -181,6 +204,16 @@ def _context(state: dict[str, Any]) -> str:
         )
     else:
         lines.append("No member record is available; answer from the Code alone.")
+    if state.get("unavailable_people"):
+        names = people_labels(state.get("subjects") or [])
+        lines.append(
+            "The fund's records could not be read just now for: "
+            + ", ".join(names.get(r, "one employee") for r in state["unavailable_people"])
+            + ". Say so plainly, and do not state figures from their records."
+        )
+    record = state.get("employee_record") or {}
+    if record.get("record_source") and len(state.get("people") or {}) <= 1:
+        lines.append(_record_notes(record))
     coverage = state.get("coverage") or {}
     if coverage.get("article"):
         # Whose claim this is, said correctly. Under a supposition the file says

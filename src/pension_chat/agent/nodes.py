@@ -35,6 +35,7 @@ from sqlalchemy.orm import selectinload
 
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent import gaps, guardrails, ledger
+from pension_chat.agent import people as people_mod
 from pension_chat.agent.derivation import derive_recipe
 from pension_chat.agent.facts import aliases_of, build_member_facts
 from pension_chat.agent.llm import complete
@@ -82,7 +83,7 @@ from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
 from pension_chat.db.models import Employee
 from pension_chat.db.session import get_db_session
-from pension_chat.records import agent_history, current_provider
+from pension_chat.records import RecordUnavailable, agent_history, current_provider
 
 logger = logging.getLogger("pension_chat.agent.nodes")
 
@@ -300,6 +301,9 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
     A pin is used only for the profile it was taken from.
     """
     started = time.perf_counter()
+    refs = list(state.get("turn_people") or [])
+    if refs and current_provider() is not None:
+        return await _fetch_people(state, refs, started)
     employee_id = state.get("employee_id")
     if not employee_id:
         return {"employee_record": None, "salary_history": []}
@@ -324,6 +328,57 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
         "pinned_record": {"record": record, "salary_history": history},
         "timings": {"fetch_employee_record": time.perf_counter() - started},
     }
+
+
+async def _fetch_people(state: PensionAgentState, refs: list[str], started: float) -> dict:
+    """Every person this turn is about, read in parallel (spec §4.3).
+
+    A pinned person is not read again. One unreadable record does not sink the
+    others: it is listed in `unavailable_people` and the answer says whose. The
+    first person also fills the single-member keys, so a one-person turn is
+    exactly the path every other turn has always taken.
+    """
+    pinned: dict[str, dict] = dict(state.get("pinned_people") or {})
+    names = people_mod.labels(state.get("subjects") or [])
+
+    async def load(ref: str) -> dict | None:
+        if ref in pinned:
+            return pinned[ref]
+        loaded = await _from_provider(ref)
+        return None if loaded is None else {"record": loaded[0], "salary_history": loaded[1]}
+
+    results = await asyncio.gather(*(load(ref) for ref in refs), return_exceptions=True)
+    loaded_people: dict[str, dict] = {}
+    unavailable: list[str] = []
+    for ref, result in zip(refs, results, strict=True):
+        if isinstance(result, RecordUnavailable) or result is None:
+            unavailable.append(ref)
+            continue
+        if isinstance(result, BaseException):
+            raise result
+        pinned[ref] = result
+        facts = build_member_facts(
+            result["record"],
+            [(date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+             for h in result["salary_history"]],
+        )
+        loaded_people[ref] = {**result, "member_facts": facts,
+                              "label": names.get(ref) or result["record"].get("display_name") or "Employee"}
+
+    update: dict[str, Any] = {
+        "people": loaded_people,
+        "unavailable_people": unavailable,
+        "pinned_people": pinned,
+        "last_people": refs,
+        "timings": {"fetch_employee_record": time.perf_counter() - started},
+    }
+    first = next((loaded_people[r] for r in refs if r in loaded_people), None)
+    if first is None:
+        update.update(employee_record=None, salary_history=[])
+    else:
+        update.update(employee_record=first["record"], salary_history=first["salary_history"],
+                      member_facts=first["member_facts"])
+    return update
 
 
 async def _from_provider(key: str) -> tuple[dict, list[dict]] | None:

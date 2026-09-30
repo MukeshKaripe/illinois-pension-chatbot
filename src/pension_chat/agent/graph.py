@@ -211,6 +211,7 @@ async def run_agent_stream(
     employee_id: str | None = None,
     history: list[BaseMessage] | None = None,
     thread_owner: dict[str, str | None] | None = None,
+    subjects: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Run a turn, yielding progress and answer tokens as they become available.
 
@@ -243,9 +244,10 @@ async def run_agent_stream(
     # of the conversation to itself. The lookup that decides this is one indexed
     # row and replaces the larger transcript read it makes unnecessary.
     if history and not await thread_has_state(config):
-        turn: dict[str, Any] = initial_state(question, session_id, employee_id, history)
+        turn: dict[str, Any] = initial_state(question, session_id, employee_id, history,
+                                             subjects=subjects)
     else:
-        turn = turn_input(question, session_id, employee_id)
+        turn = turn_input(question, session_id, employee_id, subjects=subjects)
 
     state: dict[str, Any] = {}
 
@@ -288,6 +290,13 @@ async def run_agent_stream(
                     }
                 continue
             for node_name in payload:
+                # Who this turn is about is known the moment triage finishes --
+                # before any record is read or token written -- so the chips
+                # change then, not after the answer (spec §4.4).
+                if node_name == "triage":
+                    active = (payload[node_name] or {}).get("turn_people")
+                    if active is not None:
+                        yield {"type": "people", "active": list(active)}
                 label = STAGE_LABELS.get(node_name)
                 if label:
                     yield {"type": "status", "stage": label, "node": node_name}
