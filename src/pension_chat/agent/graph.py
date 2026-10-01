@@ -636,7 +636,14 @@ def _recorded_scenarios(
         NOW_LABEL: {
             "annual_amount": base.get("annual_amount"),
             "monthly_amount": base.get("monthly_amount"),
-            "service_years": inputs_used.get("creditable_service_years"),
+            # Under whichever name the recipe used: the core formulas say
+            # `service_years`, and reading only the other left the row "None".
+            "service_years": next(
+                (inputs_used[name] for name in ("creditable_service_years", "service_years",
+                                                "years_of_service", "total_service_years")
+                 if inputs_used.get(name) is not None),
+                None,
+            ),
             "section": entry.get("section"),
             "turn": turn,
             "rests_on": list(inputs_used),

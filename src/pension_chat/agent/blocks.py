@@ -68,6 +68,8 @@ _QUANTITY_FIELDS = {
 
 
 def _money(value: Any) -> str:
+    if value is None:
+        return ""
     try:
         return f"${Decimal(str(value)):,.2f}"
     except (InvalidOperation, ValueError, TypeError):
@@ -195,7 +197,8 @@ def render_comparison(options: Sequence[Mapping[str, Any]]) -> str:
         "|---|---:|---:|---:|"
     )
     rows = [
-        f"| {option.get('label', '')} | {option.get('service_years', '')} | "
+        f"| {option.get('label', '')} | "
+        f"{option.get('service_years') if option.get('service_years') is not None else ''} | "
         f"{_money(option.get('annual'))} | {_money(option.get('monthly'))} |"
         for option in options
     ]

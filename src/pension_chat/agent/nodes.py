@@ -2198,7 +2198,10 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                             ),
                             "service_basis": (
                                 "assumes continuous employment to that age"
-                                if employee and employee.get("employment_status") == "active"
+                                if (employee and employee.get("employment_status") == "active")
+                                or (not employee and described_age is not None and int(age) > described_age)
+                                else "assumes they stop working that much sooner, with that much less service"
+                                if not employee and described_age is not None and int(age) < described_age
                                 else "no further service assumed"
                             ),
                         },
@@ -2561,6 +2564,15 @@ def _described_at_age(inputs: Mapping[str, Any], age: int, today: date) -> dict[
             moved[name] = age
         elif name in ("annuity_start_date", "withdrawal_date"):
             moved[name] = when.isoformat()
+        elif name in aliases_of("service_years") and inputs[name] is not None:
+            # Working to that age, or stopping that much sooner, moves service
+            # with it -- as the record path projects it. Keeping the stated 10
+            # years at 66 while saying "assumes you keep working" disagreed
+            # with itself (live, 2026-10-01).
+            try:
+                moved[name] = max(0.0, float(inputs[name]) + (age - now))
+            except (TypeError, ValueError):
+                pass
     return moved
 
 

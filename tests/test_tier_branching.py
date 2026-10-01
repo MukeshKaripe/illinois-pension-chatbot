@@ -225,3 +225,18 @@ def test_without_a_what_if_a_tier_that_does_not_pay_today_says_so():
     }
     table = render_branches(now)
     assert "38,000" in table and "not payable now" in table
+
+
+def test_a_missing_service_figure_is_blank_not_none():
+    # Live, 2026-10-01: "if you retire now | None | $12,000.00".
+    from pension_chat.agent.blocks import render_comparison
+
+    table = render_comparison([{"label": "if you retire now", "service_years": None, "annual": "12000.00"}])
+    assert "None" not in table
+
+
+def test_retiring_now_is_filed_with_service_under_any_name():
+    from pension_chat.agent.graph import _recorded_scenarios
+
+    filed = _recorded_scenarios({"section": "8-138"}, {"annual_amount": "12000.00"}, {"service_years": 10}, 3)
+    assert next(iter(filed.values()))["service_years"] == 10

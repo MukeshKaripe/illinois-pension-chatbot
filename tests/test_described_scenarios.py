@@ -32,8 +32,11 @@ async def test_a_described_employee_is_priced_at_the_age_asked_about() -> None:
     entry = out["calculation_result"]["retirement_annuity"]
     assert Decimal(entry["base"]["annual_amount"]) < 21120          # reduced at 62
     (at_67,) = entry["scenarios"]
-    assert Decimal(at_67["annual_amount"]) == 21120                 # 80,000 x 2.4% x 11, unreduced
-    assert Decimal(str(at_67["assumptions"]["service_years"])) == 11     # what they said stands
+    # Five more years of work to 67: 16 years, unreduced -- 80,000 x 2.4% x 16.
+    # (Live, 2026-10-01: "retire 5 years later" kept the stated 10 years while
+    # saying it assumed they kept working; the record path already projects.)
+    assert Decimal(at_67["annual_amount"]) == 30720
+    assert Decimal(str(at_67["assumptions"]["service_years"])) == 16
 
 
 async def test_retiring_younger_is_priced_as_if_they_were_that_age() -> None:
@@ -51,7 +54,8 @@ async def test_retiring_younger_is_priced_as_if_they_were_that_age() -> None:
     }
     entry = (await nodes.execute_calculations(state))["calculation_result"]["retirement_annuity"]
     (at_60,) = entry["scenarios"]
-    assert Decimal(at_60["annual_amount"]) == 51000      # 85,000 x 2.4% x 25; (g-1) has no reduction at 60
+    # Five fewer years of work: 20 years, and (g-1) has no reduction at 60.
+    assert Decimal(at_60["annual_amount"]) == 40800      # 85,000 x 2.4% x 20
 
 
 async def test_a_younger_age_the_formula_does_not_reach_is_said_not_priced() -> None:
