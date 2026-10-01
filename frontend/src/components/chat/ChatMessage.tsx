@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import { cardsFrom, isStopped, type CalculationCardData } from "@/lib/card";
 import { allChosen, suggestionFrom, whichOneQuestion, type Person, type Suggestion } from "@/lib/subject";
 import { linkSections, sectionFromHref } from "@/lib/sections";
-import { splitStreaming } from "@/lib/streaming";
+import { dropOrphanTableHeaders, splitStreaming } from "@/lib/streaming";
 import type { Message } from "@/lib/types";
 import { CalculationCard } from "./CalculationCard";
 import { SubjectChoice } from "./SubjectChoice";
@@ -114,7 +114,7 @@ export function ChatMessage({
               },
             }}
           >
-            {linkSections(settled, verified)}
+            {linkSections(dropOrphanTableHeaders(settled), verified)}
           </ReactMarkdown>
           {tail && <div className="whitespace-pre-wrap">{tail}</div>}
         </div>
