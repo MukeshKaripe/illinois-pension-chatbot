@@ -724,6 +724,13 @@ _SALARY_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: The same, written in thousands: "$80k", "72.5K", "80 thousand" (live,
+#: 2026-10-01: "average annual salary is $80k" was read as no salary at all).
+_SALARY_THOUSANDS_RE = re.compile(
+    r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,4}(?:\.\d+)?)\s?(?:k|thousand)\b",
+    re.IGNORECASE,
+)
+
 #: Articles whose members first joining on or after July 6, 2017 are Tier 3
 #: (§1-160(c-5): "a retirement annuity under Article 8 or Article 11").
 _TIER_3_ARTICLES = frozenset({8, 11})
@@ -759,6 +766,8 @@ def _stated_annual_salary(said: str) -> int | None:
     Data, not judgement: a money amount beside a word for pay. A year or a date
     is never one; without a pay word, nothing is read.
     """
+    if thousands := _SALARY_THOUSANDS_RE.search(said or ""):
+        return round(float(thousands.group(1)) * 1000)
     match = _SALARY_RE.search(said or "")
     if not match:
         return None

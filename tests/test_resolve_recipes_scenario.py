@@ -377,3 +377,16 @@ async def test_a_stated_age_gives_a_birth_date_when_the_recipe_declares_no_age(m
     born = date.fromisoformat(out["resolved_inputs"]["birth_date"])
     assert age_on(born, date.today()) == 62
     assert "birth_date" not in [m.get("name") for m in out["missing_inputs"]]
+
+
+
+@pytest.mark.parametrize("said, salary", [
+    ("average annual salary is $80k", 80000),     # live, 2026-10-01: read as nothing
+    ("salary of 80K", 80000),
+    ("earns $72.5k a year", 72500),
+    ("makes 80 thousand", 80000),
+    ("earns $80,000", 80000),
+    ("joined in 2015 and has 11 years of service", None),
+])
+def test_a_stated_salary_is_read_however_it_is_written(said, salary) -> None:
+    assert nodes._stated_annual_salary(said) == salary
