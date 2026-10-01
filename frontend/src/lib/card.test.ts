@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardBadge, cardFrom, cardsFrom, formatMoney, isStopped, sourceLabel } from "./card.ts";
+import { cardBadge, cardFrom, cardHeadline, cardsFrom, formatMoney, isStopped, sourceLabel } from "./card.ts";
 
 const card = {
   type: "card",
@@ -59,4 +59,20 @@ test("every card in a message, and the fund's record named on record inputs", ()
   assert.deepEqual(cardsFrom(calls).map((c) => c.person), ["A", "B"]);
   assert.equal(sourceLabel("record", "PBMS record"), "PBMS record");
   assert.equal(sourceLabel("record"), "Record");
+});
+
+test("one what-if leads the card, with today's figure beneath", () => {
+  const h = cardHeadline({ annual_amount: "51403.06", monthly_amount: "4283.59",
+    scenarios: [{ label: "at age 65", annual_amount: "54851.50", monthly_amount: "4570.96" }] });
+  assert.equal(h.label, "at age 65");
+  assert.equal(h.annual_amount, "54851.50");
+  assert.deepEqual(h.others.map((o) => o.annual_amount), ["51403.06"]);
+});
+
+test("no what-if, or several, keep today's figure as the headline", () => {
+  assert.equal(cardHeadline({ annual_amount: "100", monthly_amount: null, scenarios: [] }).label, null);
+  const several = cardHeadline({ annual_amount: "100", monthly_amount: null,
+    scenarios: [{ label: "at 62", annual_amount: "90" }, { label: "at 67", annual_amount: "120" }] });
+  assert.equal(several.annual_amount, "100");
+  assert.equal(several.others.length, 2);
 });

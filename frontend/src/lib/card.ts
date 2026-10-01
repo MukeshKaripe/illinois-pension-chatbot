@@ -87,3 +87,25 @@ const SOURCE_LABELS: Record<string, string> = {
 /** Empty for an unknown origin: the card shows no label rather than a guess. */
 export const sourceLabel = (source: string | null | undefined, recordLabel?: string | null): string =>
   source === "record" && recordLabel ? recordLabel : source ? (SOURCE_LABELS[source] ?? source) : "";
+
+/**
+ * Which figure the card leads with. A turn that asked one what-if ("and if
+ * they worked until 65?") leads with that figure and keeps today's beneath it;
+ * the card used to show only today's, under an answer about age 65. Several
+ * what-ifs keep today's as the headline and list each below.
+ */
+export function cardHeadline(card: Pick<CalculationCardData, "annual_amount" | "monthly_amount" | "scenarios">): {
+  label: string | null;
+  annual_amount?: string | null;
+  monthly_amount?: string | null;
+  others: CardScenario[];
+} {
+  const priced = (card.scenarios ?? []).filter((s) => s.annual_amount);
+  const today = { label: "Retiring now", annual_amount: card.annual_amount, monthly_amount: card.monthly_amount };
+  if (priced.length === 1) {
+    const only = priced[0];
+    return { label: only.label, annual_amount: only.annual_amount, monthly_amount: only.monthly_amount,
+             others: card.annual_amount ? [today] : [] };
+  }
+  return { label: null, annual_amount: card.annual_amount, monthly_amount: card.monthly_amount, others: priced };
+}

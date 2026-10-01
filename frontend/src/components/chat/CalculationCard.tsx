@@ -1,5 +1,5 @@
 import { Calculator } from "lucide-react";
-import { cardBadge, formatMoney, sourceLabel, type CalculationCardData } from "@/lib/card";
+import { cardBadge, cardHeadline, formatMoney, sourceLabel, type CalculationCardData } from "@/lib/card";
 import { EXPERIMENTAL_NOTE } from "@/lib/funds";
 
 interface CalculationCardProps {
@@ -21,6 +21,7 @@ const CARD_INPUTS = 4;
 export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCardProps) {
   const section = card.section;
   const badge = cardBadge(card);
+  const headline = cardHeadline(card);
   return (
     <div className="mb-4 rounded-lg border border-border bg-card p-4">
       {card.person && <div className="mb-1 text-sm font-semibold">{card.person}</div>}
@@ -39,18 +40,29 @@ export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCard
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 tabular-nums">
+      {headline.label && <div className="mt-3 text-xs text-muted-foreground">{headline.label}</div>}
+      <div className={`${headline.label ? "mt-1" : "mt-3"} flex flex-wrap items-baseline gap-x-6 gap-y-1 tabular-nums`}>
         <div>
-          <span className="text-2xl font-semibold">{formatMoney(card.annual_amount)}</span>
+          <span className="text-2xl font-semibold">{formatMoney(headline.annual_amount)}</span>
           <span className="ml-1 text-sm text-muted-foreground">a year</span>
         </div>
-        {card.monthly_amount && (
+        {headline.monthly_amount && (
           <div>
-            <span className="text-lg font-medium">{formatMoney(card.monthly_amount)}</span>
+            <span className="text-lg font-medium">{formatMoney(headline.monthly_amount)}</span>
             <span className="ml-1 text-sm text-muted-foreground">a month</span>
           </div>
         )}
       </div>
+
+      {headline.others.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-sm tabular-nums text-muted-foreground">
+          {headline.others.map((other) => (
+            <li key={other.label}>
+              {other.label}: <span className="font-medium text-foreground">{formatMoney(other.annual_amount)}</span> a year
+            </li>
+          ))}
+        </ul>
+      )}
 
       {card.inputs.length > 0 && (
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
