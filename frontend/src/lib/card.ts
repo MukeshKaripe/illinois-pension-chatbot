@@ -100,7 +100,11 @@ export function cardHeadline(card: Pick<CalculationCardData, "annual_amount" | "
   monthly_amount?: string | null;
   others: CardScenario[];
 } {
-  const priced = (card.scenarios ?? []).filter((s) => s.annual_amount);
+  // A "retire now" answer files today's figure as a scenario too ("0 more
+  // years"); it is not a what-if, and leading with it shows the figure twice.
+  const priced = (card.scenarios ?? []).filter(
+    (s) => s.annual_amount && Number(s.annual_amount) !== Number(card.annual_amount),
+  );
   const today = { label: "Retiring now", annual_amount: card.annual_amount, monthly_amount: card.monthly_amount };
   if (priced.length === 1) {
     const only = priced[0];

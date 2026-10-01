@@ -76,3 +76,10 @@ test("no what-if, or several, keep today's figure as the headline", () => {
   assert.equal(several.annual_amount, "100");
   assert.equal(several.others.length, 2);
 });
+
+test("today's figure filed as a scenario is not a what-if", () => {
+  const h = cardHeadline({ annual_amount: "51403.06", monthly_amount: "4283.59",
+    scenarios: [{ label: "0 more years", annual_amount: "51403.06" }] });
+  assert.equal(h.label, null);
+  assert.equal(h.others.length, 0);
+});
