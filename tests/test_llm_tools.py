@@ -259,3 +259,25 @@ async def test_a_failure_after_the_first_delta_is_not_retried(monkeypatch):
             seen.append(delta)
     assert seen == ["Here "]
     assert len(attempts) == 1, "no second attempt once text has gone out"
+
+
+async def test_a_choice_with_no_delta_is_skipped(monkeypatch):
+    """Live, 2026-10-01: Azure sent a chunk whose choice had no delta, and
+    reading `.content` off it failed the whole answer."""
+
+    class _Stream:
+        def __aiter__(self):
+            return self._gen()
+
+        async def _gen(self):
+            for delta in (SimpleNamespace(content="Here "), None, SimpleNamespace(content="it is.")):
+                yield SimpleNamespace(usage=None, choices=[SimpleNamespace(delta=delta)])
+
+    async def create(**kwargs):
+        return _Stream()
+
+    monkeypatch.setattr(llm, "get_llm", lambda: SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    ))
+    out = "".join([delta async for delta in llm.stream(node="answer", messages=[])])
+    assert out == "Here it is."

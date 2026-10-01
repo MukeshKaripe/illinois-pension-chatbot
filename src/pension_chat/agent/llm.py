@@ -428,6 +428,9 @@ async def stream(
             accumulator.record(node, chunk.usage)
         if not chunk.choices:
             continue
-        delta = chunk.choices[0].delta.content
+        # Azure can send a choice with no delta (a content-filter result, or the
+        # closing chunk); it carries no text, and reading it took the turn down.
+        message = chunk.choices[0].delta
+        delta = message.content if message is not None else None
         if delta:
             yield delta
