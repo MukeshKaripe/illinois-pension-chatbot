@@ -37,7 +37,7 @@ from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent import gaps, guardrails, ledger
 from pension_chat.agent import people as people_mod
 from pension_chat.agent.derivation import derive_recipe
-from pension_chat.agent.facts import aliases_of, build_member_facts
+from pension_chat.agent.facts import age_on, aliases_of, build_member_facts, nth_birthday
 from pension_chat.agent.llm import complete
 from pension_chat.agent.registry import (
     RegistryRecipe,
@@ -2014,7 +2014,8 @@ async def execute_calculations(state: PensionAgentState) -> dict:
             "base": run(base_inputs),
         }
 
-        if scenarios and not employee:
+        described_age = None if employee else _described_age(base_inputs)
+        if scenarios and not employee and described_age is None:
             unresolved.extend(
                 {
                     "label": sc.get("label") or "unspecified",
@@ -2026,10 +2027,12 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 for sc in scenarios[:6]
             )
 
-        if scenarios and employee:
+        if scenarios and (employee or described_age is not None):
             variants = []
             for scenario in scenarios[:6]:
-                age = _resolve_retirement_age(scenario, member_facts)
+                age = _resolve_retirement_age(
+                    scenario, member_facts if employee else {"age": described_age}
+                )
                 if age is None:
                     # Never drop a scenario in silence. The member asked for it;
                     # if it cannot be resolved the answer has to say so, rather
@@ -2044,17 +2047,33 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                         }
                     )
                     continue
-                scenario_facts = build_member_facts(
-                    employee,
-                    salary_history,
-                    assumed_retirement_age=int(age),
-                    salary_growth=_growth_rate(scenario),
-                )
-                # Recomputed facts replace the record-derived values (that is
-                # what varying the retirement age means), but anything the user
-                # stated themselves still wins — their figure is not a fact the
-                # scenario re-derives.
-                scenario_inputs = {**base_inputs, **scenario_facts, **user_supplied}
+                if employee:
+                    scenario_facts = build_member_facts(
+                        employee,
+                        salary_history,
+                        assumed_retirement_age=int(age),
+                        salary_growth=_growth_rate(scenario),
+                    )
+                    # Recomputed facts replace the record-derived values (that
+                    # is what varying the retirement age means), but anything
+                    # the user stated themselves still wins — their figure is
+                    # not a fact the scenario re-derives.
+                    scenario_inputs = {**base_inputs, **scenario_facts, **user_supplied}
+                    evaluation = facts_for_evaluation(scenario_facts, user_supplied)
+                else:
+                    moved = _described_at_age(base_inputs, int(age), date.today())
+                    if moved is None:
+                        unresolved.append(
+                            {
+                                "label": scenario.get("label") or f"at age {age}",
+                                "reason": f"they are already older than {age}",
+                            }
+                        )
+                        continue
+                    # Only the dates and ages move; what the user said stands.
+                    scenario_inputs = {**base_inputs, **moved}
+                    scenario_facts = scenario_inputs
+                    evaluation = scenario_inputs
 
                 # Applicability is a question about a member at a date, not
                 # about a member — so it is re-asked at each retirement age. A
@@ -2062,8 +2081,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 # answering "what changes when I reach 60" by silently running
                 # the same recipe at both ages would assume away the question.
                 applicable = evaluate_predicates(
-                    spec.get("applicability_predicates"),
-                    facts_for_evaluation(scenario_facts, user_supplied),
+                    spec.get("applicability_predicates"), evaluation
                 )
                 if applicable.blocks_execution:
                     unresolved.append(
@@ -2120,7 +2138,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                             ),
                             "service_basis": (
                                 "assumes continuous employment to that age"
-                                if employee.get("employment_status") == "active"
+                                if employee and employee.get("employment_status") == "active"
                                 else "no further service assumed"
                             ),
                         },
@@ -2416,6 +2434,48 @@ def _growth_rate(scenario: dict) -> Decimal | None:
     if rate > 1:
         rate = rate / 100
     return rate if Decimal("0") <= rate <= Decimal("0.25") else None
+
+
+def _described_age(inputs: Mapping[str, Any]) -> int | None:
+    """A described employee's age today, from the birth date their stated age placed, or the age itself."""
+    born = inputs.get("birth_date")
+    if born:
+        try:
+            return age_on(date.fromisoformat(str(born)), date.today())
+        except ValueError:
+            return None
+    for name, value in inputs.items():
+        if name in aliases_of("age") and value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _described_at_age(inputs: Mapping[str, Any], age: int, today: date) -> dict[str, Any] | None:
+    """A described employee's inputs moved to retiring at `age`, or None if that age has passed.
+
+    With no record nothing can be re-derived, but their stated age is enough to
+    move the retirement date: ages become `age`, and the annuity start and
+    withdrawal dates move to that birthday. The birth date, and everything the
+    user stated -- salary, service -- stand as given.
+    """
+    now = _described_age(inputs)
+    if now is None or age < now:
+        return None
+    born = inputs.get("birth_date")
+    if born:
+        when = max(nth_birthday(date.fromisoformat(str(born)), age), today)
+    else:
+        when = nth_birthday(today, age - now) if age > now else today
+    moved: dict[str, Any] = {"as_of_date": when.isoformat()}
+    for name in inputs:
+        if name in aliases_of("age"):
+            moved[name] = age
+        elif name in ("annuity_start_date", "withdrawal_date"):
+            moved[name] = when.isoformat()
+    return moved
 
 
 def _resolve_retirement_age(scenario: dict, facts: dict) -> int | None:
