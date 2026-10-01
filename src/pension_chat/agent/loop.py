@@ -149,6 +149,15 @@ def _audience(state: dict[str, Any]) -> str:
     """
     record = state.get("employee_record") or {}
     if not record.get("record_source"):
+        if state.get("names_unavailable"):
+            # PBMS could not be searched: still an employer asking about someone
+            # else, and the missing record is the first thing they need to know.
+            return (
+                "You may be answering an employer about an employee they named, whose record could "
+                "not be read because the fund's directory is unavailable. If so, open by saying that "
+                "record could not be read, and refer to the employee by name or as 'they' -- never "
+                "'you' or 'your' for the employee. You may address the employer as 'you'."
+            )
         return ""
     people = state.get("people") or {}
     names = [b.get("label") for b in people.values() if b.get("label")]
@@ -295,6 +304,13 @@ def _context(state: dict[str, Any]) -> str:
             "The fund's records could not be read just now for: "
             + ", ".join(names.get(r, "one employee") for r in state["unavailable_people"])
             + ". Say so plainly, and do not state figures from their records."
+        )
+    if state.get("names_unavailable"):
+        lines.append(
+            "The fund's employee directory could not be searched just now, so a "
+            "name in this question could not be looked up. If the question is "
+            "about a particular employee, say plainly that their record could "
+            "not be read, and do not present any figure as theirs."
         )
     record = state.get("employee_record") or {}
     if record.get("record_source") and len(state.get("people") or {}) <= 1:

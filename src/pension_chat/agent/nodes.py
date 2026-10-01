@@ -205,6 +205,9 @@ async def triage(state: PensionAgentState) -> dict:
             "explicit_sections": extract_section_references(question),
             "explicit_articles": extract_article_references(question),
             "turn_people": decided.people,
+            # A directory that never loaded matches no name, which would read as
+            # "nobody was named" -- the turn says it could not look names up instead.
+            "names_unavailable": getattr(name_search, "names_ready", True) is False,
             "timings": {"triage": time.perf_counter() - started},
         }
 

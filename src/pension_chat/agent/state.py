@@ -77,6 +77,9 @@ class PensionAgentState(TypedDict, total=False):
     subject_suggestion: dict[str, Any] | None
     # People whose record could not be read this turn -- distinct from "no record".
     unavailable_people: list[str]
+    # The record source finds people by name but its directory has never loaded,
+    # so a name in this question could not be looked up (spec §6, §7).
+    names_unavailable: bool
     messages: Annotated[list[BaseMessage], operator.add]
     turn_index: Annotated[int, operator.add]
     # The provision this conversation settled on: section, subsection,
@@ -376,6 +379,7 @@ def initial_state(
         "pinned_people": {},
         "subject_suggestion": None,
         "unavailable_people": [],
+        "names_unavailable": False,
         "question": question,
         "messages": list(history or []) + [HumanMessage(content=question)],
         "turn_index": 0,

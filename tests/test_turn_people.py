@@ -150,3 +150,25 @@ def test_a_comparison_naming_one_new_person_keeps_the_previous_ones() -> None:
     assert d.people == ["M-1", "M-2"]
     assert decide("QW_XZ PL_MR at 62?", [B, A], ["M-1"], []).people == ["M-2"]      # no comparison: just B
     assert decide("both of them vs RO_BK TA_NE", [A, B, C], ["M-1", "M-2"], []).people == ["M-1", "M-2", "M-3"]
+
+
+class _NotLoaded(_Stub):
+    names_ready = False
+
+    def names_in(self, text):
+        return []
+
+
+async def test_triage_says_when_names_could_not_be_looked_up() -> None:
+    # Demo check 6 (2026-10-01): with PBMS down at startup the directory never
+    # loaded, the name in the question matched nothing, and the turn answered
+    # as if nobody had been named (spec §6, §7: name search reports itself unavailable).
+    with use_provider(_NotLoaded()):
+        out = await nodes.triage(_state("What would LI_MO GA_RD get at 62?"))
+    assert out["names_unavailable"] is True
+
+
+async def test_a_loaded_directory_is_not_reported_unavailable() -> None:
+    with use_provider(_Stub()):
+        out = await nodes.triage(_state("What is Tier 2?"))
+    assert not out.get("names_unavailable")

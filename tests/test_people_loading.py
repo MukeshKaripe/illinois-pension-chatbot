@@ -146,3 +146,19 @@ def test_a_stated_salary_may_stand_in_for_a_fund_records_gap_in_a_one_person_tur
     assert _may_take_stated_salary({**fund, "people": {"M-1": {}}})
     assert not _may_take_stated_salary({**fund, "people": {"M-1": {}, "M-2": {}}})  # whose salary? never guess
     assert not _may_take_stated_salary({"employee_record": {"id": "member-own"}})  # a member's own record
+
+
+def test_the_context_says_when_names_could_not_be_looked_up() -> None:
+    state = {**initial_state("q", "s"), "names_unavailable": True}
+    assert "could not be looked up" in _context(state)
+    assert "could not be looked up" not in _context(initial_state("q", "s"))
+
+
+def test_with_names_unavailable_the_answer_speaks_to_the_employer() -> None:
+    # Demo check 6: "I can't give your pension amount" to an employer asking
+    # about an employee whose record could not be read.
+    from pension_chat.agent.loop import _audience
+
+    said = _audience({**initial_state("q", "s"), "names_unavailable": True})
+    assert "employer" in said and "never 'you' or 'your'" in said and "could not be read" in said
+    assert _audience(initial_state("q", "s")) == ""
