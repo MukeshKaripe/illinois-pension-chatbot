@@ -415,3 +415,20 @@ Nothing ever falls back to Postgres or to a default value.
     - a comparison of two and of three people (the expected figures are worked per person);
     - a singular pronoun after a comparison, which must ask.
   - Cases without `people:` run exactly as before.
+
+## 9. Demo check (2026-10-01)
+
+Run against PBMS Dev (`RECORD_SOURCE=pbms`) with migration 009 applied; startup logged "PBMS name directory loaded: 12920 names". Names were sampled from the directory and are not recorded here.
+
+1 ✓ 2 ✓ 3 ✓ 4 ✓ 5 ✓ 6 ✓ (after `397f29a`)
+
+1. **One match.** Confirm card, **Use** adds a highlighted chip and answers; the calculation card reads "PBMS record"; no MEAB ID in the page (checked in the DOM).
+2. **A shared name.** 2 matches list with department and birth year; 19 matches show departments first with counts, and a department narrows the list. *Note:* three same-named members in one department, all born 2001, rendered as identical rows; nothing on the row tells them apart (possibly Dev's masking).
+3. **Follow-ups.** "And at 65?" answered for the same person with no card; naming a second person gave their card, and the highlight moved to their chip.
+4. **A comparison.** One table with a row each ("—" for the member with no computable figure), both chips highlighted, one card for the one figure. "What would she get?" asked which.
+5. **A fifth person.** The least recent person was dropped; `sessions.subjects` held four, most recent first.
+6. **PBMS down.** First run failed: the directory never loaded, the name matched nothing, and the answer addressed the employer as the employee. Fixed in `397f29a` (§6: name search reports itself unavailable); the answer now opens "…'s record could not be read because the fund's directory is unavailable".
+
+**Success criterion 5.** S13-002 (comparison) TTFT 7.18 s against S4-007 (one person) 6.70 s: within 1 s.
+
+**Found, not fixed here.** Figures are wrong where the registry's agent-derived formulas are used: a Tier 1 member aged 55–65 was given §8-136's $600 minimum at every age, and Tier 2 omits §1-160(d)'s reduction (S4-007/S13: $28,244.13 against $19,770.89). The hand-written core formulas are not approved in this database; the general derivation fix (provisions that override without being cited) is deferred. Also seen: the comparison's prose cited §8-138 while its card showed §8-136(a); its assumptions said both "stop working today" and "continuous employment to age 62"; and "What tier is X in?" also started a retirement calculation.
