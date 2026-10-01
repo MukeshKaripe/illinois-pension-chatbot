@@ -1363,6 +1363,34 @@ def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _tier_unasked(state: dict[str, Any]) -> str:
+    """A described person's figure rests on one tier, and nobody has said which.
+
+    When both tiers price, `_branched` shows both. When one does not pay at the
+    age asked (Tier 2 before 62) it drops out, and the answer silently became
+    Tier 1's: "61, 10 years, $50k" got $12,000 and no word that the tier was
+    open, so the next turns were spent discovering it (live, 2026-10-01). Read
+    from what the person typed, with the same rule the engine branches on.
+    """
+    if state.get("employee_record") or _branched(state):
+        return ""
+    results = [e for e in (state.get("calculation_result") or {}).values() if isinstance(e, Mapping)]
+    if not any((e.get("base") or {}).get("ok") or e.get("scenarios") for e in results):
+        return ""
+    from pension_chat.agent.nodes import _described_tiers, _member_words
+
+    if len(_described_tiers(_member_words(state), (state.get("coverage") or {}).get("article"))) < 2:
+        return ""
+    return (
+        "Nobody has said when this person first became a member, and that decides "
+        "their tier: before 2011 is Tier 1; from 2011 is Tier 2, which cannot begin "
+        "before age 62 and is reduced before 67. The figure here is worked under one "
+        "tier only. Say which tier it assumes and that under the other the answer "
+        "differs, and ask what year they first became a member -- in the same "
+        "question as anything else you need."
+    )
+
+
 def _live_options(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """The options the member is actually choosing between.
 
@@ -1379,12 +1407,22 @@ def _live_options(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if len(people) > 1:
         # Several people: the PEOPLE table is the comparison.
         return {}
+    results = [e for e in (state.get("calculation_result") or {}).values() if isinstance(e, Mapping)]
+    if any(e.get("branch") for e in results):
+        # Both tiers priced: the tier table is the comparison, and options
+        # filed under either would mix them.
+        return {}
+    # Options worked under another formula are not this answer's: once "joined
+    # 2012" settled Tier 2, Tier 1's earlier figures stayed in the table beside
+    # it (live, 2026-10-01). Options filed before formulas were recorded stay.
+    current = {e.get("formula_name") for e in results if e.get("formula_name")}
     return {
         label: dict(entry)
         for label, entry in (state.get("scenario_set") or {}).items()
         if SUPERSEDED_MARK not in label and isinstance(entry, Mapping)
         # With the fund's records, only this turn's person's own options.
         and (not people or entry.get("person_ref") in people)
+        and (not current or not entry.get("formula") or entry.get("formula") in current)
     }
 
 
@@ -1931,6 +1969,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+
+    if tier_open := _tier_unasked(state):
+        messages.append({"role": "system", "content": tier_open})
 
     if comparison := _branched(state):
         # The block has to be where the decision is made. A model told only

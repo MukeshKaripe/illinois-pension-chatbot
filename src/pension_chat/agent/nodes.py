@@ -2050,7 +2050,12 @@ async def execute_calculations(state: PensionAgentState) -> dict:
             "base": run(base_inputs),
         }
 
-        described_age = None if employee else _described_age(base_inputs)
+        # A formula that takes no age (Tier 1's) still has a person with one:
+        # what they said. Without it their what-if was refused as needing a
+        # record (live, 2026-10-01).
+        described_age = (
+            None if employee else _described_age(base_inputs) or _latest_stated(_stated_age, state)
+        )
 
         # Retiring now is a scenario too, and the formula may not pay it yet.
         # The recipe gate tests the age the question is about, so a turn asking
@@ -2117,7 +2122,7 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                     scenario_inputs = {**base_inputs, **scenario_facts, **user_supplied}
                     evaluation = facts_for_evaluation(scenario_facts, user_supplied)
                 else:
-                    moved = _described_at_age(base_inputs, int(age), date.today())
+                    moved = _described_at_age(base_inputs, int(age), date.today(), described_age)
                     if moved is None:
                         unresolved.append(
                             {
@@ -2368,9 +2373,14 @@ they joined, whether a disability happened on duty, how long a spouse was
 married to them, which benefit they mean -- end the answer with one direct
 question that asks for exactly what would let you finish. Name every missing
 item in that one question, in plain words ("their age", not "birth_date"); an
-age is enough wherever a date of birth would be. Ask only for what the answer
-turns on, and never ask for something already said in the conversation or shown
-as on file. When nothing is missing, do not ask anything.
+age is enough wherever a date of birth would be. Ask for everything at once --
+never one item now and the next item on the following turn. Ask about facts the
+person knows -- their age, years of service, salary, the year they first became
+a member -- never about how the Code classifies them (their tier, whether their
+fund is an "affected pension fund"); you work the classification out from what
+they tell you. Ask only for what the answer turns on, and never ask for
+something already said in the conversation or shown as on file. When nothing is
+missing, do not ask anything.
 
 
 CITING
@@ -2531,7 +2541,9 @@ def _described_age(inputs: Mapping[str, Any]) -> int | None:
     return None
 
 
-def _described_at_age(inputs: Mapping[str, Any], age: int, today: date) -> dict[str, Any] | None:
+def _described_at_age(
+    inputs: Mapping[str, Any], age: int, today: date, now: int | None = None
+) -> dict[str, Any] | None:
     """A described employee's inputs moved to retiring at `age`, or None without an age.
 
     With no record nothing can be re-derived, but their stated age is enough to
@@ -2545,7 +2557,7 @@ def _described_at_age(inputs: Mapping[str, Any], age: int, today: date) -> dict[
     "already older" left the answer re-showing the age-65 figure (live,
     2026-10-01).
     """
-    now = _described_age(inputs)
+    now = _described_age(inputs) if now is None else now
     if now is None:
         return None
     born = inputs.get("birth_date")

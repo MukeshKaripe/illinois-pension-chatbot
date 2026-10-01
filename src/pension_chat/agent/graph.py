@@ -624,6 +624,9 @@ def _recorded_scenarios(
                 "service_years"
             ),
             "section": entry.get("section"),
+            # Which formula worked it, so a later answer under another (a tier
+            # settled since) does not show it as one of its own options.
+            "formula": entry.get("formula_name"),
             "turn": turn,
             # A variant is the same recipe over the same inputs at a
             # different retirement date, so it rests on the same values the
@@ -645,6 +648,7 @@ def _recorded_scenarios(
                 None,
             ),
             "section": entry.get("section"),
+            "formula": entry.get("formula_name"),
             "turn": turn,
             "rests_on": list(inputs_used),
         }

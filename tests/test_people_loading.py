@@ -175,3 +175,35 @@ def test_the_context_says_a_salary_basis_is_on_file_without_the_number() -> None
     on_file = next(line for line in _context(state).splitlines() if line.startswith("What is on file"))
     assert "final average salary" in on_file and "compute_benefit" in on_file
     assert "83435" not in on_file   # the engine uses the figure; the model is not handed it
+
+
+def test_an_open_tier_is_said_and_asked_about_when_one_tier_was_priced() -> None:
+    # Live, 2026-10-01: "61, 10 years, $50k" got a Tier 1 figure alone -- Tier 2
+    # does not pay at 61 and dropped out -- and no word that the tier was
+    # unknown, so the next turns were spent finding that out.
+    from langchain_core.messages import HumanMessage
+
+    from pension_chat.agent.loop import _tier_unasked
+
+    said = "a person with 10 years of service at 61 years of age at an average salary of $50k"
+    state = {**initial_state(said, "s"), "messages": [HumanMessage(content=said)],
+             "coverage": {"article": "8"},
+             "calculation_result": {"retirement_annuity": {"base": {"ok": True, "annual_amount": "12000.00"}}}}
+    block = _tier_unasked(state)
+    assert "first became a member" in block and "62" in block
+    with_year = said + ", joined in 2005"
+    joined = {**state, "messages": [HumanMessage(content=with_year)], "question": with_year}
+    assert _tier_unasked(joined) == ""
+
+
+def test_old_options_from_another_formula_are_not_shown_beside_this_turns_figure() -> None:
+    # Live, 2026-10-01: once "joined 2012" settled Tier 2, the options table
+    # still showed Tier 1's earlier $12,000 / $18,000.
+    from pension_chat.agent.loop import _live_options
+
+    state = {**initial_state("q", "s"),
+             "calculation_result": {"retirement_annuity": {"formula_name": "Tier 2", "base": {"ok": False}}},
+             "scenario_set": {"if you retire now": {"annual_amount": "12000.00", "formula": "Tier 1"},
+                              "at age 66 (5 more years)": {"annual_amount": "18000.00", "formula": "Tier 1"},
+                              "at age 66": {"annual_amount": "16920.00", "formula": "Tier 2"}}}
+    assert list(_live_options(state)) == ["at age 66"]

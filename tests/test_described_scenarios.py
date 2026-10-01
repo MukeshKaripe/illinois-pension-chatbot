@@ -117,3 +117,23 @@ def test_the_tool_result_says_retiring_now_does_not_pay_and_gives_the_what_if() 
     }}, [], None, [])
     assert "not payable now" in text and "62" in text
     assert "at age 66: 11280.00 a year" in text
+
+
+async def test_a_what_if_uses_the_stated_age_when_the_formula_takes_none() -> None:
+    # Live, 2026-10-01: the Tier 1 formula takes no age, so a described
+    # person's what-if was refused as needing "the member's record, which is
+    # only available when signed in" -- though they had said they were 61.
+    from langchain_core.messages import HumanMessage
+
+    tier_1 = next(f for f in CORE_FORMULAS if f["tier"] == 1)
+    said = "a person with 10 years of service and at 61 years of age at an average salary of $50k"
+    state = {
+        "employee_record": None, "member_facts": {}, "salary_history": [], "can_execute": True,
+        "messages": [HumanMessage(content=said)], "question": "what if they retire 5 years later?",
+        "recipes": {"retirement_annuity": {"spec": tier_1["spec"], "section": "8-138"}},
+        "resolved_inputs": {"final_average_salary": 50000, "service_years": 10},
+        "scenarios": [{"label": "5 more years", "years_from_now": 5}],
+    }
+    out = await nodes.execute_calculations(state)
+    (at_66,) = out["calculation_result"]["retirement_annuity"]["scenarios"]
+    assert Decimal(at_66["annual_amount"]) == 18000      # 50,000 x 2.4% x 15

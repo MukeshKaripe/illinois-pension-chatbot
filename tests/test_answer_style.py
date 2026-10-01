@@ -264,3 +264,9 @@ def test_an_answer_that_falls_short_asks_for_what_is_missing() -> None:
     assert "ASKING" in prompt
     assert "one direct question" in prompt
     assert "Name every missing item" in prompt
+
+
+def test_asking_is_all_at_once_and_in_facts_the_person_knows() -> None:
+    prompt = " ".join(ANSWER_SYSTEM.split())
+    assert "the year they first became a member" in prompt
+    assert "never about how the Code classifies them" in prompt
