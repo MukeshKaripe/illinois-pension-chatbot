@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { cardsFrom, isStopped, type CalculationCardData } from "@/lib/card";
 import { allChosen, suggestionFrom, whichOneQuestion, type Person, type Suggestion } from "@/lib/subject";
 import { linkSections, sectionFromHref } from "@/lib/sections";
+import { splitStreaming } from "@/lib/streaming";
 import type { Message } from "@/lib/types";
 import { CalculationCard } from "./CalculationCard";
 import { SubjectChoice } from "./SubjectChoice";
@@ -63,13 +64,7 @@ export function ChatMessage({
   const stopped = message.stopped || isStopped(message.tool_calls);
   const verified = message.verified_citations ?? [];
 
-  // Markdown is re-parsed on every token, so a half-written table renders as
-  // literal pipes until its row closes. Everything up to the last blank line is
-  // complete enough to parse; the tail after it is shown as plain text and
-  // re-renders as markdown the moment the block closes.
-  const split = isStreaming ? message.content.lastIndexOf("\n\n") : -1;
-  const settled = split > 0 ? message.content.slice(0, split) : message.content;
-  const tail = split > 0 ? message.content.slice(split) : "";
+  const { settled, tail } = splitStreaming(message.content, Boolean(isStreaming));
 
   return (
     <div>
