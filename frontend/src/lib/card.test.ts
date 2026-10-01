@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardBadge, cardFrom, cardHeadline, cardsFrom, formatMoney, isStopped, sourceLabel } from "./card.ts";
+import {
+  calculationSummary, cardBadge, cardFrom, cardHeadline, cardsFrom, formatMoney, isStopped, receiptText, sourceLabel,
+  whatIfQuestions, type CalculationCardData,
+} from "./card.ts";
 
 const card = {
   type: "card",
@@ -82,4 +85,52 @@ test("today's figure filed as a scenario is not a what-if", () => {
     scenarios: [{ label: "0 more years", annual_amount: "51403.06" }] });
   assert.equal(h.label, null);
   assert.equal(h.others.length, 0);
+});
+
+const recordCard: CalculationCardData = {
+  ...card,
+  type: "card",
+  section: "8-138",
+  subsection: "(g-1)",
+  annual_amount: "51403.06",
+  monthly_amount: "4283.59",
+  formula_name: "Tier 1 retirement annuity at 60 or over: 2.4% per year, capped at 80% (Section 8-138(g-1))",
+  record_label: "PBMS record",
+  inputs: [
+    { name: "final_average_salary", label: "Final average salary", value: "83435.68", source: "record" },
+    { name: "service_years", label: "Years of service", value: "25.67", source: "record" },
+  ],
+  scenarios: [],
+};
+
+test("the receipt is one line: figure, section, where the inputs came from", () => {
+  assert.equal(receiptText(recordCard), "$51,403.06 a year · § 8-138(g-1) · from PBMS record");
+});
+
+test("a what-if receipt leads with the what-if and keeps today's figure", () => {
+  const text = receiptText({ ...recordCard, scenarios: [{ label: "at age 65 (2 more years)", annual_amount: "54851.50" }] });
+  assert.equal(text, "at age 65 (2 more years): $54,851.50 a year (now $51,403.06) · § 8-138(g-1) · from PBMS record");
+});
+
+test("a receipt says when retiring now does not pay", () => {
+  const text = receiptText({ ...recordCard, annual_amount: null, not_payable_now: "retiring at 62 or over",
+    record_label: null, inputs: [{ name: "service_years", label: "Years of service", value: "10", source: "stated" }],
+    scenarios: [{ label: "at age 66", annual_amount: "16920.00" }] });
+  assert.equal(text, "at age 66: $16,920.00 a year · retiring now: not payable yet · § 8-138(g-1) · from what you said");
+});
+
+test("what-if questions name the person when there is one", () => {
+  const asks = whatIfQuestions({ ...recordCard, person: "TH_FN O'_LN" });
+  assert.deepEqual(asks.map((a) => a.label), ["At 60", "At 62", "At 65", "At 67", "+1 year", "+2 years"]);
+  assert.equal(asks[2].question, "What if TH_FN O'_LN retires at 65?");
+  assert.equal(whatIfQuestions(recordCard)[4].question, "What if they retire 1 year later?");
+});
+
+test("the summary carries the formula, inputs with sources, figure and the estimate note", () => {
+  const text = calculationSummary(recordCard);
+  assert.match(text, /2\.4% per year/);
+  assert.match(text, /Final average salary: 83435\.68 \(PBMS record\)/);
+  assert.match(text, /\$51,403\.06 a year \(\$4,283\.59 a month\)/);
+  assert.match(text, /40 ILCS 5\/8-138\(g-1\)/);
+  assert.match(text, /estimate/i);
 });

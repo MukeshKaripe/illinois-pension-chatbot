@@ -561,7 +561,15 @@ export function ChatInterface() {
           {panel.kind === "section" ? (
             <EvidencePanel key={panel.section} section={panel.section} />
           ) : panel.kind === "calculation" ? (
-            <CalculationPanel card={panel.card} />
+            <CalculationPanel
+              card={panel.card}
+              busy={isStreaming}
+              onOpenSection={(section) => setPanel({ kind: "section", section })}
+              onAsk={(question) => {
+                setPanel(null);
+                void send(question);
+              }}
+            />
           ) : panel.kind === "profile-edit" ? (
             editing && (
               <ProfilePanel
