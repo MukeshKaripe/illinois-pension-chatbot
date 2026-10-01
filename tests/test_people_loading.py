@@ -162,3 +162,16 @@ def test_with_names_unavailable_the_answer_speaks_to_the_employer() -> None:
     said = _audience({**initial_state("q", "s"), "names_unavailable": True})
     assert "employer" in said and "never 'you' or 'your'" in said and "could not be read" in said
     assert _audience(initial_state("q", "s")) == ""
+
+
+def test_the_context_says_a_salary_basis_is_on_file_without_the_number() -> None:
+    # Live, 2026-10-01: "how is their pension calculated?" for a member with
+    # four years of PBMS salary was answered "their final average salary is not
+    # available here" -- the on-file line listed age, service and tier only, so
+    # the model concluded there was no salary and never called compute_benefit.
+    state = {**initial_state("q", "s"), "member_facts": {
+        "age": 63, "service_years": 25.67, "tier": 1, "article_number": 8,
+        "final_average_salary": 83435.6825}}
+    on_file = next(line for line in _context(state).splitlines() if line.startswith("What is on file"))
+    assert "final average salary" in on_file and "compute_benefit" in on_file
+    assert "83435" not in on_file   # the engine uses the figure; the model is not handed it

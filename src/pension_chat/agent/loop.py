@@ -286,6 +286,14 @@ def _context(state: dict[str, Any]) -> str:
                 "employment_status_on_record",
             }
         )
+        # The salary basis is said to exist, not given: the engine uses the
+        # figure, and a model handed it reaches for it. Left unsaid, the model
+        # read its absence from this line as "their final average salary is not
+        # available" and never called compute_benefit (live, 2026-10-01).
+        if facts.get("final_average_salary") is not None:
+            known = (f"{known}, " if known else "") + (
+                "final average salary (from the salary history; compute_benefit uses it)"
+            )
         lines.append(f"What is on file for this member: {known or 'nothing usable'}")
     elif state.get("member_facts"):
         # There is a record; this turn may not use it. Saying so is the
