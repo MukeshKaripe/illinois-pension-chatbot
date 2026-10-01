@@ -120,3 +120,22 @@ def test_no_verdict_keeps_the_old_sentence():
     been given a verdict must not silently get the new instructions."""
     text = _described([{"name": "final_average_salary", "ask_for": "your salary"}], "")
     assert "Could not compute: missing your salary" in text
+
+
+def test_a_value_gap_ends_with_a_direct_question():
+    # Live, 2026-10-01: "the chat bot did not ask me about the required details"
+    # -- the answer listed what it lacked as a statement, and asked for a birth
+    # date where an age is enough.
+    text = _described(
+        [{"name": "service_years", "ask_for": "how many years of service you have with the fund"},
+         {"name": "birth_date", "ask_for": "your age (or date of birth)"}],
+        "worked_example",
+    )
+    assert "one direct question" in text
+    assert "how many years of service you have with the fund" in text
+
+
+def test_a_birth_date_is_asked_for_as_an_age() -> None:
+    from pension_chat.agent.nodes import _ASK_INSTEAD
+
+    assert _ASK_INSTEAD["birth_date"].startswith("your age")

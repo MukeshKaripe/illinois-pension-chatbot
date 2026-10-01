@@ -654,7 +654,8 @@ def _describe(
                 f"Not enough to compute this member's own figure: missing {wants}. "
                 "Do NOT stop at saying so. Set out how the provision computes the "
                 "benefit, work it through on the figures the Code itself states, "
-                "and then say exactly what you would need to make it theirs."
+                "and then say exactly what you would need to make it theirs -- "
+                f"ending with one direct question that asks for it ({wants})."
             )
         else:
             lines.append(

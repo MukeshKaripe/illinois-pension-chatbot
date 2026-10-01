@@ -1096,6 +1096,9 @@ _ASK_INSTEAD = {
     "age_at_annuity_start": "your date of birth",
     "age_at_withdrawal": "your date of birth",
     "withdrawal_date": "the date you plan to stop working",
+    # A stated age places the birth date (assumption_policy), so an age is
+    # enough -- asking for a date of birth asks for more than the figure needs.
+    "birth_date": "your age (or date of birth)",
     "creditable_service_years": "how many years of service you have with the fund",
     "service_years": "how many years of service you have with the fund",
     "highest_average_annual_salary_4yr": (
