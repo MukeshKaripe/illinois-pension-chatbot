@@ -54,6 +54,10 @@ export function CalculationCard({ card, onOpen, onOpenSection }: CalculationCard
         )}
       </div>
 
+      {card.not_payable_now && (
+        <p className="mt-2 text-sm text-muted-foreground">Retiring now: not payable yet</p>
+      )}
+
       {headline.others.length > 0 && (
         <ul className="mt-2 space-y-0.5 text-sm tabular-nums text-muted-foreground">
           {headline.others.map((other) => (

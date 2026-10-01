@@ -2051,6 +2051,22 @@ async def execute_calculations(state: PensionAgentState) -> dict:
         }
 
         described_age = None if employee else _described_age(base_inputs)
+
+        # Retiring now is a scenario too, and the formula may not pay it yet.
+        # The recipe gate tests the age the question is about, so a turn asking
+        # "at 66" let the base run at 61 under a Tier 2 formula that begins no
+        # earlier than 62 -- "Retiring now: $8,040" (live, 2026-10-01). Tested
+        # here at today's age; the what-ifs below are tested at their own.
+        if entry["base"].get("ok"):
+            today_facts = (
+                facts_for_evaluation(member_facts, user_supplied)
+                if employee
+                else {**base_inputs, **({"age": described_age, "age_at_annuity_start": described_age}
+                                        if described_age is not None else {})}
+            )
+            now = evaluate_predicates(spec.get("applicability_predicates"), today_facts)
+            if now.blocks_execution:
+                entry["base"] = {"ok": False, "not_applicable": now.summary()}
         if scenarios and not employee and described_age is None:
             unresolved.extend(
                 {

@@ -229,10 +229,15 @@ def render_branches(results: Mapping[str, Any], unresolved: Any = ()) -> str:
     for key, entry in entries:
         branch = entry.get("branch") or {}
         base = entry.get("base") or {}
-        if not branch or not base.get("ok"):
+        # A branch that does not pay today (Tier 2 before 62) still has a row:
+        # its what-if's figure when one was asked, else "not payable now".
+        if not branch or not (base.get("ok") or base.get("not_applicable")):
             continue
         condition = f"{_label(str(branch.get('fact') or ''))} {branch.get('value')}"
         section = entry.get("section") or ""
+        if asked is None and not base.get("ok"):
+            rows.append(f"| {condition} | not payable now | | {section} |")
+            continue
         if asked is None:
             rows.append(f"| {condition} | {_money(base.get('annual_amount'))} | "
                         f"{_money(base.get('monthly_amount'))} | {section} |")

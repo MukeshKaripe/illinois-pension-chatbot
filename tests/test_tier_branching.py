@@ -201,3 +201,27 @@ def test_a_what_if_shows_each_tiers_figure_at_that_age():
     assert "5 years earlier" in table
     assert "36,000" in table and "38,000" not in table
     assert "31,000" not in table and "not payable" in table
+
+
+def test_a_tier_that_does_not_pay_today_still_shows_its_what_if():
+    asked = {
+        "retirement_annuity@tier1": {**_PRICED["retirement_annuity@tier1"],
+                                     "scenarios": [{"label": "at age 66", "annual_amount": "12000.00",
+                                                    "monthly_amount": "1000.00"}]},
+        "retirement_annuity@tier2": {"branch": {"fact": "tier", "value": 2}, "section": "8-138",
+                                     "base": {"ok": False, "not_applicable": "retiring at 62 or over (member: 61)"},
+                                     "scenarios": [{"label": "at age 66", "annual_amount": "11280.00",
+                                                    "monthly_amount": "940.00"}]},
+    }
+    table = render_branches(asked)
+    assert "12,000" in table and "11,280" in table
+
+
+def test_without_a_what_if_a_tier_that_does_not_pay_today_says_so():
+    now = {
+        "retirement_annuity@tier1": _PRICED["retirement_annuity@tier1"],
+        "retirement_annuity@tier2": {"branch": {"fact": "tier", "value": 2}, "section": "8-138",
+                                     "base": {"ok": False, "not_applicable": "retiring at 62 or over (member: 61)"}},
+    }
+    table = render_branches(now)
+    assert "38,000" in table and "not payable now" in table

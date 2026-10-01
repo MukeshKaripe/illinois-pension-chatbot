@@ -34,6 +34,8 @@ export type CalculationCardData = {
   record_label?: string | null;
   /** Whose figure, when the turn compared several people. */
   person?: string | null;
+  /** Why retiring today has no figure (Tier 2 before 62), when only a what-if was priced. */
+  not_payable_now?: string | null;
 };
 
 /** The card's badge: an estimate, and whether its fund is experimental. */

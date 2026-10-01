@@ -46,12 +46,17 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
     """The first successful result as a card, or None when nothing computed."""
     for entry in (state.get("calculation_result") or {}).values():
         base = (entry or {}).get("base") or {}
-        if not base.get("ok"):
+        priced = [s for s in (entry or {}).get("scenarios") or [] if s.get("annual_amount")]
+        # Retiring now may not pay yet (Tier 2 before 62) while the what-if
+        # asked about does: the card then carries the what-if alone and says
+        # why today has no figure.
+        if not base.get("ok") and not (base.get("not_applicable") and priced):
             continue
+        used = base.get("inputs_used") if base.get("ok") else (priced[0].get("inputs_used") or {})
 
         origins = state.get("input_sources") or {}
         inputs = []
-        for name, value in (base.get("inputs_used") or {}).items():
+        for name, value in (used or {}).items():
             fact = _fact_for(sheet, name)
             inputs.append(
                 {
@@ -78,8 +83,9 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
             # Only an approved recipe may present a figure as anything but an
             # estimate (architecture doc §7.2).
             "estimate": entry.get("execution_policy") != "authoritative",
-            "annual_amount": base.get("annual_amount"),
-            "monthly_amount": base.get("monthly_amount"),
+            "annual_amount": base.get("annual_amount") if base.get("ok") else None,
+            "monthly_amount": base.get("monthly_amount") if base.get("ok") else None,
+            "not_payable_now": None if base.get("ok") else base.get("not_applicable"),
             "inputs": inputs,
             "scenarios": [
                 {

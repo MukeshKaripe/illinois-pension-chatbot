@@ -605,6 +605,16 @@ def _describe(
     lines: list[str] = []
     for formula_type, entry in (result or {}).items():
         base = (entry or {}).get("base") or {}
+        if not base.get("ok") and base.get("not_applicable"):
+            # Said, so the answer does not price today from the what-if.
+            lines.append(
+                f"{formula_type}: not payable now under Section {entry.get('section')} -- "
+                f"{base['not_applicable']}. Say so; do not give a figure for retiring now."
+            )
+            for variant in entry.get("scenarios") or []:
+                if variant.get("annual_amount"):
+                    lines.append(f"  {variant.get('label')}: {variant.get('annual_amount')} a year")
+            continue
         if base.get("ok"):
             lines.append(
                 f"{formula_type}: {base.get('annual_amount')} a year "
