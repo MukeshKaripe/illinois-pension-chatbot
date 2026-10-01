@@ -713,7 +713,12 @@ _JOINED_RE = re.compile(
 #: "is 62" / "aged 56" / "age 60" / "58-year-old" -- an adult working age.
 _AGE_RE = re.compile(
     r"(?:\b(?:is|aged?)\s+([2-8]\d)\b(?!\s*(?:years? of service|%|\.\d)))"
-    r"|(?:\b([2-8]\d)[- ]years?[- ]old\b)",
+    r"|(?:\b([2-8]\d)[- ]years?[- ]old\b)"
+    # "at 40 years of age"; "they are 65", "I'm 58" -- after a pronoun only, so
+    # "years of service are 25" is never read as an age (live, 2026-10-01).
+    r"|(?:\b([2-8]\d)\s+years?\s+of\s+age\b)"
+    r"|(?:\b(?:i\s+am|i'm|they\s+are|they're|he\s+is|she\s+is|he's|she's)\s+([2-8]\d)\b"
+    r"(?!\s*(?:years? of service|%|\.\d)))",
     re.IGNORECASE,
 )
 
@@ -1273,6 +1278,25 @@ def _input_origins(
     return origins
 
 
+def _latest_stated(reader: Any, state: Mapping[str, Any]) -> Any:
+    """What `reader` finds in the member's most recent message that has one.
+
+    Newest first: a correction ("final average salary is $85k") replaces what
+    was said turns before ("$80k"). Reading everything they had typed as one
+    text returned the first mention, and the correction never landed.
+    """
+    said = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    said.append(str(state.get("question") or ""))
+    for text in reversed(said):
+        if (found := reader(text)) is not None:
+            return found
+    return None
+
+
 def _member_words(state: PensionAgentState) -> str:
     """Everything the member themselves has typed in this conversation.
 
@@ -1537,7 +1561,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # A described employee's age, read as written ("is 62", "aged 56", "a
     # 58-year-old") when the extraction step did not hear it -- it varies run to
     # run, and an age the user typed must not become a question back to them.
-    stated_age = None if state.get("employee_record") else _stated_age(spoken)
+    stated_age = None if state.get("employee_record") else _latest_stated(_stated_age, state)
     if stated_age is not None:
         for name in declared:
             if name in aliases_of("age") and name not in resolved:
@@ -1569,7 +1593,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     if stated_age is not None:
         known.setdefault("age", stated_age)
     if _may_take_stated_salary(state):
-        stated_salary = _stated_annual_salary(spoken)
+        stated_salary = _latest_stated(_stated_annual_salary, state)
         if stated_salary is not None:
             known["stated_annual_salary"] = stated_salary
     assumed, assumed_origins, still_missing = apply_assumptions(
@@ -2059,6 +2083,10 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                         }
                     )
                     continue
+                if scenario.get("years_from_now") is not None and scenario.get("retirement_age") is None:
+                    # "5 years earlier" alone was written up as "At age 5 years
+                    # earlier"; the age it resolved to says what it means.
+                    scenario = {**scenario, "label": f"at age {age} ({scenario.get('label')})"}
                 if employee:
                     scenario_facts = build_member_facts(
                         employee,
@@ -2078,14 +2106,16 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                         unresolved.append(
                             {
                                 "label": scenario.get("label") or f"at age {age}",
-                                "reason": f"they are already older than {age}",
+                                "reason": "their age is not known",
                             }
                         )
                         continue
                     # Only the dates and ages move; what the user said stands.
                     scenario_inputs = {**base_inputs, **moved}
                     scenario_facts = scenario_inputs
-                    evaluation = scenario_inputs
+                    # The age is tested even where no input carries it, so a
+                    # formula's "no earlier than 60" is asked at this age.
+                    evaluation = {**scenario_inputs, "age": int(age), "age_at_annuity_start": int(age)}
 
                 # Applicability is a question about a member at a date, not
                 # about a member — so it is re-asked at each retirement age. A
@@ -2099,6 +2129,8 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                     unresolved.append(
                         {
                             "label": scenario.get("label") or f"at age {age}",
+                            # Which branch, so its row can say it does not pay.
+                            "formula_type": formula_type,
                             "reason": (
                                 f"at that retirement age {recipe.get('section') or 'the provision'} "
                                 f"does not apply: {applicable.summary()}"
@@ -2481,22 +2513,33 @@ def _described_age(inputs: Mapping[str, Any]) -> int | None:
 
 
 def _described_at_age(inputs: Mapping[str, Any], age: int, today: date) -> dict[str, Any] | None:
-    """A described employee's inputs moved to retiring at `age`, or None if that age has passed.
+    """A described employee's inputs moved to retiring at `age`, or None without an age.
 
     With no record nothing can be re-derived, but their stated age is enough to
     move the retirement date: ages become `age`, and the annuity start and
-    withdrawal dates move to that birthday. The birth date, and everything the
-    user stated -- salary, service -- stand as given.
+    withdrawal dates move to that birthday. Everything the user stated --
+    salary, service -- stands as given.
+
+    An age younger than today's ("what if I retire 5 years early?" from someone
+    of 65) is priced as if they were that age now: the person moves, not the
+    calendar, so the birth date shifts and the dates stay today. Refusing it as
+    "already older" left the answer re-showing the age-65 figure (live,
+    2026-10-01).
     """
     now = _described_age(inputs)
-    if now is None or age < now:
+    if now is None:
         return None
     born = inputs.get("birth_date")
-    if born:
+    moved: dict[str, Any] = {}
+    if age < now:
+        when = today
+        if born:
+            moved["birth_date"] = nth_birthday(date.fromisoformat(str(born)), now - age).isoformat()
+    elif born:
         when = max(nth_birthday(date.fromisoformat(str(born)), age), today)
     else:
         when = nth_birthday(today, age - now) if age > now else today
-    moved: dict[str, Any] = {"as_of_date": when.isoformat()}
+    moved["as_of_date"] = when.isoformat()
     for name in inputs:
         if name in aliases_of("age"):
             moved[name] = age
@@ -2561,12 +2604,17 @@ def _stated_in(value: Any, text: str) -> bool:
     # against "at age 60", and the inferred value then overrode the record: the
     # early-retirement reduction silently became zero while service stayed at
     # 21.5 years, giving a base figure inconsistent with its own inputs.
-    for token in _NUMBER_TOKEN.findall(haystack):
+    for match in _NUMBER_TOKEN.finditer(haystack):
         try:
-            if Decimal(token.replace(",", "")) == number:
-                return True
+            written = Decimal(match.group().replace(",", ""))
         except InvalidOperation:
             continue
+        # "$85k" and "85 thousand" are 85,000 as the member wrote it.
+        if re.match(r"\s?(?:k\b|thousand\b)", haystack[match.end():]):
+            if written * 1000 == number:
+                return True
+        if written == number:
+            return True
     return False
 
 

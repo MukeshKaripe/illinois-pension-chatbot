@@ -574,7 +574,9 @@ def _scenario(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     if age is not None:
         return [{"label": f"at age {int(age)}", "retirement_age": int(age)}]
     if offset is not None:
-        return [{"label": f"{int(offset)} more years", "years_from_now": int(offset)}]
+        years = int(offset)
+        label = f"{-years} years earlier" if years < 0 else f"{years} more years"
+        return [{"label": label, "years_from_now": years}]
     return []
 
 

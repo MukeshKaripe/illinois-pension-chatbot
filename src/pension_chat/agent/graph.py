@@ -790,8 +790,12 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             provenance[name] = {
                 "value": value,
                 # What the member typed outranks the record, and the answer may
-                # need to say which was which several turns later.
-                "source": "stated" if _stated_in(value, question) else "record",
+                # need to say which was which several turns later. The origin
+                # resolve_inputs recorded comes first: re-deriving it here
+                # filed a salary worked out from "$80k" as the member's record,
+                # and their later "$85k" lost to it (live, 2026-10-01).
+                "source": (state.get("input_sources") or {}).get(name)
+                or ("stated" if _stated_in(value, question) else "record"),
                 "turn": turn,
             }
         if provenance:

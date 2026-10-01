@@ -1303,7 +1303,7 @@ def _branched(state: dict[str, Any]) -> str:
     -- and computing neither, while both figures were available from the
     registry all along.
     """
-    return render_branches(state.get("calculation_result") or {})
+    return render_branches(state.get("calculation_result") or {}, state.get("unresolved_scenarios") or [])
 
 
 #: Views the model emits by marker and code fills. A table's numbers are the
@@ -1430,7 +1430,7 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
         # Which provision applies outranks which date to pick: a member
         # who does not know their tier cannot act on a date.
         "COMPARISON": (
-            render_branches(state.get("calculation_result") or {})
+            render_branches(state.get("calculation_result") or {}, state.get("unresolved_scenarios") or [])
             or _options_table(state)
         ),
         "ASSUMPTIONS": _assumed(state),

@@ -320,6 +320,10 @@ def test_a_stated_annual_salary_is_read_from_the_users_words(said, salary) -> No
     ("Someone age 60 who joined in 2001.", 60),
     ("An employee with 11 years of service earning $80,000.", None),   # service is not an age
     ("They have 30 years and joined in 1996.", None),
+    ("a person with 10 years of service at 40 years of age", 40),
+    ("what if they are 65, then how is the pension calculated?", 65),
+    ("I'm 58 with 20 years.", 58),
+    ("years of service are 25 and final average salary is $85k", None),
 ])
 def test_a_stated_age_is_read_from_the_users_words(said, age) -> None:
     assert nodes._stated_age(said) == age
@@ -390,3 +394,39 @@ async def test_a_stated_age_gives_a_birth_date_when_the_recipe_declares_no_age(m
 ])
 def test_a_stated_salary_is_read_however_it_is_written(said, salary) -> None:
     assert nodes._stated_annual_salary(said) == salary
+
+
+def test_the_latest_stated_value_wins() -> None:
+    # Live, 2026-10-01: "$80k" on turn 1 and "final average salary is $85k" on
+    # turn 3 -- every later figure used 80,000, because the readers took the
+    # first match in everything the member had typed.
+    from langchain_core.messages import HumanMessage
+
+    said = ["a person with 10 years of service at 40 years of age at an average salary of $80k",
+            "years of service are 25 and final average salary is $85k", "my age is 65"]
+    state = {"messages": [HumanMessage(content=s) for s in said], "question": "what if i retire 5 years early?"}
+    assert nodes._latest_stated(nodes._stated_annual_salary, state) == 85000
+    assert nodes._latest_stated(nodes._stated_age, state) == 65
+
+
+def test_a_figure_written_in_thousands_counts_as_stated() -> None:
+    # Live, 2026-10-01: "final average salary is $85k" was extracted as 85000
+    # and then discarded as "not stated by the user".
+    assert nodes._stated_in(85000, "years of service are 25 and final average salary is $85k")
+    assert nodes._stated_in(72500, "earns 72.5 thousand")
+    assert not nodes._stated_in(85000, "years of service are 25")
+
+
+def test_a_value_worked_out_from_the_users_words_is_not_relabelled_record() -> None:
+    # Live, 2026-10-01: a salary derived from "$80k" was carried into the next
+    # turn as the member's *record*, so their correction to $85k lost to it.
+    from pension_chat.agent.graph import turn_record
+
+    update = turn_record({
+        "final_answer": "...", "turn_index": 2, "question": "what if they are 65?",
+        "resolved_inputs": {"final_average_salary": 80000, "service_years": 10},
+        "input_sources": {"final_average_salary": "derived", "service_years": "stated"},
+        "assumptions": {},
+    }) or {}
+    assert update["assumptions"]["final_average_salary"]["source"] == "derived"
+    assert update["assumptions"]["service_years"]["source"] == "stated"

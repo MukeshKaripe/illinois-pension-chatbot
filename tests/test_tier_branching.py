@@ -182,3 +182,22 @@ async def test_compose_hands_the_model_both_figures_and_forbids_picking():
     assert any("38,000" in text for text in system)
     assert any("<<<COMPARISON>>>" in text for text in system)
     assert "38,000" in out["answer_blocks"]["COMPARISON"]
+
+
+def test_a_what_if_shows_each_tiers_figure_at_that_age():
+    # Live, 2026-10-01: "what if I retire 5 years early?" showed each tier's
+    # age-65 figure under the what-if, Tier 2 included -- though Tier 2 cannot
+    # begin before 62. The table now shows the what-if's own figure, and says
+    # when a tier does not pay at that age.
+    asked = {
+        "retirement_annuity@tier1": {**_PRICED["retirement_annuity@tier1"],
+                                     "scenarios": [{"label": "5 years earlier", "annual_amount": "36000.00",
+                                                    "monthly_amount": "3000.00"}]},
+        "retirement_annuity@tier2": _PRICED["retirement_annuity@tier2"],
+    }
+    unresolved = [{"label": "5 years earlier", "formula_type": "retirement_annuity@tier2",
+                   "reason": "at that retirement age 1-160 does not apply: retiring at 62 or over (member: 60)"}]
+    table = render_branches(asked, unresolved)
+    assert "5 years earlier" in table
+    assert "36,000" in table and "38,000" not in table
+    assert "31,000" not in table and "not payable" in table
