@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy import text as sa_text
 
+from pension_chat.agent import pending as pending_writes
 from pension_chat.api.auth import TokenData, get_current_user
 from pension_chat.api.subject import by_recency, store_roster
 from pension_chat.db.models import Employee, Session, SessionMessage
@@ -425,6 +426,10 @@ async def send_message(
             # opens (§8).
             yield sse_preamble(body.content)
 
+            # The previous turn's transcript rows are written after its `done`;
+            # this turn's question must land after them.
+            await pending_writes.settle(session_id)
+
             # The write of the member's own message is not something the answer
             # depends on, so it overlaps the agent run instead of preceding it.
             save_task = asyncio.create_task(save_user_turn())
@@ -489,16 +494,10 @@ async def send_message(
             if not completed and answer_parts:
                 await save_stopped_answer("".join(answer_parts), save_task)
 
-        # The user's turn must land before the assistant's, so that reloading
-        # the conversation shows them in order.
-        try:
-            if save_task is not None:
-                await save_task
-        except Exception:
-            logger.exception("Failed to persist user message")
-
         answer = replaced_answer or "".join(answer_parts)
         if stream_failed and not answer:
+            if save_task is not None:
+                pending_writes.defer(session_id, save_task)
             return
 
         # The calculation card rides in the audit trail: it is provenance too,
@@ -507,46 +506,54 @@ async def send_message(
 
         # Persist the assistant turn, including the audit metadata the
         # architecture requires (§7.1): citations, and whether the answer passed
-        # verification.
-        try:
-            async with _scoped() as db:
-                assistant_msg = SessionMessage(
-                    session_id=session_uuid,
-                    role="assistant",
-                    content=answer,
-                    # Only the provisions the answer actually relied on and that
-                    # passed verification. `citations` used to hold every
-                    # retrieved section, which the client rendered as chips --
-                    # six of them under an answer resting on two, implying a
-                    # reliance it did not have. Persisting the verified subset is
-                    # also what lets a reloaded conversation show its chips at
-                    # all: there is no column for the verified list, and this one
-                    # is ours to define.
-                    citations=_verified_citations(final_state),
-                    tool_calls=tool_calls,
-                    guardrail_passed=final_state.get("guardrail_passed", True),
-                )
-                db.add(assistant_msg)
-                await db.flush()
-                await db.refresh(assistant_msg)
-                msg_id = assistant_msg.id
-                await db.commit()
-        except Exception:
-            logger.exception("Failed to persist assistant message")
-            msg_id = -1
-
-        # The people this turn was about move to the front; one write, only
-        # when the order changed (spec §4.4).
-        roster = list(session.subjects or [])
-        reordered = by_recency(roster, list(final_state.get("turn_people") or []))
-        if reordered != roster:
+        # verification. After `done`, in the background (`agent.pending`): from
+        # a distant database these writes cost seconds the member would spend
+        # waiting for the cards, and the next turn waits for them instead.
+        async def persist() -> None:
+            # The user's turn must land before the assistant's, so that
+            # reloading the conversation shows them in order.
             try:
-                await store_roster(session, reordered)
+                if save_task is not None:
+                    await save_task
             except Exception:
-                logger.exception("Could not reorder the conversation's people")
+                logger.exception("Failed to persist user message")
+            try:
+                async with _scoped() as db:
+                    db.add(SessionMessage(
+                        session_id=session_uuid,
+                        role="assistant",
+                        content=answer,
+                        # Only the provisions the answer actually relied on and
+                        # that passed verification. `citations` used to hold every
+                        # retrieved section, which the client rendered as chips --
+                        # six of them under an answer resting on two, implying a
+                        # reliance it did not have. Persisting the verified subset
+                        # is also what lets a reloaded conversation show its chips
+                        # at all: there is no column for the verified list, and
+                        # this one is ours to define.
+                        citations=_verified_citations(final_state),
+                        tool_calls=tool_calls,
+                        guardrail_passed=final_state.get("guardrail_passed", True),
+                    ))
+                    await db.commit()
+            except Exception:
+                logger.exception("Failed to persist assistant message")
+
+            # The people this turn was about move to the front; one write, only
+            # when the order changed (spec §4.4).
+            roster = list(session.subjects or [])
+            reordered = by_recency(roster, list(final_state.get("turn_people") or []))
+            if reordered != roster:
+                try:
+                    await store_roster(session, reordered)
+                except Exception:
+                    logger.exception("Could not reorder the conversation's people")
+
+        pending_writes.defer(session_id, persist())
 
         yield sse_done(
-            message_id=msg_id,
+            # Not yet written; the client keeps its own key for the message.
+            message_id=None,
             citations=final_state.get("citations"),
             tool_calls=tool_calls,
             guardrail_passed=final_state.get("guardrail_passed", True),
@@ -651,6 +658,8 @@ async def get_messages(
 ):
     """Reload one session's conversation (page refresh / sidebar click)."""
     session_uuid = uuid.UUID(session_id)
+    # The last answer is written after its `done`; a reload must still see it.
+    await pending_writes.settle(session_id)
 
     # As above: the access check runs unrestricted, the message read does not.
     async with get_admin_session() as db:

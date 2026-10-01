@@ -30,7 +30,7 @@ async def _events(views, monkeypatch):
     async def fake_stream(**kwargs):
         yield "Here is the answer."
 
-    async def fake_record_turn(*args, **kwargs):
+    def fake_record_turn(*args, **kwargs):
         return {}
 
     async def noop(*args, **kwargs):
@@ -38,7 +38,7 @@ async def _events(views, monkeypatch):
 
     monkeypatch.setattr(graph_mod, "active_graph", lambda: _Graph())
     monkeypatch.setattr(graph_mod, "stream_llm", fake_stream)
-    monkeypatch.setattr(graph_mod, "_record_turn", fake_record_turn)
+    monkeypatch.setattr(graph_mod, "_defer_record", fake_record_turn)
     monkeypatch.setattr(graph_mod, "thread_has_state", noop)
 
     return [

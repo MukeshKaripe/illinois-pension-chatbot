@@ -109,7 +109,7 @@ def sse_token(delta: str) -> str:
 
 
 def sse_done(
-    message_id: int,
+    message_id: int | None,
     citations: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
     guardrail_passed: bool = True,

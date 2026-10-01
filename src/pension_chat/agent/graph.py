@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator, Iterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation
@@ -40,6 +40,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
+from pension_chat.agent import pending as pending_writes
 from pension_chat.agent.blocks import MarkerSubstituter
 from pension_chat.agent.capture import record_failure
 from pension_chat.agent.card import calculation_cards
@@ -276,6 +277,8 @@ async def run_agent_stream(
     # naming an owner there would scope the checkpoints to sessions that do not
     # contain the thread -- every write silently discarded.
     config = thread_config(session_id, **(thread_owner or {}))
+    # The previous turn's writes run after its `done`; this turn reads what they wrote.
+    await pending_writes.settle(session_id)
 
     # `history` seeds a thread that has none. Once a thread is checkpointed it
     # holds its own messages, and re-supplying them would append a second copy
@@ -354,7 +357,7 @@ async def run_agent_stream(
     if state.get("final_answer"):
         answer = state["final_answer"]
         yield {"type": "token", "text": answer}
-        await _record_turn(config, state)
+        _defer_record(session_id, config, state)
         state["token_usage"] = usage.to_dict()
         state["timings"] = {**state.get("timings", {}), "total": time.perf_counter() - started}
         yield {"type": "done", "state": state}
@@ -541,7 +544,9 @@ async def run_agent_stream(
         record_failure(state, report, session_id)
         yield {"type": "replace", "text": replacement, "reason": report.to_dict()}
 
-    recorded = await _record_turn(config, state)
+    recorded = _defer_record(
+        session_id, config, state, then=(lambda: remember(state, report)) if report.passed else None
+    )
     scenarios = active_scenarios(
         {**(state.get("scenario_set") or {}), **(recorded.get("scenario_set") or {})}
     )
@@ -557,10 +562,10 @@ async def run_agent_stream(
     # the card goes with them.
     cards: list[dict[str, Any]] = []
     if report.passed:
-        # The verifier's pass is the label. Nothing enters the memory on the
-        # strength of the model's own opinion, and a replaced answer teaches
-        # the system nothing -- that one goes to `capture` instead.
-        await remember(state, report)
+        # The verifier's pass is the label (remembered in `_defer_record`, above).
+        # Nothing enters the memory on the strength of the model's own opinion,
+        # and a replaced answer teaches the system nothing -- that one goes to
+        # `capture` instead.
         cards = calculation_cards(
             state,
             WorkSheet.from_state(
@@ -778,23 +783,31 @@ def turn_record(state: dict) -> dict[str, Any] | None:
     return update
 
 
-async def _record_turn(config: dict, state: dict) -> dict[str, Any]:
-    """Persist what `turn_record` decided this turn is worth remembering.
+def _defer_record(
+    session_id: str, config: dict, state: dict, *, then: Callable[[], Awaitable[None]] | None = None
+) -> dict[str, Any]:
+    """Persist what `turn_record` decided this turn is worth remembering -- after `done`.
 
-    Returns what was recorded -- nothing if the write failed -- because the
-    `done` event reports the conversation's scenarios, and this turn's are only
-    in the checkpoint, not in `state`.
+    A second checkpoint cycle (read, writes, put) is ~3 s from a distant
+    database, and nothing on screen this turn depends on it, so it runs in the
+    background (`pending`); the next turn waits for it before reading the
+    thread. Returns the update, because the `done` event reports the
+    conversation's scenarios and this turn's are only in it, not in `state`.
     """
-    update = turn_record(state)
-    if not update:
-        return {}
-    try:
-        await active_graph().aupdate_state(config, update)
-    except Exception:
-        # The member has their answer; losing the thread's memory of it is worth
-        # a warning, not a failed turn.
-        logger.exception("Could not record turn state for session %s", config)
-        return {}
+    update = turn_record(state) or {}
+
+    async def write() -> None:
+        if update:
+            try:
+                await active_graph().aupdate_state(config, update)
+            except Exception:
+                # The member has their answer; losing the thread's memory of it
+                # is worth a warning, not a failed turn.
+                logger.exception("Could not record turn state for session %s", config)
+        if then is not None:
+            await then()
+
+    pending_writes.defer(session_id, write())
     return update
 
 
@@ -827,6 +840,7 @@ async def scenarios_of(
 ) -> list[dict[str, Any]]:
     """The chip's scenarios for one conversation, read from its checkpoint."""
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    await pending_writes.settle(session_id)
     snapshot = await active_graph().aget_state(config)
     return active_scenarios((snapshot.values or {}).get("scenario_set") or {})
 
@@ -836,6 +850,7 @@ async def people_of(
 ) -> list[str]:
     """Who the last turn was about, read from the checkpoint -- so a reload restores the highlight."""
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    await pending_writes.settle(session_id)
     snapshot = await active_graph().aget_state(config)
     return list((snapshot.values or {}).get("last_people") or [])
 
@@ -854,6 +869,7 @@ async def forget_scenarios(
     always stays: it is what "put them all in one table" builds on.
     """
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    await pending_writes.settle(session_id)
     snapshot = await active_graph().aget_state(config)
     current = (snapshot.values or {}).get("scenario_set") or {}
     if not current:
