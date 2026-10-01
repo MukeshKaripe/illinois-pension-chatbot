@@ -171,6 +171,15 @@ class Settings(BaseSettings):
     # Server live and read-only through `pension_chat.pbms`; "postgres" is the
     # original path. Evals ignore this -- they install their own provider.
     record_source: Literal["postgres", "pbms"] = "postgres"
+
+    # Where a conversation's agent state (scenarios, settled provision, pinned
+    # records) lives between turns. "postgres" survives restarts and is shared
+    # by every worker. "memory" keeps it in this process: from a machine far
+    # from the database it saves a checkpoint read and write on every turn
+    # (~2-3 s at 250 ms a round trip), but a restart forgets it -- the
+    # transcript is still in Postgres, so a conversation continues from that --
+    # and it is only correct with a single worker.
+    checkpointer: Literal["postgres", "memory"] = "postgres"
     pbms_sql_server: str | None = None
     pbms_sql_database: str | None = None
     pbms_sql_user: str | None = None

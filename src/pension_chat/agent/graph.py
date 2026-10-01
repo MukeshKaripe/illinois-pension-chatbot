@@ -37,6 +37,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
@@ -191,7 +192,23 @@ def build_loop_graph(checkpointer: Any | None = None):
     return workflow.compile(checkpointer=checkpointer)
 
 
-loop_graph = build_loop_graph(SqlAlchemyCheckpointSaver())
+def _checkpointer(settings: Any) -> Any:
+    """The saver `CHECKPOINTER` names: Postgres by default, this process's memory on request."""
+    if settings.checkpointer == "memory":
+        logger.warning("Conversation state is held in memory: one worker only, lost on restart")
+        return InMemorySaver()
+    return SqlAlchemyCheckpointSaver()
+
+
+loop_graph = build_loop_graph(_checkpointer(get_settings()))
+
+
+async def _has_state(config: dict) -> bool:
+    """Whether this thread has been checkpointed, asked of the checkpointer actually in use."""
+    saver = active_graph().checkpointer
+    if isinstance(saver, SqlAlchemyCheckpointSaver):
+        return await thread_has_state(config)
+    return await saver.aget_tuple(config) is not None
 
 
 _graph_override: ContextVar[Any | None] = ContextVar("pension_chat_graph_override", default=None)
@@ -284,7 +301,7 @@ async def run_agent_stream(
     # holds its own messages, and re-supplying them would append a second copy
     # of the conversation to itself. The lookup that decides this is one indexed
     # row and replaces the larger transcript read it makes unnecessary.
-    if history and not await thread_has_state(config):
+    if history and not await _has_state(config):
         turn: dict[str, Any] = initial_state(question, session_id, employee_id, history,
                                              subjects=subjects)
     else:
