@@ -21,10 +21,16 @@ interface ChatMessageProps {
   onChoosePerson?: (person: Person, suggestion: Suggestion) => Promise<boolean>;
   /** Ask the question again once every name in it has been chosen. */
   onResend?: (question: string) => void;
+  /**
+   * Something follows this message, so a choice it offered has been answered.
+   * A reloaded card forgets which person was chosen, and clicking it again
+   * re-sent the old question into the middle of the conversation.
+   */
+  answered?: boolean;
 }
 
 export function ChatMessage({
-  message, isStreaming, onOpenSection, onOpenCalculation, onChoosePerson, onResend,
+  message, isStreaming, onOpenSection, onOpenCalculation, onChoosePerson, onResend, answered,
 }: ChatMessageProps) {
   // Above the early returns: a hook after them would run conditionally.
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -126,7 +132,7 @@ export function ChatMessage({
             key={i}
             choice={choice}
             chosenRef={chosen[i]}
-            disabled={!onChoosePerson}
+            disabled={!onChoosePerson || answered}
             onChoose={(person) => void choose(i, person)}
           />
         ))}

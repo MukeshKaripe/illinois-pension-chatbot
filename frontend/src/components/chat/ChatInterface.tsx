@@ -503,10 +503,11 @@ export function ChatInterface() {
             />
           ) : (
             <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-8">
-              {messages.map((m) => (
+              {messages.map((m, index) => (
                 <ChatMessage
                   key={m.id}
                   message={m}
+                  answered={index < messages.length - 1}
                   isStreaming={m.id === streamingMessageId}
                   onOpenSection={(section) => setPanel({ kind: "section", section })}
                   onOpenCalculation={(card) => setPanel({ kind: "calculation", card })}
