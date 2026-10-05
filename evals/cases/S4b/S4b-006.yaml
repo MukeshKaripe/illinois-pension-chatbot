@@ -1,0 +1,19 @@
+id: S4b-006
+family: S4b
+areas:
+- calculation
+- assumptions
+- recommendation
+tiers:
+- full
+turns:
+- q: If an employee earns $75,000, joined in 1998 and is 58 with 27 years, what are their options?
+  goal: The retirement options open to this Tier 1 employee, with figures.
+  reference: 'Tier 1: from 55 an annuity with reductions for 20+ years (§8-138(a)); the 2.4% formula from 60 (§8-138(g-1)).'
+  acceptable:
+  - answer
+  - branch_on_critical
+  checks:
+    calculation: true
+    assumptions_disclosed: true
+    ttft_class: heavy

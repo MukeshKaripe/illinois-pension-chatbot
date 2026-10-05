@@ -46,12 +46,17 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
     """The first successful result as a card, or None when nothing computed."""
     for entry in (state.get("calculation_result") or {}).values():
         base = (entry or {}).get("base") or {}
-        if not base.get("ok"):
+        priced = [s for s in (entry or {}).get("scenarios") or [] if s.get("annual_amount")]
+        # Retiring now may not pay yet (Tier 2 before 62) while the what-if
+        # asked about does: the card then carries the what-if alone and says
+        # why today has no figure.
+        if not base.get("ok") and not (base.get("not_applicable") and priced):
             continue
+        used = base.get("inputs_used") if base.get("ok") else (priced[0].get("inputs_used") or {})
 
         origins = state.get("input_sources") or {}
         inputs = []
-        for name, value in (base.get("inputs_used") or {}).items():
+        for name, value in (used or {}).items():
             fact = _fact_for(sheet, name)
             inputs.append(
                 {
@@ -78,8 +83,9 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
             # Only an approved recipe may present a figure as anything but an
             # estimate (architecture doc §7.2).
             "estimate": entry.get("execution_policy") != "authoritative",
-            "annual_amount": base.get("annual_amount"),
-            "monthly_amount": base.get("monthly_amount"),
+            "annual_amount": base.get("annual_amount") if base.get("ok") else None,
+            "monthly_amount": base.get("monthly_amount") if base.get("ok") else None,
+            "not_payable_now": None if base.get("ok") else base.get("not_applicable"),
             "inputs": inputs,
             "scenarios": [
                 {
@@ -97,5 +103,38 @@ def calculation_card(state: Mapping[str, Any], sheet: WorkSheet) -> dict[str, An
                 (state.get("coverage") or {}).get("article")
                 or (state.get("employee_record") or {}).get("article_number")
             ),
+            # Whose record the "Record" inputs came from, when it was the fund's.
+            "record_label": _record_label(state),
         }
     return None
+
+
+def _record_label(state: Mapping[str, Any]) -> str | None:
+    """Whose record the "Record" inputs came from -- the fund's, named without its internal key."""
+    record = state.get("employee_record") or {}
+    return f"{record['record_source']} record" if record.get("record_source") else None
+
+
+def calculation_cards(state: Mapping[str, Any], sheet: WorkSheet) -> list[dict[str, Any]]:
+    """One card per person with a figure; a one-person turn's card exactly as before."""
+    people = state.get("people") or {}
+    if len(people) < 2:
+        card = calculation_card(state, sheet)
+        return [card] if card else []
+    cards: list[dict[str, Any]] = []
+    done: set[str] = set()
+    for entry in (state.get("calculation_result") or {}).values():
+        ref = (entry or {}).get("person_ref")
+        if not ref or ref in done or ref not in people or not (entry.get("base") or {}).get("ok"):
+            continue
+        done.add(ref)
+        card = calculation_card(
+            {**state, "calculation_result": {"figure": entry}, "input_sources": entry.get("input_sources") or {},
+             "employee_record": people[ref]["record"]},
+            sheet,
+        )
+        if card:
+            cards.append({**card, "person": entry.get("person")})
+    order = {r: i for i, r in enumerate(state.get("turn_people") or [])}
+    people_order = {people[r]["label"]: order.get(r, 99) for r in people}
+    return sorted(cards, key=lambda c: people_order.get(c["person"], 99))

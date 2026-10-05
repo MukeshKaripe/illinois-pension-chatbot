@@ -1,0 +1,7 @@
+key: no_hire_date
+display_name: "B. Chen"
+age: 61
+tier: null
+status: active
+salary: {current: 70000, growth: 0.0, years: 2}
+missing: {hire_date: "not recorded in PBMS", service_years: "no stored service"}

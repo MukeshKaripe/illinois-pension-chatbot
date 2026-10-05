@@ -1,0 +1,35 @@
+id: S11-004
+family: S11
+areas:
+- continuity
+- retrieval
+tiers:
+- full
+turns:
+- q: Under Article 8, what is the minimum age and service to retire for a Tier 2 member?
+  goal: The Tier 2 rule.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160
+    ttft_class: simple
+- q: What does Article 8 say about widow's annuities?
+  goal: The widow's annuity provisions.
+  reference: Article 8 provides widow's annuities in §8-141 through §8-150.1, including the minimum in §8-150.1.
+  checks:
+    cites_any:
+    - 8-141
+    - 8-150.1
+    - 8-144
+    ttft_class: simple
+- q: Going back to the Tier 2 rule — does it apply to someone rehired after a break?
+  goal: Whether a rehired member is Tier 2, back on the Tier 2 provision.
+  reference: §1-160(a) applies to a person who first becomes a member on or after January 1, 2011; a member first
+    joining earlier who is rehired is not a new member for that purpose, subject to the section's terms.
+  checks:
+    cites_any:
+    - 1-160
+    ttft_class: simple

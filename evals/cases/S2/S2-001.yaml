@@ -1,0 +1,15 @@
+id: S2-001
+family: S2
+areas:
+- records
+tiers:
+- smoke
+- full
+employee: tier1_veteran
+turns:
+- q: When was this employee hired and what tier are they?
+  goal: Hire date and tier from the record.
+  reference: 'From the record: hired about 31 years ago, Tier 1.'
+  checks:
+    about_employee: tier1_veteran
+    ttft_class: simple

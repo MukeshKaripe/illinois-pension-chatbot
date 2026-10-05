@@ -30,17 +30,21 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 
 from pension_chat.agent import guardrails
+from pension_chat.agent import pending as pending_writes
 from pension_chat.agent.blocks import MarkerSubstituter
 from pension_chat.agent.capture import record_failure
-from pension_chat.agent.card import calculation_card
+from pension_chat.agent.card import calculation_cards
 from pension_chat.agent.checkpointer import (
     SqlAlchemyCheckpointSaver,
     thread_config,
@@ -60,6 +64,7 @@ from pension_chat.agent.nodes import (
     fetch_employee_record,
     triage,
 )
+from pension_chat.agent.people import MAX_LISTED
 from pension_chat.agent.state import CLEAR, PensionAgentState, initial_state, turn_input
 from pension_chat.agent.worksheet import NOW_LABEL, SUPERSEDED_MARK, WorkSheet
 from pension_chat.config import get_settings
@@ -96,6 +101,40 @@ GREETING_MESSAGE = (
 )
 
 
+def _choice_sentence(choice: dict[str, Any]) -> str:
+    name = f"{choice.get('first_name') or ''} {choice.get('last_name') or ''}".strip()
+    if choice.get("unavailable"):
+        return f"I couldn't look up {name} just now: the fund's records are not answering."
+    candidates = choice.get("candidates") or []
+    if not candidates:
+        return f"I couldn't find an active employee named {name}."
+    if len(candidates) == 1:
+        one = candidates[0]
+        about = ", ".join(v for v in (one.get("department") or one.get("employer"),
+                                      f"born {one['birth_year']}" if one.get("birth_year") else None) if v)
+        return f"Did you mean {one.get('display_name') or name}{f' ({about})' if about else ''}?"
+    if len(candidates) <= MAX_LISTED:
+        return f"There are {len(candidates)} active employees named {name}; which one do you mean?"
+    return f"There are {len(candidates)} active employees named {name}; which department do they work in?"
+
+
+def subject_suggestion_message(suggestion: dict[str, Any]) -> str:
+    """The reply to a choice turn -- people named by name, department and birth year,
+    never by the internal key the cards carry as `ref`."""
+    choices = suggestion.get("choices") or []
+    if suggestion.get("kind") == "which_one":
+        names = [c.get("display_name") or "this employee" for c in (choices[0].get("candidates") if choices else [])]
+        listed = ", ".join(names[:-1]) + f" or {names[-1]}" if len(names) > 1 else "".join(names)
+        return f"Which of them do you mean: {listed}? Choose below."
+    text = " ".join(_choice_sentence(c) for c in choices)
+    if any(c.get("candidates") for c in choices):
+        if len(choices) == 1 and len(choices[0]["candidates"]) == 1:
+            text += " Choose below and I'll answer your question about them."
+        else:
+            text += " Once you've chosen below, I'll answer your question."
+    return text
+
+
 async def decline(state: PensionAgentState) -> dict:
     """Answer an out-of-scope or conversational message without a model call.
 
@@ -104,7 +143,10 @@ async def decline(state: PensionAgentState) -> dict:
     cannot hallucinate.
     """
     reason = state.get("out_of_scope_reason", "")
-    answer = GREETING_MESSAGE if reason == "greeting" else OUT_OF_SCOPE_MESSAGE
+    if reason == "subject_suggestion":
+        answer = subject_suggestion_message(state.get("subject_suggestion") or {})
+    else:
+        answer = GREETING_MESSAGE if reason == "greeting" else OUT_OF_SCOPE_MESSAGE
     return {
         "final_answer": answer,
         "answer_messages": [],
@@ -150,7 +192,26 @@ def build_loop_graph(checkpointer: Any | None = None):
     return workflow.compile(checkpointer=checkpointer)
 
 
-loop_graph = build_loop_graph(SqlAlchemyCheckpointSaver())
+def _checkpointer(settings: Any) -> Any:
+    """The saver `CHECKPOINTER` names: Postgres by default, this process's memory on request."""
+    if settings.checkpointer == "memory":
+        logger.warning("Conversation state is held in memory: one worker only, lost on restart")
+        return InMemorySaver()
+    return SqlAlchemyCheckpointSaver()
+
+
+loop_graph = build_loop_graph(_checkpointer(get_settings()))
+
+
+async def _has_state(config: dict) -> bool:
+    """Whether this thread has been checkpointed, asked of the checkpointer actually in use."""
+    saver = active_graph().checkpointer
+    if isinstance(saver, SqlAlchemyCheckpointSaver):
+        return await thread_has_state(config)
+    return await saver.aget_tuple(config) is not None
+
+
+_graph_override: ContextVar[Any | None] = ContextVar("pension_chat_graph_override", default=None)
 
 
 def active_graph():
@@ -160,8 +221,20 @@ def active_graph():
     every caller already goes through it and because a second agent, if one is
     ever built to be measured against this one, needs somewhere to be switched
     in -- which is what this function was for the first time.
+
+    An eval run substitutes a graph compiled over an in-memory checkpointer
+    with `use_graph`, so nothing it does reaches Postgres.
     """
-    return loop_graph
+    return _graph_override.get() or loop_graph
+
+
+@contextmanager
+def use_graph(graph: Any) -> Iterator[Any]:
+    token = _graph_override.set(graph)
+    try:
+        yield graph
+    finally:
+        _graph_override.reset(token)
 
 
 async def run_agent(
@@ -194,6 +267,7 @@ async def run_agent_stream(
     employee_id: str | None = None,
     history: list[BaseMessage] | None = None,
     thread_owner: dict[str, str | None] | None = None,
+    subjects: list[dict[str, Any]] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Run a turn, yielding progress and answer tokens as they become available.
 
@@ -220,15 +294,18 @@ async def run_agent_stream(
     # naming an owner there would scope the checkpoints to sessions that do not
     # contain the thread -- every write silently discarded.
     config = thread_config(session_id, **(thread_owner or {}))
+    # The previous turn's writes run after its `done`; this turn reads what they wrote.
+    await pending_writes.settle(session_id)
 
     # `history` seeds a thread that has none. Once a thread is checkpointed it
     # holds its own messages, and re-supplying them would append a second copy
     # of the conversation to itself. The lookup that decides this is one indexed
     # row and replaces the larger transcript read it makes unnecessary.
-    if history and not await thread_has_state(config):
-        turn: dict[str, Any] = initial_state(question, session_id, employee_id, history)
+    if history and not await _has_state(config):
+        turn: dict[str, Any] = initial_state(question, session_id, employee_id, history,
+                                             subjects=subjects)
     else:
-        turn = turn_input(question, session_id, employee_id)
+        turn = turn_input(question, session_id, employee_id, subjects=subjects)
 
     state: dict[str, Any] = {}
 
@@ -271,6 +348,13 @@ async def run_agent_stream(
                     }
                 continue
             for node_name in payload:
+                # Who this turn is about is known the moment triage finishes --
+                # before any record is read or token written -- so the chips
+                # change then, not after the answer (spec §4.4).
+                if node_name == "triage":
+                    active = (payload[node_name] or {}).get("turn_people")
+                    if active is not None:
+                        yield {"type": "people", "active": list(active)}
                 label = STAGE_LABELS.get(node_name)
                 if label:
                     yield {"type": "status", "stage": label, "node": node_name}
@@ -290,7 +374,7 @@ async def run_agent_stream(
     if state.get("final_answer"):
         answer = state["final_answer"]
         yield {"type": "token", "text": answer}
-        await _record_turn(config, state)
+        _defer_record(session_id, config, state)
         state["token_usage"] = usage.to_dict()
         state["timings"] = {**state.get("timings", {}), "total": time.perf_counter() - started}
         yield {"type": "done", "state": state}
@@ -477,7 +561,9 @@ async def run_agent_stream(
         record_failure(state, report, session_id)
         yield {"type": "replace", "text": replacement, "reason": report.to_dict()}
 
-    recorded = await _record_turn(config, state)
+    recorded = _defer_record(
+        session_id, config, state, then=(lambda: remember(state, report)) if report.passed else None
+    )
     scenarios = active_scenarios(
         {**(state.get("scenario_set") or {}), **(recorded.get("scenario_set") or {})}
     )
@@ -491,13 +577,13 @@ async def run_agent_stream(
     # The card's figures come from the interpreter, but it sits beside an answer;
     # when verification replaced that answer its figures are unverified too, and
     # the card goes with them.
-    card = None
+    cards: list[dict[str, Any]] = []
     if report.passed:
-        # The verifier's pass is the label. Nothing enters the memory on the
-        # strength of the model's own opinion, and a replaced answer teaches
-        # the system nothing -- that one goes to `capture` instead.
-        await remember(state, report)
-        card = calculation_card(
+        # The verifier's pass is the label (remembered in `_defer_record`, above).
+        # Nothing enters the memory on the strength of the model's own opinion,
+        # and a replaced answer teaches the system nothing -- that one goes to
+        # `capture` instead.
+        cards = calculation_cards(
             state,
             WorkSheet.from_state(
                 state,
@@ -505,7 +591,68 @@ async def run_agent_stream(
                 as_stand_in=_stand_ins_allowed(cast(PensionAgentState, state)),
             ),
         )
-    yield {"type": "done", "state": state, "card": card, "scenarios": scenarios}
+    yield {"type": "done", "state": state, "card": cards[0] if cards else None, "cards": cards,
+           "scenarios": scenarios}
+
+
+def _people_facts(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Every person's facts for the verifier, keyed by ref so two people's values
+    never collide (spec §5). Which number belongs to whom is the PEOPLE table's job."""
+    people = state.get("people") or {}
+    if len(people) < 2:
+        return {}
+    return {f"{ref}:{name}": value for ref, bundle in people.items()
+            for name, value in (bundle.get("member_facts") or {}).items()}
+
+
+def _recorded_scenarios(
+    entry: Mapping[str, Any], base: Mapping[str, Any], inputs_used: Mapping[str, Any], turn: Any
+) -> dict[str, dict[str, Any]]:
+    """One result's figures as the scenario set files them: its scenarios, else "now".
+
+    Results accumulate across turns under the label the member used, so "put all
+    four in one table" has all four to put there. When a turn evaluates
+    scenarios those are the results worth keeping; the unscenarioed base is the
+    "as things stand today" case.
+    """
+    scenarios = entry.get("scenarios") or []
+    return {
+        str(scenario.get("label")): {
+            "annual_amount": scenario.get("annual_amount"),
+            "monthly_amount": scenario.get("monthly_amount"),
+            "service_years": (scenario.get("assumptions") or {}).get(
+                "service_years"
+            ),
+            "section": entry.get("section"),
+            # Which formula worked it, so a later answer under another (a tier
+            # settled since) does not show it as one of its own options.
+            "formula": entry.get("formula_name"),
+            "turn": turn,
+            # A variant is the same recipe over the same inputs at a
+            # different retirement date, so it rests on the same values the
+            # base figure did and goes stale with them.
+            "rests_on": list(inputs_used),
+        }
+        for scenario in scenarios
+        if scenario.get("label") and scenario.get("annual_amount")
+    } or {
+        NOW_LABEL: {
+            "annual_amount": base.get("annual_amount"),
+            "monthly_amount": base.get("monthly_amount"),
+            # Under whichever name the recipe used: the core formulas say
+            # `service_years`, and reading only the other left the row "None".
+            "service_years": next(
+                (inputs_used[name] for name in ("creditable_service_years", "service_years",
+                                                "years_of_service", "total_service_years")
+                 if inputs_used.get(name) is not None),
+                None,
+            ),
+            "section": entry.get("section"),
+            "formula": entry.get("formula_name"),
+            "turn": turn,
+            "rests_on": list(inputs_used),
+        }
+    }
 
 
 def turn_record(state: dict) -> dict[str, Any] | None:
@@ -586,33 +733,15 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         #
         # When a turn evaluates scenarios those are the results worth keeping;
         # the unscenarioed base is the "as things stand today" case.
-        scenarios = entry.get("scenarios") or []
-        recorded = {
-            str(scenario.get("label")): {
-                "annual_amount": scenario.get("annual_amount"),
-                "monthly_amount": scenario.get("monthly_amount"),
-                "service_years": (scenario.get("assumptions") or {}).get(
-                    "service_years"
-                ),
-                "section": entry.get("section"),
-                "turn": state.get("turn_index"),
-                # A variant is the same recipe over the same inputs at a
-                # different retirement date, so it rests on the same values the
-                # base figure did and goes stale with them.
-                "rests_on": list(inputs_used),
-            }
-            for scenario in scenarios
-            if scenario.get("label") and scenario.get("annual_amount")
-        } or {
-            NOW_LABEL: {
-                "annual_amount": base.get("annual_amount"),
-                "monthly_amount": base.get("monthly_amount"),
-                "service_years": inputs_used.get("creditable_service_years"),
-                "section": entry.get("section"),
-                "turn": state.get("turn_index"),
-                "rests_on": list(inputs_used),
-            }
-        }
+        recorded = _recorded_scenarios(entry, base, inputs_used, state.get("turn_index"))
+        # The fund's records: a conversation is about several people, so each
+        # scenario carries whose it is -- and says so in its label -- rather than
+        # one person's "at 65" standing in another's table.
+        record = state.get("employee_record") or {}
+        if record.get("record_source") and record.get("id"):
+            who = entry.get("person") or record.get("display_name") or "Employee"
+            recorded = {f"{who} — {label}": {**value, "person_ref": record["id"]}
+                        for label, value in recorded.items()}
         # A label reused with a different figure means the member corrected
         # something. Overwriting silently leaves "which parts of the original
         # changed?" with nothing to compare against, and the model then quotes
@@ -627,6 +756,21 @@ def turn_record(state: dict) -> dict[str, Any] | None:
         }
         update["scenario_set"] = {**superseded, **recorded}
         break
+
+    # Several people in one turn: every person's figures are kept, each under
+    # their own label, so two people's "at age 62" never overwrite each other.
+    people_results = [
+        entry for entry in results.values()
+        if (entry or {}).get("person") and ((entry.get("base") or {}).get("ok"))
+    ]
+    if people_results:
+        update["scenario_set"] = {
+            f"{entry['person']} — {label}": {**value, "person_ref": entry.get("person_ref")}
+            for entry in people_results
+            for label, value in _recorded_scenarios(
+                entry, entry["base"], entry["base"].get("inputs_used") or {}, state.get("turn_index")
+            ).items()
+        }
 
     if state.get("resolved_inputs"):
         question = state.get("question") or ""
@@ -657,8 +801,12 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             provenance[name] = {
                 "value": value,
                 # What the member typed outranks the record, and the answer may
-                # need to say which was which several turns later.
-                "source": "stated" if _stated_in(value, question) else "record",
+                # need to say which was which several turns later. The origin
+                # resolve_inputs recorded comes first: re-deriving it here
+                # filed a salary worked out from "$80k" as the member's record,
+                # and their later "$85k" lost to it (live, 2026-10-01).
+                "source": (state.get("input_sources") or {}).get(name)
+                or ("stated" if _stated_in(value, question) else "record"),
                 "turn": turn,
             }
         if provenance:
@@ -667,23 +815,31 @@ def turn_record(state: dict) -> dict[str, Any] | None:
     return update
 
 
-async def _record_turn(config: dict, state: dict) -> dict[str, Any]:
-    """Persist what `turn_record` decided this turn is worth remembering.
+def _defer_record(
+    session_id: str, config: dict, state: dict, *, then: Callable[[], Awaitable[None]] | None = None
+) -> dict[str, Any]:
+    """Persist what `turn_record` decided this turn is worth remembering -- after `done`.
 
-    Returns what was recorded -- nothing if the write failed -- because the
-    `done` event reports the conversation's scenarios, and this turn's are only
-    in the checkpoint, not in `state`.
+    A second checkpoint cycle (read, writes, put) is ~3 s from a distant
+    database, and nothing on screen this turn depends on it, so it runs in the
+    background (`pending`); the next turn waits for it before reading the
+    thread. Returns the update, because the `done` event reports the
+    conversation's scenarios and this turn's are only in it, not in `state`.
     """
-    update = turn_record(state)
-    if not update:
-        return {}
-    try:
-        await active_graph().aupdate_state(config, update)
-    except Exception:
-        # The member has their answer; losing the thread's memory of it is worth
-        # a warning, not a failed turn.
-        logger.exception("Could not record turn state for session %s", config)
-        return {}
+    update = turn_record(state) or {}
+
+    async def write() -> None:
+        if update:
+            try:
+                await active_graph().aupdate_state(config, update)
+            except Exception:
+                # The member has their answer; losing the thread's memory of it
+                # is worth a warning, not a failed turn.
+                logger.exception("Could not record turn state for session %s", config)
+        if then is not None:
+            await then()
+
+    pending_writes.defer(session_id, write())
     return update
 
 
@@ -716,8 +872,19 @@ async def scenarios_of(
 ) -> list[dict[str, Any]]:
     """The chip's scenarios for one conversation, read from its checkpoint."""
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    await pending_writes.settle(session_id)
     snapshot = await active_graph().aget_state(config)
     return active_scenarios((snapshot.values or {}).get("scenario_set") or {})
+
+
+async def people_of(
+    session_id: str, *, employee_id: str | None = None, session_token: str | None = None
+) -> list[str]:
+    """Who the last turn was about, read from the checkpoint -- so a reload restores the highlight."""
+    config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    await pending_writes.settle(session_id)
+    snapshot = await active_graph().aget_state(config)
+    return list((snapshot.values or {}).get("last_people") or [])
 
 
 async def forget_scenarios(
@@ -734,6 +901,7 @@ async def forget_scenarios(
     always stays: it is what "put them all in one table" builds on.
     """
     config = thread_config(session_id, employee_id=employee_id, session_token=session_token)
+    await pending_writes.settle(session_id)
     snapshot = await active_graph().aget_state(config)
     current = (snapshot.values or {}).get("scenario_set") or {}
     if not current:
@@ -883,7 +1051,7 @@ def _verify(state: dict, answer: str, settings) -> guardrails.GuardrailReport:
         # the record belongs to a different fund, so for these turns the record
         # stops being an allowed source and a figure from it is caught rather
         # than blessed.
-        facts=_available_facts(state),
+        facts={**_available_facts(state), **_people_facts(state)},
         user_text=conversation or state.get("question", ""),
         check_numbers=settings.guardrail_numeric_provenance,
         established_sections=(state.get("cited_sections") or {}),

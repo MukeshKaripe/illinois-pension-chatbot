@@ -13,7 +13,7 @@ import re
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
-from pension_chat.agent.retrieval import fetch_sections
+from pension_chat.agent.retrieval import fetch_sections, merge_variants
 
 router = APIRouter(prefix="/api/v1", tags=["sections"])
 
@@ -46,7 +46,7 @@ def assemble_section(section: str, chunks: list[dict]) -> SectionResponse | None
         title=str(first.get("section_title") or ""),
         article=str(first.get("article") or ""),
         citation=f"40 ILCS 5/{section}",
-        text="\n\n".join(str(c["content"]).strip() for c in ordered if c.get("content")),
+        text="\n\n".join(merge_variants(chunks, subsection_key=_natural)),
     )
 
 

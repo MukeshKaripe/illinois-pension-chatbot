@@ -1,0 +1,11 @@
+key: tier2_at_67
+display_name: "H. Brooks"
+employer: City of Chicago
+department: Fleet Management
+age: 67
+hire_date: 2011-06-01
+tier: 2
+status: active
+service_years: 15.0
+service_source: stored
+salary: {current: 70000, growth: 0.0, years: 10}

@@ -1,0 +1,17 @@
+id: S5-002
+family: S5
+areas:
+- calculation
+- boundary
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: What would change if they had joined before 2011?
+  goal: The difference under Tier 1 rules.
+  reference: 'They would be Tier 1: §8-138(g-1) from 60 instead of §1-160(c) at 67; the answer stays conditional.'
+  checks:
+    cites_all:
+    - 1-160
+    - 8-138
+    ttft_class: heavy

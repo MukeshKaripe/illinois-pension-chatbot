@@ -130,16 +130,27 @@ DIVISION_RE = re.compile(
 def parse_statute_file(filepath: str, article_number: int) -> list[ParsedSection]:
     """Parse an ILGA statute text file into structured sections.
 
+    A thin wrapper: converters for other formats call `parse_statute_text`
+    directly with the text they produced.
+    """
+    with open(filepath, encoding="utf-8") as f:
+        content = f.read()
+    return parse_statute_text(content, article_number, source=filepath)
+
+
+def parse_statute_text(
+    content: str, article_number: int, source: str = "<text>"
+) -> list[ParsedSection]:
+    """Parse ILGA-shaped statute text into structured sections.
+
     Args:
-        filepath: Path to the .txt file.
-        article_number: The article number (e.g. 11, 12).
+        content: The text of one Article, as ILGA publishes it.
+        article_number: The article number (e.g. 8, 11).
+        source: Where the text came from, for the log line only.
 
     Returns:
         List of ParsedSection objects.
     """
-    with open(filepath, encoding="utf-8") as f:
-        content = f.read()
-
     # Normalize line endings
     content = content.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -202,7 +213,7 @@ def parse_statute_file(filepath: str, article_number: int) -> list[ParsedSection
         "Parsed Article %d: %d sections from %s",
         article_number,
         len(sections),
-        filepath,
+        source,
     )
 
     return sections

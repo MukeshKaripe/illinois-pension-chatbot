@@ -1,0 +1,13 @@
+id: S5-001
+family: S5
+areas:
+- calculation
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: What if they worked two more years?
+  goal: The effect of two more years of service.
+  reference: More service and possibly a higher final average salary under §1-160(b); still subject to §1-160(c).
+  checks:
+    ttft_class: heavy

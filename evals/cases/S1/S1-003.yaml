@@ -1,0 +1,36 @@
+id: S1-003
+family: S1
+areas:
+- retrieval
+- citations
+critical: true
+tiers:
+- smoke
+- full
+turns:
+- q: Under Article 8, what is the minimum age and service to retire for a Tier 2 member, and which section says
+    so?
+  goal: The Tier 2 minimum retirement age and service for MEABF, and the governing section.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160
+    evidence_has:
+    - 1-160(c)
+    must_state:
+    - '67'
+    - 10 years
+    answers_from_article: '8'
+    ttft_class: simple
+- q: And for someone who joined in 2019?
+  goal: The rule for a member first joining after July 6, 2017.
+  reference: Age 65 with 10 years of service credit (§1-160(c-5)); the answer says which rule applies and why.
+  checks:
+    cites_any:
+    - 1-160
+    must_state:
+    - '65'
+    ttft_class: simple

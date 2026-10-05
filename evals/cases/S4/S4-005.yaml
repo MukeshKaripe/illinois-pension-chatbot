@@ -1,0 +1,34 @@
+id: S4-005
+family: S4
+areas:
+- calculation
+- clarification
+- records
+tiers:
+- full
+employee: no_hire_date
+turns:
+- q: Estimate their pension at 65.
+  goal: An estimate, or the one question that decides the rule.
+  reference: 'The record has no hire date and no tier, and when they first joined decides Tier 1 or Tier 2 (§1-160(a)):
+    must ask it, or answer both branches.'
+  acceptable:
+  - ask_critical
+  - branch_on_critical
+  checks:
+    critical_inputs:
+    - participation_date
+    max_questions: 2
+    ttft_class: heavy
+- q: They joined in 2004.
+  goal: Tier 1 is now known; the answer asks for the service and salary the record lacks rather than inventing them.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    no_calculation: true
+    max_questions: 2
+    ttft_class: heavy
+    no_reask:
+    - participation_date
+    - age

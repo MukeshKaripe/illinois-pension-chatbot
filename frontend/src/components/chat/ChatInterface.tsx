@@ -9,6 +9,10 @@ import {
   credentialHeaders,
   fetchMe,
   fetchScenarios,
+  fetchPeople,
+  addPerson,
+  removePerson,
+  fetchRecordSource,
   fetchWithAuth,
   forgetScenario,
   setPrimaryProfile,
@@ -23,6 +27,8 @@ import { takeFrames, type SseEvent } from "@/lib/sse";
 import type { Citation, Message, Panel, Scenario, SessionSummary } from "@/lib/types";
 import { CalculationPanel } from "./CalculationPanel";
 import { ChatHeader } from "./ChatHeader";
+import { PeopleChips } from "./PeopleChips";
+import type { Person } from "@/lib/subject";
 import { ChatMessage } from "./ChatMessage";
 import { Composer } from "./Composer";
 import { Drawer } from "./Drawer";
@@ -63,6 +69,10 @@ export function ChatInterface() {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   // The what-ifs this conversation is holding (spec §7).
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  // The conversation's employees (PBMS only): who it is about, and who this turn is about.
+  const [recordSource, setRecordSource] = useState("postgres");
+  const [people, setPeople] = useState<Person[]>([]);
+  const [activePeople, setActivePeople] = useState<string[]>([]);
   const router = useRouter();
 
   // Guards against a stale response landing after a second click: whichever
@@ -166,6 +176,25 @@ export function ChatInterface() {
     restore();
   }, []);
 
+  useEffect(() => {
+    fetchRecordSource().then(setRecordSource);
+  }, []);
+
+  // The conversation's employees follow the conversation.
+  useEffect(() => {
+    // Replaced wholesale by what the new conversation holds (empty for a new one).
+    if (!sessionId || recordSource !== "pbms") return;
+    let stale = false;
+    fetchPeople(sessionId).then((held) => {
+      if (stale) return;
+      setPeople(held.people);
+      setActivePeople(held.active ?? []);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [sessionId, recordSource]);
+
   // Load messages when the conversation changes.
   useEffect(() => {
     if (!sessionId || createdHere.current.has(sessionId)) return;
@@ -205,6 +234,8 @@ export function ChatInterface() {
     abortRef.current?.abort();
     setPanel(null);
     setScenarios([]);
+    setPeople([]);
+    setActivePeople([]);
     setActiveProfileId(sessions.find((s) => s.id === id)?.profile_id ?? null);
     setSessionId(id);
     closeSidebarOnPhone();
@@ -296,6 +327,10 @@ export function ChatInterface() {
           // Verification rejected what was streamed; swap it out entirely.
           aiContent = String(data.text ?? "");
           update({ content: aiContent });
+          break;
+        case "people":
+          // Who this turn is about, decided before any answer text arrives.
+          setActivePeople(Array.isArray(data.active) ? (data.active as string[]) : []);
           break;
         case "done":
           setAgentStatus("");
@@ -438,6 +473,23 @@ export function ChatInterface() {
           onToggleSidebar={() => setSidebar((prev) => !(prev ?? isDesktop()))}
           onNewChat={() => createNewSession()}
           showNewChatOnDesktop={sidebar === false}
+          people={
+            recordSource === "pbms" ? (
+              <PeopleChips
+                people={people}
+                active={activePeople}
+                disabled={isStreaming}
+                onRemove={async (ref) => {
+                  if (!sessionId) return;
+                  const held = await removePerson(sessionId, ref);
+                  if (held) {
+                    setPeople(held.people);
+                    setActivePeople((active) => active.filter((r) => r !== ref));
+                  }
+                }}
+              />
+            ) : undefined
+          }
         />
 
         <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
@@ -451,13 +503,24 @@ export function ChatInterface() {
             />
           ) : (
             <div className="mx-auto w-full max-w-[720px] space-y-8 px-4 py-8">
-              {messages.map((m) => (
+              {messages.map((m, index) => (
                 <ChatMessage
                   key={m.id}
                   message={m}
+                  answered={index < messages.length - 1}
                   isStreaming={m.id === streamingMessageId}
                   onOpenSection={(section) => setPanel({ kind: "section", section })}
                   onOpenCalculation={(card) => setPanel({ kind: "calculation", card })}
+                  onChoosePerson={async (person, suggestion) => {
+                    if (!sessionId) return false;
+                    // Someone already in the conversation (a which-one choice) is
+                    // chosen by asking again about them by name; nothing to add.
+                    if (suggestion.kind === "which_one") return true;
+                    const held = await addPerson(sessionId, person.ref);
+                    if (held) setPeople(held.people);
+                    return Boolean(held);
+                  }}
+                  onResend={(question) => void send(question)}
                 />
               ))}
               <WorkingNote status={agentStatus} steps={steps} views={views} />
@@ -498,7 +561,15 @@ export function ChatInterface() {
           {panel.kind === "section" ? (
             <EvidencePanel key={panel.section} section={panel.section} />
           ) : panel.kind === "calculation" ? (
-            <CalculationPanel card={panel.card} />
+            <CalculationPanel
+              card={panel.card}
+              busy={isStreaming}
+              onOpenSection={(section) => setPanel({ kind: "section", section })}
+              onAsk={(question) => {
+                setPanel(null);
+                void send(question);
+              }}
+            />
           ) : panel.kind === "profile-edit" ? (
             editing && (
               <ProfilePanel

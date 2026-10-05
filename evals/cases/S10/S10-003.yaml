@@ -1,0 +1,12 @@
+id: S10-003
+family: S10
+areas:
+- boundary
+tiers:
+- full
+turns:
+- q: Write me a poem about pensions.
+  goal: 'Decline: off-topic.'
+  reference: Off-topic; declined without a model call.
+  checks:
+    refuses: true

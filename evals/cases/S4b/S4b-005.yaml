@@ -1,0 +1,15 @@
+id: S4b-005
+family: S4b
+areas:
+- calculation
+tiers:
+- full
+turns:
+- q: An employee aged 66 with 9.5 years who joined in 2016 — can they retire now?
+  goal: Whether they are eligible now.
+  reference: 'No: 10 years of service is required (§1-160(c)); 9.5 is short.'
+  checks:
+    no_calculation: true
+    must_state:
+    - 10 years
+    ttft_class: heavy

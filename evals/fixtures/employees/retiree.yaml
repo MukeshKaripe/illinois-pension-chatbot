@@ -1,0 +1,10 @@
+key: retiree
+display_name: "E. Walsh"
+employer: City of Chicago
+age: 71
+hire_date: 1988-09-30
+tier: 1
+status: retired
+service_years: 33.0
+service_source: stored
+salary: {current: 95000, growth: 0.0, years: 1}

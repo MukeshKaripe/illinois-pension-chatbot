@@ -41,8 +41,13 @@ _MARKER_RE = re.compile(r"<<<([A-Z_]{1,32})>>>")
 _MAX_MARKER = len("<<<") + 32 + len(">>>")
 
 _LABELS = {
-    "final_average_salary": "Highest average salary (best 4 years)",
+    # The generic name's window depends on the tier (4 years, or 8 under
+    # §1-160(b)), so its label names none; the windowed names say theirs.
+    "final_average_salary": "Final average salary",
     "highest_average_annual_salary_4yr": "Highest average salary (best 4 years)",
+    "final_average_salary_8_year": "Final average salary (best 8 of the last 10 years)",
+    "final_average_salary_96_months": "Final average salary (best 8 of the last 10 years)",
+    "tier_2_final_average_salary": "Final average salary (best 8 of the last 10 years)",
     "service_years": "Years of service",
     "years_of_service": "Years of service",
     "creditable_service_years": "Years of service",
@@ -63,6 +68,8 @@ _QUANTITY_FIELDS = {
 
 
 def _money(value: Any) -> str:
+    if value is None:
+        return ""
     try:
         return f"${Decimal(str(value)):,.2f}"
     except (InvalidOperation, ValueError, TypeError):
@@ -190,14 +197,15 @@ def render_comparison(options: Sequence[Mapping[str, Any]]) -> str:
         "|---|---:|---:|---:|"
     )
     rows = [
-        f"| {option.get('label', '')} | {option.get('service_years', '')} | "
+        f"| {option.get('label', '')} | "
+        f"{option.get('service_years') if option.get('service_years') is not None else ''} | "
         f"{_money(option.get('annual'))} | {_money(option.get('monthly'))} |"
         for option in options
     ]
     return "\n".join([header, *rows])
 
 
-def render_branches(results: Mapping[str, Any]) -> str:
+def render_branches(results: Mapping[str, Any], unresolved: Any = ()) -> str:
     """Both provisions, priced, with the condition each one rests on.
 
     Rendered here rather than described to the model for the reason every other
@@ -207,25 +215,56 @@ def render_branches(results: Mapping[str, Any]) -> str:
 
     Empty unless at least two branches actually computed. Naming a branch we
     could not price is the behaviour this replaces.
+
+    When the turn asked a what-if, each branch shows that what-if's figure, or
+    says it does not pay at that age -- not today's figure under the what-if's
+    heading (live, 2026-10-01: Tier 2 shown at 65 under "5 years earlier",
+    though it cannot begin before 62).
     """
+    unresolved = [u for u in (unresolved or []) if isinstance(u, Mapping)]
+    entries = [(key, entry or {}) for key, entry in (results or {}).items()]
+    asked = next(
+        (s.get("label") for _, e in entries for s in e.get("scenarios") or [] if s.get("annual_amount")),
+        None,
+    ) or next((u.get("label") for u in unresolved if u.get("formula_type") in dict(entries)), None)
     rows = []
-    for entry in (results or {}).values():
-        branch = (entry or {}).get("branch") or {}
-        base = (entry or {}).get("base") or {}
-        if not branch or not base.get("ok"):
+    priced = 0
+    for key, entry in entries:
+        branch = entry.get("branch") or {}
+        base = entry.get("base") or {}
+        # A branch that does not pay today (Tier 2 before 62) still has a row:
+        # its what-if's figure when one was asked, else "not payable now".
+        if not branch or not (base.get("ok") or base.get("not_applicable")):
             continue
-        rows.append(
-            f"| {_label(str(branch.get('fact') or ''))} {branch.get('value')} | "
-            f"{_money(base.get('annual_amount'))} | "
-            f"{_money(base.get('monthly_amount'))} | "
-            f"{entry.get('section') or ''} |"
-        )
-    if len(rows) < 2:
+        condition = f"{_label(str(branch.get('fact') or ''))} {branch.get('value')}"
+        section = entry.get("section") or ""
+        if asked is None and not base.get("ok"):
+            rows.append(f"| {condition} | not payable now | | {section} |")
+            continue
+        if asked is None:
+            rows.append(f"| {condition} | {_money(base.get('annual_amount'))} | "
+                        f"{_money(base.get('monthly_amount'))} | {section} |")
+            priced += 1
+            continue
+        figure = next((s for s in entry.get("scenarios") or [] if s.get("annual_amount")), None)
+        if figure is not None:
+            rows.append(f"| {condition} | {figure.get('label') or asked} | {_money(figure.get('annual_amount'))} | "
+                        f"{_money(figure.get('monthly_amount'))} | {section} |")
+            priced += 1
+        elif any(u.get("formula_type") == key for u in unresolved):
+            rows.append(f"| {condition} | {asked} | not payable at that age | | {section} |")
+    if priced < 1 or len(rows) < 2:
         return ""
-    header = (
-        "| If you are | Annual pension | Monthly pension | Under |\n"
-        "|---|---:|---:|---|"
-    )
+    if asked is None:
+        header = (
+            "| If you are | Annual pension | Monthly pension | Under |\n"
+            "|---|---:|---:|---|"
+        )
+    else:
+        header = (
+            "| If you are | When | Annual pension | Monthly pension | Under |\n"
+            "|---|---|---:|---:|---|"
+        )
     return "\n".join([header, *rows])
 
 

@@ -1,0 +1,14 @@
+id: S10-002
+family: S10
+areas:
+- boundary
+tiers:
+- full
+turns:
+- q: Which of my employees can retire this year?
+  goal: Decline the across-employees question for now (D1).
+  reference: Questions across employees are out of scope for now; offer to check one employee at a time.
+  acceptable:
+  - refuse
+  checks:
+    no_calculation: true

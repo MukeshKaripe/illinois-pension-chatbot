@@ -32,7 +32,7 @@ def test_each_input_is_labelled_by_where_it_actually_came_from() -> None:
         taken={"final_average_salary": "70000.00", "months_before_age_60": "0"},
         filled_origins={"age_at_annuity_start": SOURCE_ASSUMED},
         sheet=sheet,
-        question="My final average salary is $70,000.",
+        spoken="My final average salary is $70,000.",
     )
     assert origins == {
         # From the member's file.
@@ -57,7 +57,7 @@ def test_a_record_input_keeps_the_sheets_own_label() -> None:
         taken={},
         filled_origins={},
         sheet=sheet,
-        question="What would my pension be?",
+        spoken="What would my pension be?",
     )
     assert origins == {"service_years": "stated"}
 
@@ -167,7 +167,7 @@ def test_the_flag_alone_does_not_relabel_a_members_own_facts() -> None:
         taken={},
         filled_origins={},
         sheet=sheet,
-        question="What would I get?",
+        spoken="What would I get?",
     )
     assert origins == {"service_years": "record"}
 
@@ -184,7 +184,7 @@ def test_a_borrowed_value_is_labelled_as_a_stand_in() -> None:
         taken={},
         filled_origins={},
         sheet=sheet,
-        question="if I were a Chicago police officer with my salary and service?",
+        spoken="if I were a Chicago police officer with my salary and service?",
     )
     assert origins == {"service_years": "stand_in", "final_average_salary": "stand_in"}
 
@@ -221,7 +221,7 @@ def test_a_value_stated_three_turns_ago_is_still_stated():
         taken={"total_service_years": 40},
         filled_origins={},
         sheet=WorkSheet(),
-        question="so what would that come to?",
+        spoken="so what would that come to?",
         held={"total_service_years": SOURCE_STATED},
     )
     assert origins["total_service_years"] == SOURCE_STATED
@@ -236,7 +236,7 @@ def test_the_current_message_still_wins_when_the_ledger_is_silent():
         taken={"final_average_salary": 75000},
         filled_origins={},
         sheet=WorkSheet(),
-        question="my average salary is 75000",
+        spoken="my average salary is 75000",
         held={},
     )
     assert origins["final_average_salary"] == SOURCE_STATED
@@ -253,7 +253,7 @@ def test_an_assumption_this_turn_is_not_promoted_by_an_older_statement():
         taken={},
         filled_origins={"retirement_age": SOURCE_ASSUMED},
         sheet=WorkSheet(),
-        question="what would I get?",
+        spoken="what would I get?",
         held={"retirement_age": SOURCE_STATED},
     )
     assert origins["retirement_age"] == SOURCE_ASSUMED

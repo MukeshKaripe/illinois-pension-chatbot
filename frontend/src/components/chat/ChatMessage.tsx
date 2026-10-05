@@ -1,24 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { cardFrom, isStopped, type CalculationCardData } from "@/lib/card";
+import { cardsFrom, isStopped, type CalculationCardData } from "@/lib/card";
+import { allChosen, suggestionFrom, whichOneQuestion, type Person, type Suggestion } from "@/lib/subject";
 import { linkSections, sectionFromHref } from "@/lib/sections";
+import { dropOrphanTableHeaders, splitStreaming } from "@/lib/streaming";
 import type { Message } from "@/lib/types";
 import { CalculationCard } from "./CalculationCard";
+import { SubjectChoice } from "./SubjectChoice";
 
 interface ChatMessageProps {
   message: Message;
   isStreaming?: boolean;
   onOpenSection: (section: string) => void;
   onOpenCalculation: (card: CalculationCardData) => void;
+  /** Add a chosen candidate to the conversation; resolves false when that failed. */
+  onChoosePerson?: (person: Person, suggestion: Suggestion) => Promise<boolean>;
+  /** Ask the question again once every name in it has been chosen. */
+  onResend?: (question: string) => void;
+  /**
+   * Something follows this message, so a choice it offered has been answered.
+   * A reloaded card forgets which person was chosen, and clicking it again
+   * re-sent the old question into the middle of the conversation.
+   */
+  answered?: boolean;
 }
 
-export function ChatMessage({ message, isStreaming, onOpenSection, onOpenCalculation }: ChatMessageProps) {
+export function ChatMessage({
+  message, isStreaming, onOpenSection, onOpenCalculation, onChoosePerson, onResend, answered,
+}: ChatMessageProps) {
   // Above the early returns: a hook after them would run conditionally.
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  // Which candidate was chosen from each card of a choice turn, and whether the
+  // question has been asked again -- once, when every card has a choice.
+  const [chosen, setChosen] = useState<Record<number, string>>({});
+  const resent = useRef(false);
 
   if (message.role === "user") {
     return (
@@ -35,27 +54,35 @@ export function ChatMessage({ message, isStreaming, onOpenSection, onOpenCalcula
 
   // Card and stopped state live in the audit trail, so a live message and a
   // reloaded one render identically.
-  const card = cardFrom(message.tool_calls);
+  const cards = cardsFrom(message.tool_calls);
+  const suggestion = suggestionFrom(message.tool_calls);
+
+  const choose = async (index: number, person: Person) => {
+    if (!suggestion || !onChoosePerson) return;
+    if (!(await onChoosePerson(person, suggestion))) return;
+    const next = { ...chosen, [index]: person.ref };
+    setChosen(next);
+    if (!resent.current && allChosen(suggestion, next)) {
+      resent.current = true;
+      onResend?.(suggestion.kind === "which_one" ? whichOneQuestion(suggestion.question, person) : suggestion.question);
+    }
+  };
   const stopped = message.stopped || isStopped(message.tool_calls);
   const verified = message.verified_citations ?? [];
 
-  // Markdown is re-parsed on every token, so a half-written table renders as
-  // literal pipes until its row closes. Everything up to the last blank line is
-  // complete enough to parse; the tail after it is shown as plain text and
-  // re-renders as markdown the moment the block closes.
-  const split = isStreaming ? message.content.lastIndexOf("\n\n") : -1;
-  const settled = split > 0 ? message.content.slice(0, split) : message.content;
-  const tail = split > 0 ? message.content.slice(split) : "";
+  const { settled, tail } = splitStreaming(message.content, Boolean(isStreaming));
 
   return (
     <div>
-      {card && !isStreaming && (
-        <CalculationCard
-          card={card}
-          onOpen={() => onOpenCalculation(card)}
-          onOpenSection={onOpenSection}
-        />
-      )}
+      {!isStreaming &&
+        cards.map((card, i) => (
+          <CalculationCard
+            key={`${card.person ?? "card"}-${i}`}
+            card={card}
+            onOpen={() => onOpenCalculation(card)}
+            onOpenSection={onOpenSection}
+          />
+        ))}
 
       {message.content && (
         <div className="prose answer max-w-none">
@@ -93,11 +120,22 @@ export function ChatMessage({ message, isStreaming, onOpenSection, onOpenCalcula
               },
             }}
           >
-            {linkSections(settled, verified)}
+            {linkSections(dropOrphanTableHeaders(settled), verified)}
           </ReactMarkdown>
           {tail && <div className="whitespace-pre-wrap">{tail}</div>}
         </div>
       )}
+
+      {suggestion && !isStreaming &&
+        suggestion.choices.map((choice, i) => (
+          <SubjectChoice
+            key={i}
+            choice={choice}
+            chosenRef={chosen[i]}
+            disabled={!onChoosePerson || answered}
+            onChoose={(person) => void choose(i, person)}
+          />
+        ))}
 
       {stopped && (
         <p className="mt-2 text-xs text-muted-foreground">Stopped — not finished or checked</p>

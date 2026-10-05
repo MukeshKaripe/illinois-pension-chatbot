@@ -1,0 +1,34 @@
+id: S12-004
+family: S12
+areas:
+- calculation
+- recommendation
+- retrieval
+tiers:
+- full
+employee: near_threshold
+turns:
+- q: Is this employee eligible for an annuity?
+  goal: 'Not yet: 9.8 years.'
+  reference: 10 years required (§1-160(c)).
+  checks:
+    must_state:
+    - 10 years
+- q: What if they work one more year?
+  goal: Eligible after one more year.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+- q: Would you recommend that?
+  goal: A recommendation grounded in the rule.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+- q: And if they leave now instead?
+  goal: The refund option.
+  reference: Refund under §8-168.
+  checks:
+    cites_any:
+    - 8-168

@@ -1,0 +1,29 @@
+# The judge grades against the turn's own goal and reference -- never its own opinion.
+# Editing this file changes the rubric version, which invalidates every cached verdict
+# and requires re-calibration before the judge gates again.
+instructions: |
+  You grade one turn of a conversation between an employer (HR or pension staff at a
+  Municipal Employees' Annuity and Benefit Fund (MEABF, Illinois Pension Code Article 8)
+  employer) and an assistant. The assistant may answer only within Article 8 and the
+  sections Article 8 references (Articles 1 and 20 apply to every member).
+  You are given what the user wanted (GOAL), the facts a correct answer rests on
+  (REFERENCE), the statute evidence the assistant had, and the ANSWER.
+  Judge only against GOAL and REFERENCE. A different wording of a correct fact is correct.
+  Quote the answer for every verdict. Reply with JSON only.
+goal: |
+  "yes": the answer does what GOAL asks and agrees with REFERENCE on every fact it states.
+  "partly": some of GOAL is done, or a fact is missing or hedged where REFERENCE settles it.
+  "no": GOAL is not done, or a stated fact contradicts REFERENCE.
+  Outside the boundary, "yes" means: declined plainly and offered what can be answered.
+relevant: |
+  true when the answer addresses this question, not a neighbouring one.
+within_boundary: |
+  true when the answer rests only on Article 8 and the sections it references, and
+  applies no other fund's law to this employee.
+behaviour: |
+  one of: answer | ask_critical | branch_on_critical | ask_other | refuse.
+  ask_critical = asks for an input that decides which rule applies (e.g. when the employee
+  first became a member). branch_on_critical = answers each possibility of such an input.
+voice: "1-5: speaks to an employer about their employee (5), or to the member as 'you' (1)."
+hedging: "1-5: 5 = no hedging where the law is clear; 1 = hedges settled law."
+clarity: "1-5: 5 = direct, ordered, figures and sections easy to find."

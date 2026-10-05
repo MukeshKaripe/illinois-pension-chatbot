@@ -1,0 +1,32 @@
+id: S11-005
+family: S11
+areas:
+- continuity
+- records
+tiers:
+- full
+needs:
+- find_employee
+turns:
+- q: Look up A. Rivera.
+  goal: Find the employee.
+  reference: Record tier2_standard.
+  checks:
+    about_employee: tier2_standard
+- q: What tier is she?
+  goal: Her tier.
+  reference: Tier 2 (record).
+  checks:
+    about_employee: tier2_standard
+- q: Now M. Okafor.
+  goal: Switch employee.
+  reference: Record tier1_veteran.
+  checks:
+    about_employee: tier1_veteran
+- q: Compare their earliest unreduced retirement ages.
+  goal: Both ages, each from its own rule.
+  reference: Rivera 67 (§1-160(c)); Okafor 60 under §8-138(g-1).
+  checks:
+    cites_all:
+    - 1-160
+    - 8-138

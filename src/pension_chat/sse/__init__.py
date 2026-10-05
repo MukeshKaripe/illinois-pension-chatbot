@@ -97,13 +97,19 @@ def sse_view(slot: str, markdown: str) -> str:
     return sse_event("view", {"slot": slot, "markdown": markdown})
 
 
+def sse_people(active: list[str]) -> str:
+    """Who this turn is about, as soon as it is decided -- before any answer text --
+    so the header chips change first (spec §4.4)."""
+    return sse_event("people", {"active": list(active)})
+
+
 def sse_token(delta: str) -> str:
     """Emit a single answer token."""
     return sse_event("token", {"delta": delta})
 
 
 def sse_done(
-    message_id: int,
+    message_id: int | None,
     citations: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
     guardrail_passed: bool = True,

@@ -1,0 +1,51 @@
+id: S12-002
+family: S12
+areas:
+- continuity
+- calculation
+- clarification
+- recommendation
+tiers:
+- full
+turns:
+- q: An employee is 58, earns $70,000 and has 15 years. What would they get at 62?
+  goal: Ask when they joined, or branch.
+  reference: Tier decides the rule (§1-160(a)).
+  acceptable:
+  - ask_critical
+  - branch_on_critical
+  checks:
+    critical_inputs:
+    - participation_date
+- q: They joined in 2012.
+  goal: Tier 2 estimate at 62 (reduced).
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    calculation: true
+- q: Actually their salary is $74,000.
+  goal: Recompute on the corrected salary.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    calculation: true
+    no_reask:
+    - age
+    - service
+    - participation_date
+- q: Should they wait until 67?
+  goal: A recommendation between 62 and 67.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160
+- q: Summarise this for the employee in two sentences.
+  goal: A short summary consistent with the figures.
+  reference: Consistent with the conversation so far and the sections it has established.

@@ -71,10 +71,13 @@ BASIS_STATUTORY = "statutory_match"
 BASIS_RECORD = "record"
 BASIS_HYPOTHETICAL = "hypothetical"
 BASIS_UNRESOLVED = "unresolved"
+# The assistant is deployed for one fund (`config.deployment_article`) and
+# nothing else has spoken: no record, no confirmation, no supposition.
+BASIS_DEPLOYMENT = "deployment"
 
 # The two bases under which an answer may state coverage as a fact about the
 # member. Read by the guardrail, so it lives here with the vocabulary it checks.
-ESTABLISHED_BASES = frozenset({BASIS_CONFIRMED, BASIS_STATUTORY})
+ESTABLISHED_BASES = frozenset({BASIS_CONFIRMED, BASIS_STATUTORY, BASIS_DEPLOYMENT})
 
 # Articles that govern the members of other Articles can never be the answer to
 # "which Article covers you", because nobody is a member of one.

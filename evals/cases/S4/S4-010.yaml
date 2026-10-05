@@ -1,0 +1,14 @@
+id: S4-010
+family: S4
+areas: [calculation, records]
+tiers: [full]
+employee: pbms_tier_disagreement
+turns:
+- q: What would this employee's annuity be if they retired at the end of this year?
+  goal: An answer about this PBMS employee that reports the tier discrepancy instead of choosing silently.
+  reference: 'PBMS records Tier 2, but participation from 2019 indicates Tier 3; the answer says so and which tier
+    any figure uses. With 7.5 years of service, under the 10 years §1-160 and §8-138(g-1) require, no retirement
+    annuity is payable yet; the answer says so rather than giving a figure. No internal ID appears.'
+  checks:
+    ttft_class: heavy
+    cites_any: [1-160, 8-138]

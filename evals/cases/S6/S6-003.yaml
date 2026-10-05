@@ -1,0 +1,17 @@
+id: S6-003
+family: S6
+areas:
+- recommendation
+- retrieval
+tiers:
+- full
+turns:
+- q: An employee aged 55 with 12 years is leaving the city. Should they take a refund or leave contributions in
+    for a later annuity?
+  goal: The trade-off between a refund and a deferred annuity.
+  reference: A refund is available on the conditions of §8-168; leaving contributions in keeps the right to an annuity
+    at the eligible age (§8-138 or §1-160 depending on tier).
+  checks:
+    cites_any:
+    - 8-168
+    ttft_class: heavy

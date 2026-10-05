@@ -33,12 +33,6 @@ NEVER_ASSUMABLE = frozenset(
         "article_number",
         "employment_status",
         "tier",
-        "final_average_salary",
-        "highest_average_annual_salary",
-        "highest_average_annual_salary_4yr",
-        "highest_average_annual_salary_5yr",
-        "highest_average_annual_salary_8yr",
-        "fas",
         "service_years",
         "years_of_service",
         "creditable_service_years",
@@ -85,6 +79,15 @@ def _today(known: Mapping[str, Any]) -> Any:
     return known.get("as_of_date")
 
 
+def _age(known: Mapping[str, Any]) -> Any:
+    """The age, under whichever name it arrived -- a described employee's stated
+    age resolves as `age_at_annuity_start`, a record's as `age`."""
+    for name in ("age", "current_age", "attained_age", "age_at_annuity_start", "age_at_withdrawal"):
+        if known.get(name) is not None:
+            return known[name]
+    return None
+
+
 def _months_before_sixty(known: Mapping[str, Any]) -> Any:
     """Whole months from a mid-year birthday to age 60.
 
@@ -93,7 +96,7 @@ def _months_before_sixty(known: Mapping[str, Any]) -> Any:
     and the spread is reported alongside it. Picking a point silently is what
     turns "age 56" into a confident 44 that nobody can check.
     """
-    age = known.get("age")
+    age = _age(known)
     if age is None:
         return None
     months = (60 - int(age)) * 12
@@ -103,7 +106,7 @@ def _months_before_sixty(known: Mapping[str, Any]) -> Any:
 
 
 def _months_before_sixty_range(known: Mapping[str, Any]) -> tuple[Any, Any] | None:
-    age = known.get("age")
+    age = _age(known)
     if age is None:
         return None
     months = (60 - int(age)) * 12
@@ -113,6 +116,59 @@ def _months_before_sixty_range(known: Mapping[str, Any]) -> tuple[Any, Any] | No
     # count. Birthday today: the full count.
     return (months - 11, months)
 
+
+def _stated_salary(known: Mapping[str, Any]) -> Any:
+    """The annual salary the user stated, taken as their average -- or nothing.
+
+    Only a salary the user typed (`stated_annual_salary`); never the record's
+    current pay, and never a figure from nowhere.
+    """
+    return known.get("stated_annual_salary")
+
+
+def _birth_date_from_age(known: Mapping[str, Any]) -> Any:
+    """A date of birth placed mid-year from a stated age, as `_months_before_sixty` is."""
+    from datetime import date, timedelta
+
+    age, today = _age(known), known.get("as_of_date")
+    if age is None or not today:
+        return None
+    try:
+        on = date.fromisoformat(str(today))
+        birthday = on.replace(year=on.year - int(age))
+    except ValueError:
+        return None
+    return (birthday - timedelta(days=182)).isoformat()
+
+
+def _birth_date_range(known: Mapping[str, Any]) -> tuple[Any, Any] | None:
+    """Anyone aged N today was born between N+1 years ago (plus a day) and N years ago."""
+    from datetime import date, timedelta
+
+    age, today = _age(known), known.get("as_of_date")
+    if age is None or not today:
+        return None
+    try:
+        on = date.fromisoformat(str(today))
+        latest = on.replace(year=on.year - int(age))
+        earliest = on.replace(year=on.year - int(age) - 1) + timedelta(days=1)
+    except ValueError:
+        return None
+    return earliest.isoformat(), latest.isoformat()
+
+
+def _annuity_start(known: Mapping[str, Any]) -> Any:
+    return known.get("withdrawal_date") or known.get("as_of_date")
+
+
+#: The names a salary basis goes by. Missing-input policy (product owner,
+#: 2026-09-30): salary growth is a secondary input, so a salary the user stated
+#: may be taken as flat across the averaging period -- one assumption, disclosed.
+SALARY_BASES = (
+    "final_average_salary", "highest_average_annual_salary", "highest_average_annual_salary_4yr",
+    "highest_average_annual_salary_5yr", "highest_average_annual_salary_8yr", "fas",
+    "final_average_salary_8_year", "final_average_salary_96_months", "tier_2_final_average_salary",
+)
 
 POLICY: dict[str, AssumptionRule] = {
     "withdrawal_date": AssumptionRule(
@@ -128,8 +184,19 @@ POLICY: dict[str, AssumptionRule] = {
         assumable=True,
         basis="the date your annuity starts, taken as the date you stop working",
         disclosure_cues=("annuity", "start", "begin", "today"),
-        default=_today,
-        plausible=lambda known: (_today(known), _today(known)) if _today(known) else None,
+        default=_annuity_start,
+        plausible=lambda known: (_annuity_start(known), _annuity_start(known)) if _annuity_start(known) else None,
+        # Follows the withdrawal date rather than making a second claim about when.
+        derives=True,
+    ),
+    "birth_date": AssumptionRule(
+        name="birth_date",
+        assumable=True,
+        basis="your date of birth placed mid-year from the age you gave",
+        disclosure_cues=("birthday", "date of birth", "born", "age"),
+        default=_birth_date_from_age,
+        plausible=_birth_date_range,
+        derives=True,
     ),
     "months_before_age_60": AssumptionRule(
         name="months_before_age_60",
@@ -144,6 +211,16 @@ POLICY: dict[str, AssumptionRule] = {
         derives=True,
     ),
 }
+
+for _name in SALARY_BASES:
+    POLICY[_name] = AssumptionRule(
+        name=_name,
+        assumable=True,
+        basis="the salary you gave, taken as flat across the averaging period -- pay rises would raise it",
+        disclosure_cues=("salary", "pay", "earn", "flat", "average"),
+        default=_stated_salary,
+        plausible=lambda known: (_stated_salary(known), _stated_salary(known)) if _stated_salary(known) else None,
+    )
 
 for _name in NEVER_ASSUMABLE:
     POLICY.setdefault(

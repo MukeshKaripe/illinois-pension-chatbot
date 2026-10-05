@@ -1,0 +1,34 @@
+id: S4-001
+family: S4
+areas:
+- calculation
+- records
+tiers:
+- smoke
+- full
+employee: tier1_veteran
+turns:
+- q: What would this employee's annuity be if they retired at the end of this year?
+  goal: A Tier 1 annuity estimate for this employee, worked from the record.
+  reference: 'Tier 1, about 59 with 30.75 years: the §8-138(g-1) formula (2.4% of final average salary per year,
+    capped at 80%) cannot start before 60, so retiring this year either waits for 60 or uses a reduced option; the
+    answer states which and why (§8-138).'
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    figures_from:
+    - record
+    - engine
+    - statute
+    - assumed
+    expected_figure:
+      annual: 72566.51
+- q: Show me how that was worked out.
+  goal: The working behind the figure.
+  reference: 'The steps: final average salary from the salary history, years of service, the rate, and any reduction,
+    each traced to its section (§8-138).'
+  checks:
+    cites_any:
+    - 8-138
+    verification_passed: true

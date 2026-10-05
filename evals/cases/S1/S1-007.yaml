@@ -1,0 +1,28 @@
+id: S1-007
+family: S1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: What does a duty disability benefit pay under Article 8?
+  goal: The amount of the duty disability benefit.
+  reference: 75% of salary at the date of injury, or 50% where a pre-existing defect or disease contributed; increased
+    by 10% from January 1 of the sixth year; plus $10 a month child's disability benefit per child under 18, capped
+    (§8-160).
+  checks:
+    cites_any:
+    - 8-160
+    must_state:
+    - 75%
+    ttft_class: simple
+- q: When does it stop?
+  goal: When duty disability benefit ends.
+  reference: It is paid during disability for which no salary is received, within the limits §8-160 and §8-163 set;
+    the answer states those limits as written rather than assuming an age.
+  checks:
+    cites_any:
+    - 8-160
+    - 8-163
+    ttft_class: simple

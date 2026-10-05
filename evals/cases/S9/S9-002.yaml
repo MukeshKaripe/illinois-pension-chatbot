@@ -1,0 +1,17 @@
+id: S9-002
+family: S9
+areas:
+- records
+- clarification
+tiers:
+- full
+needs:
+- find_employee
+turns:
+- q: What is J. Smith's service?
+  goal: Ask which J. Smith.
+  reference: Two records match; ask before answering.
+  acceptable:
+  - ask_other
+  checks:
+    max_questions: 1

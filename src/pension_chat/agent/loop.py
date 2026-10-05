@@ -21,6 +21,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from langgraph.config import get_stream_writer
@@ -42,17 +43,20 @@ from pension_chat.agent.nodes import (
     _governing_article,
     _record_coverage,
 )
+from pension_chat.agent.people import labels as people_labels
 from pension_chat.agent.presentation import select_rung
 from pension_chat.agent.registry import recipes_for
 from pension_chat.agent.retrieval import (
     CROSS_CUTTING_ARTICLES,
     extract_article_references,
 )
+from pension_chat.agent.section_scope import out_of_scope
 from pension_chat.agent.tools import (
     CALCULATION_TOOLS,
     COVERAGE_TOOLS,
     RECOMMENDATION_TOOLS,
     RETRIEVAL_TOOLS,
+    _scoping_article,
     run_tool,
 )
 from pension_chat.agent.worksheet import SUPERSEDED_MARK, WorkSheet
@@ -136,6 +140,121 @@ write the member's answer at that point; you will be asked for it next, with the
 rules for how it should read."""
 
 
+def _audience(state: dict[str, Any]) -> str:
+    """Who the answer is for, when the fund's records are in play: the employer.
+
+    Said where the answer is written, not only in the context block -- the
+    live demo run still produced "your estimated pension" and "you stop working
+    today" to an employer asking about someone else.
+    """
+    record = state.get("employee_record") or {}
+    if not record.get("record_source"):
+        if state.get("names_unavailable"):
+            # PBMS could not be searched: still an employer asking about someone
+            # else, and the missing record is the first thing they need to know.
+            return (
+                "You may be answering an employer about an employee they named, whose record could "
+                "not be read because the fund's directory is unavailable. If so, open by saying that "
+                "record could not be read, and refer to the employee by name or as 'they' -- never "
+                "'you' or 'your' for the employee. You may address the employer as 'you'."
+            )
+        return ""
+    people = state.get("people") or {}
+    names = [b.get("label") for b in people.values() if b.get("label")]
+    names = names or [record.get("display_name") or "the employee"]
+    who = " and ".join(names) if len(names) <= 2 else ", ".join(names[:-1]) + f" and {names[-1]}"
+    return (
+        f"You are answering their employer about {who}, not the employee themselves. Refer to each "
+        "employee by name or as 'they' -- never 'you' or 'your' for the employee -- including in what "
+        "you say you assumed (write 'assuming {name} stops working today', not 'you stop working "
+        "today'). You may address the employer as 'you'."
+    ).replace("{name}", names[0])
+
+
+def _record_notes(record: dict[str, Any]) -> str:
+    """Who this is and what their record could not say -- only for a fund record (PBMS).
+
+    Named by name and department, never by the internal MEAB ID. A gap the
+    record reports is something to tell the employer, not something to fill.
+    """
+    who = ", ".join(
+        str(v) for v in (record.get("display_name"), record.get("department") or record.get("employer")) if v
+    )
+    parts = [f"This conversation is about {who or 'an employee'}, from the fund's own records "
+             f"({record['record_source']}). The person asking is their employer, not this employee: "
+             "refer to the employee by name or as 'they', never as 'you' or 'your'."]
+    if record.get("service_source"):
+        parts.append(f"Their service is {record['service_source']}.")
+    gaps = record.get("missing") or {}
+    if gaps:
+        parts.append(
+            "What the record could not say, and why -- report these rather than filling them: "
+            + "; ".join(f"{name}: {why}" for name, why in sorted(gaps.items())) + "."
+        )
+    return " ".join(parts)
+
+
+def _people_context(state: dict[str, Any]) -> str:
+    """Several people in one turn: who each is, and how to compute for each (spec §5)."""
+    people = state.get("people") or {}
+    lines = [
+        "The person asking is their employer, not one of these employees: refer to each by name, "
+        "never as 'you' or 'your'.",
+        f"This question is about {len(people)} employees. Call compute_benefit once for each, with "
+        "person set to the label shown. Their figures are put side by side for you at <<<PEOPLE>>>; "
+        "do not write the figures yourself."
+    ]
+    for ref in state.get("turn_people") or list(people):
+        bundle = people.get(ref)
+        if not bundle:
+            continue
+        record, facts = bundle["record"], bundle.get("member_facts") or {}
+        known = ", ".join(f"{k}={facts[k]}" for k in ("age", "service_years") if facts.get(k) is not None)
+        where = record.get("department") or record.get("employer") or "department not on file"
+        line = (f"- {bundle['label']}: {where}; Tier {record.get('tier') or 'not settled'}; "
+                f"{known or 'no age or service on file'}")
+        if record.get("missing"):
+            line += "; record gaps -- " + "; ".join(f"{k}: {v}" for k, v in sorted(record["missing"].items()))
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _money(value: Any) -> str:
+    if value in (None, ""):
+        return "—"
+    return f"${Decimal(str(value).replace(',', '').replace('$', '')):,.2f}"
+
+
+def render_people(state: dict[str, Any]) -> str:
+    """One row per person with a figure, in the turn's order -- code-rendered so the
+    model can compare in prose but can never swap two people's numbers."""
+    people = state.get("people") or {}
+    first_figure: dict[str, dict] = {}
+    for entry in (state.get("calculation_result") or {}).values():
+        ref = (entry or {}).get("person_ref")
+        if ref and ref not in first_figure and ((entry.get("base") or {}).get("ok")):
+            first_figure[ref] = entry
+    if len(first_figure) < 2:
+        return ""
+    rows = ["| Employee | Department | Tier | When | Worked from | Annual | Monthly |",
+            "|---|---|---|---|---|---|---|"]
+    for ref in state.get("turn_people") or list(people):
+        entry, bundle = first_figure.get(ref), people.get(ref)
+        if not entry or not bundle:
+            continue
+        record = bundle["record"]
+        # The figure the question asked for: its scenario ("at age 62") when it
+        # named one, else the as-of-today figure -- never today's beside a
+        # question about 62 (found live: two figures for one person).
+        scenario = next((sc for sc in entry.get("scenarios") or [] if sc.get("annual_amount")), None)
+        when, figure = (scenario["label"], scenario) if scenario else ("if they retire now", entry["base"])
+        section = f"§{entry['section']}{entry.get('subsection') or ''}" if entry.get("section") else ""
+        rows.append(f"| {bundle['label']} | {record.get('department') or record.get('employer') or ''} | "
+                    f"{record.get('tier') or ''} | {when} | {section} | {_money(figure.get('annual_amount'))} | "
+                    f"{_money(figure.get('monthly_amount'))} |")
+    return "\n".join(rows)
+
+
 def _context(state: dict[str, Any]) -> str:
     """What is known about this member, re-rendered every iteration.
 
@@ -167,6 +286,14 @@ def _context(state: dict[str, Any]) -> str:
                 "employment_status_on_record",
             }
         )
+        # The salary basis is said to exist, not given: the engine uses the
+        # figure, and a model handed it reaches for it. Left unsaid, the model
+        # read its absence from this line as "their final average salary is not
+        # available" and never called compute_benefit (live, 2026-10-01).
+        if facts.get("final_average_salary") is not None:
+            known = (f"{known}, " if known else "") + (
+                "final average salary (from the salary history; compute_benefit uses it)"
+            )
         lines.append(f"What is on file for this member: {known or 'nothing usable'}")
     elif state.get("member_facts"):
         # There is a record; this turn may not use it. Saying so is the
@@ -179,6 +306,25 @@ def _context(state: dict[str, Any]) -> str:
         )
     else:
         lines.append("No member record is available; answer from the Code alone.")
+    if state.get("unavailable_people"):
+        names = people_labels(state.get("subjects") or [])
+        lines.append(
+            "The fund's records could not be read just now for: "
+            + ", ".join(names.get(r, "one employee") for r in state["unavailable_people"])
+            + ". Say so plainly, and do not state figures from their records."
+        )
+    if state.get("names_unavailable"):
+        lines.append(
+            "The fund's employee directory could not be searched just now, so a "
+            "name in this question could not be looked up. If the question is "
+            "about a particular employee, say plainly that their record could "
+            "not be read, and do not present any figure as theirs."
+        )
+    record = state.get("employee_record") or {}
+    if record.get("record_source") and len(state.get("people") or {}) <= 1:
+        lines.append(_record_notes(record))
+    if len(state.get("people") or {}) > 1:
+        lines.append(_people_context(state))
     coverage = state.get("coverage") or {}
     if coverage.get("article"):
         # Whose claim this is, said correctly. Under a supposition the file says
@@ -280,6 +426,10 @@ async def _read_sections(
     and raising costs the member their answer. What is left unread is already
     reported by `unread_references`.
     """
+    # Completing the evidence is not a request for a section: one that belongs
+    # to other funds (§1-161, which §1-160 names) is not fetched for this one's.
+    article = _scoping_article(working)
+    targets = [t for t in targets if not out_of_scope(t, article)]
     if not targets:
         return []
     results = await asyncio.gather(
@@ -608,6 +758,35 @@ def _read_beyond_prefetch(
     ]
 
 
+async def _complete_people(
+    working: dict[str, Any], last_compute: dict[str, Any] | None, run: Any = None
+) -> list[str]:
+    """Work the last calculation for each person in the turn who has no figure yet.
+
+    Returns the labels it computed for. Nothing when fewer than two people are
+    in the turn, or when nothing was computed to copy the question from.
+    """
+    people = working.get("people") or {}
+    if len(people) < 2 or not last_compute:
+        return []
+    run = run or run_tool
+    have = {
+        (entry or {}).get("person_ref")
+        for entry in (working.get("calculation_result") or {}).values()
+        if (entry or {}).get("person_ref") and ((entry.get("base") or {}).get("ok"))
+    }
+    done: list[str] = []
+    for ref in working.get("turn_people") or list(people):
+        bundle = people.get(ref)
+        if not bundle or ref in have:
+            continue
+        _progress("compute_benefit", {**last_compute, "person": bundle["label"]})
+        _, update = await run("compute_benefit", {**last_compute, "person": bundle["label"]}, working)
+        working.update(update)
+        done.append(bundle["label"])
+    return done
+
+
 async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     """Search, read, reconsider, and stop when there is enough.
 
@@ -664,6 +843,8 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # from an empty corpus while the sections it needed sat in this loop.
     working: dict[str, Any] = {**state}
     spent: dict[str, int] = {}
+    # The last calculation asked for, so the rest of a comparison can be worked alike.
+    last_compute: dict[str, Any] | None = None
     withdrawn: set[str] = set()
     exhausted = False
     pushed_back = False
@@ -838,6 +1019,8 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             # Before the call, not after it: a step reported on completion is
             # the step the member has already finished waiting for.
             _progress(call.name, call.arguments)
+            if call.name == "compute_benefit":
+                last_compute = {k: v for k, v in call.arguments.items() if k != "person"}
             result, update = await run_tool(call.name, call.arguments, working)
             if update.get("retrieved_sections"):
                 sections = _merge_sections(sections, update["retrieved_sections"])
@@ -846,6 +1029,20 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
+
+    # ── Several people: every one of them gets a figure ──────────
+    #
+    # With one person's figure already in view from an earlier turn, the model
+    # computed only the other and wrote its own table around the gap. A
+    # comparison is only a comparison with a row for everyone in it, so the rest
+    # are worked here, on the same question, each from their own record.
+    completed = await _complete_people(working, last_compute)
+    if completed:
+        messages.append({
+            "role": "system",
+            "content": "Figures were also worked out, on the same question, for: " + ", ".join(completed)
+            + ". Every person's figure is in the PEOPLE table; do not write the figures yourself.",
+        })
 
     # ── A turn that only browsed has not looked ──────────────────
     #
@@ -1106,7 +1303,7 @@ def _branched(state: dict[str, Any]) -> str:
     -- and computing neither, while both figures were available from the
     registry all along.
     """
-    return render_branches(state.get("calculation_result") or {})
+    return render_branches(state.get("calculation_result") or {}, state.get("unresolved_scenarios") or [])
 
 
 #: Views the model emits by marker and code fills. A table's numbers are the
@@ -1117,7 +1314,7 @@ def _branched(state: dict[str, Any]) -> str:
 #: ASSUMPTIONS is deliberately absent. `guardrails._check_assumptions_disclosed`
 #: requires the *answer* to disclose an assumption in its own words, and a block
 #: substituted into the stream is not the answer saying anything.
-MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS")
+MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS", "PEOPLE")
 
 
 #: How a tool call reads as a step, in the member's terms rather than the
@@ -1166,6 +1363,34 @@ def _first_figure(state: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _tier_unasked(state: dict[str, Any]) -> str:
+    """A described person's figure rests on one tier, and nobody has said which.
+
+    When both tiers price, `_branched` shows both. When one does not pay at the
+    age asked (Tier 2 before 62) it drops out, and the answer silently became
+    Tier 1's: "61, 10 years, $50k" got $12,000 and no word that the tier was
+    open, so the next turns were spent discovering it (live, 2026-10-01). Read
+    from what the person typed, with the same rule the engine branches on.
+    """
+    if state.get("employee_record") or _branched(state):
+        return ""
+    results = [e for e in (state.get("calculation_result") or {}).values() if isinstance(e, Mapping)]
+    if not any((e.get("base") or {}).get("ok") or e.get("scenarios") for e in results):
+        return ""
+    from pension_chat.agent.nodes import _described_tiers, _member_words
+
+    if len(_described_tiers(_member_words(state), (state.get("coverage") or {}).get("article"))) < 2:
+        return ""
+    return (
+        "Nobody has said when this person first became a member, and that decides "
+        "their tier: before 2011 is Tier 1; from 2011 is Tier 2, which cannot begin "
+        "before age 62 and is reduced before 67. The figure here is worked under one "
+        "tier only. Say which tier it assumes and that under the other the answer "
+        "differs, and ask what year they first became a member -- in the same "
+        "question as anything else you need."
+    )
+
+
 def _live_options(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """The options the member is actually choosing between.
 
@@ -1178,10 +1403,26 @@ def _live_options(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     real choice a member weighs against waiting -- it is not a *what-if* they
     built, which is what the chip lists.
     """
+    people = list(state.get("turn_people") or [])
+    if len(people) > 1:
+        # Several people: the PEOPLE table is the comparison.
+        return {}
+    results = [e for e in (state.get("calculation_result") or {}).values() if isinstance(e, Mapping)]
+    if any(e.get("branch") for e in results):
+        # Both tiers priced: the tier table is the comparison, and options
+        # filed under either would mix them.
+        return {}
+    # Options worked under another formula are not this answer's: once "joined
+    # 2012" settled Tier 2, Tier 1's earlier figures stayed in the table beside
+    # it (live, 2026-10-01). Options filed before formulas were recorded stay.
+    current = {e.get("formula_name") for e in results if e.get("formula_name")}
     return {
         label: dict(entry)
         for label, entry in (state.get("scenario_set") or {}).items()
         if SUPERSEDED_MARK not in label and isinstance(entry, Mapping)
+        # With the fund's records, only this turn's person's own options.
+        and (not people or entry.get("person_ref") in people)
+        and (not current or not entry.get("formula") or entry.get("formula") in current)
     }
 
 
@@ -1221,16 +1462,23 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
     """
     first = _first_figure(state)
     rendered = {
+        # Several people side by side, code-rendered so no two figures can swap.
+        "PEOPLE": render_people(state),
         "WORKED_STEPS": render_worked_steps(first["base"]) if first else "",
         # Which provision applies outranks which date to pick: a member
         # who does not know their tier cannot act on a date.
         "COMPARISON": (
-            render_branches(state.get("calculation_result") or {})
+            render_branches(state.get("calculation_result") or {}, state.get("unresolved_scenarios") or [])
             or _options_table(state)
         ),
         "ASSUMPTIONS": _assumed(state),
         "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
     }
+    if rendered.get("PEOPLE", "").strip():
+        # Several people: the comparison is the table. One person's worked
+        # steps or options beside it were being dropped into its cells.
+        rendered = {slot: text for slot, text in rendered.items()
+                    if slot == "PEOPLE" or slot not in MARKED_VIEWS}
     return {slot: text for slot, text in rendered.items() if text.strip()}
 
 
@@ -1298,6 +1546,11 @@ def _attribution(state: dict[str, Any]) -> str:
     """
     coverage = state.get("coverage") or {}
     if coverage.get("basis") != coverage_mod.BASIS_RECORD:
+        return ""
+    # A fund record (PBMS) is an employer asking about someone else: "your
+    # record places you in Article 8" addresses the wrong person, and the
+    # fund's own record is not the user's to correct.
+    if (state.get("employee_record") or {}).get("record_source"):
         return ""
     article = coverage.get("article")
     if not article:
@@ -1658,6 +1911,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    if audience := _audience(state):
+        messages.append({"role": "system", "content": audience})
+
     if provision := _worked_from(state):
         messages.append({"role": "system", "content": provision})
 
@@ -1713,6 +1969,9 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+
+    if tier_open := _tier_unasked(state):
+        messages.append({"role": "system", "content": tier_open})
 
     if comparison := _branched(state):
         # The block has to be where the decision is made. A model told only

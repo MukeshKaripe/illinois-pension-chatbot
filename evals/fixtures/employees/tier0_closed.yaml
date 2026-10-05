@@ -1,0 +1,11 @@
+key: tier0_closed
+display_name: "P. Russo"
+employer: City of Chicago
+age: 80
+hire_date: 1976-09-30
+tier: 0
+tier_basis: "PBMS never set a tier on closed records"
+status: "closed"
+service_years: 20.0
+service_source: stored
+missing: {salary_history: "closed record"}

@@ -1,0 +1,14 @@
+key: pbms_payroll_service
+source: PBMS
+display_name: "LK_JH MN_BV"
+employer: City of Chicago
+department: Finance
+age: 63
+hire_date: 2012-05-01
+tier: 2
+status: active
+service_years: 14.25
+service_source: counted from payroll (months with a pension deduction)
+missing:
+  hire_date: "PBMS holds no hire date; the first payroll date (2012-05-01) is used in its place"
+salary: {current: 88000, growth: 0.02, years: 10}

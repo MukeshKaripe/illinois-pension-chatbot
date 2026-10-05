@@ -23,8 +23,8 @@ venv/
 *.swp
 *.swo
 
-# Data (statute text not committed)
-data/statutes/*.txt
+# Data: statute text and client-supplied documents are never committed.
+data/
 
 # OS
 .DS_Store
@@ -43,7 +43,7 @@ alembic/__pycache__/
 
 # Eval and benchmark reports.
 #
-# `scripts/eval_agent.py --json` and `scripts/bench_ttft.py --json` are written
+# `scripts/bench_ttft.py --json` is written
 # to dot-prefixed files in the repo root by convention, and they are output, not
 # source: a report is true of one run against one index and one model
 # deployment, and is stale the moment any of those moves. The harness that
@@ -56,3 +56,7 @@ alembic/__pycache__/
 /test_results_2.txt
 /test_Questions_results.txt
 /scenario based testing.txt
+
+# Eval runs and the judge's cache (evals/baseline.json is committed)
+evals/runs/
+evals/.judge_cache/

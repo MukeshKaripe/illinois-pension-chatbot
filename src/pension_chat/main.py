@@ -5,6 +5,7 @@ Configures CORS, routers, and lifespan events.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -96,7 +97,20 @@ async def _warm_connections() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
+    from pension_chat.pbms import build_record_provider
+    from pension_chat.records import set_default_provider
+
     logger.info("Starting Pension Chat API (env=%s)", settings.app_env)
+    # RECORD_SOURCE=pbms: every turn reads employee records from PBMS, live and
+    # read-only. Built before warming so a misconfiguration fails at start.
+    record_provider = build_record_provider(settings)
+    set_default_provider(record_provider)
+    logger.info("Employee records from %s", settings.record_source)
+    names_task = None
+    if record_provider is not None:
+        from pension_chat.pbms import refresh_names_forever
+
+        names_task = asyncio.create_task(refresh_names_forever(record_provider))
     await _warm_connections()
     yield
     from pension_chat.agent.llm import close_clients
@@ -107,6 +121,11 @@ async def lifespan(app: FastAPI):
     # connection pool under them would lose the count they were carrying.
     await drain_background_writes()
     await close_clients()
+    if names_task is not None:
+        names_task.cancel()
+    set_default_provider(None)
+    if record_provider is not None:
+        await record_provider.close()
     logger.info("Shutting down Pension Chat API")
 
 
@@ -133,10 +152,12 @@ from pension_chat.api.health import router as health_router  # noqa: E402
 from pension_chat.api.profiles import router as profiles_router  # noqa: E402
 from pension_chat.api.sections import router as sections_router  # noqa: E402
 from pension_chat.api.sessions import router as sessions_router  # noqa: E402
+from pension_chat.api.subject import router as subject_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(sessions_router)
+app.include_router(subject_router)
 app.include_router(sections_router)
 app.include_router(profiles_router)
 app.include_router(admin_router)

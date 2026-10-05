@@ -1,0 +1,16 @@
+id: S3-001
+family: S3
+areas:
+- retrieval
+- records
+tiers:
+- full
+employee: tier2_standard
+turns:
+- q: Can they retire next year?
+  goal: Eligibility next year, from the record and the law.
+  reference: 'About 59 next year with ~13.5 years: under 62, so not yet eligible (§1-160(c)).'
+  checks:
+    cites_any:
+    - 1-160
+    ttft_class: heavy

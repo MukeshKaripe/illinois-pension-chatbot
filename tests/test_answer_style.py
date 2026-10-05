@@ -254,3 +254,19 @@ def test_the_house_style_forbids_reusing_derivation_time_facts():
     58 that their annuity begins at 56.
     """
     assert "as though it were this member's" in ANSWER_SYSTEM
+
+
+def test_an_answer_that_falls_short_asks_for_what_is_missing() -> None:
+    # Live, 2026-10-01: survivor, disability, refund, "when can they retire"
+    # and "they are 58" each ended at "I can't determine that" and asked
+    # nothing; asking lived only in compute_benefit's value-gap text.
+    prompt = " ".join(ANSWER_SYSTEM.split())
+    assert "ASKING" in prompt
+    assert "one direct question" in prompt
+    assert "Name every missing item" in prompt
+
+
+def test_asking_is_all_at_once_and_in_facts_the_person_knows() -> None:
+    prompt = " ".join(ANSWER_SYSTEM.split())
+    assert "the year they first became a member" in prompt
+    assert "never about how the Code classifies them" in prompt

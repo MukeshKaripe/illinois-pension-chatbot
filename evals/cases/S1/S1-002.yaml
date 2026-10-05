@@ -1,0 +1,30 @@
+id: S1-002
+family: S1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: What is the minimum age and service for a Tier 1 age-and-service annuity under Article 8?
+  goal: The Tier 1 minimum retirement age and service, with the sections.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    cites_any:
+    - 8-138
+    - 8-132
+    must_state:
+    - '60'
+    - 10 years
+    ttft_class: simple
+- q: Is the annuity reduced if they retire before 60?
+  goal: Whether and how a Tier 1 annuity is reduced before 60.
+  reference: Under §8-138(a), an employee with 20 or more years who withdraws before 65 may start no earlier than
+    55, reduced 2% per year under 65 plus a further 2% per year under 60, a total reduction of 30% at 55 (§8-138(a));
+    the 2.4% formula in §8-138(g-1) begins no earlier than 60.
+  checks:
+    cites_any:
+    - 8-138
+    ttft_class: simple

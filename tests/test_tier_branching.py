@@ -182,3 +182,61 @@ async def test_compose_hands_the_model_both_figures_and_forbids_picking():
     assert any("38,000" in text for text in system)
     assert any("<<<COMPARISON>>>" in text for text in system)
     assert "38,000" in out["answer_blocks"]["COMPARISON"]
+
+
+def test_a_what_if_shows_each_tiers_figure_at_that_age():
+    # Live, 2026-10-01: "what if I retire 5 years early?" showed each tier's
+    # age-65 figure under the what-if, Tier 2 included -- though Tier 2 cannot
+    # begin before 62. The table now shows the what-if's own figure, and says
+    # when a tier does not pay at that age.
+    asked = {
+        "retirement_annuity@tier1": {**_PRICED["retirement_annuity@tier1"],
+                                     "scenarios": [{"label": "5 years earlier", "annual_amount": "36000.00",
+                                                    "monthly_amount": "3000.00"}]},
+        "retirement_annuity@tier2": _PRICED["retirement_annuity@tier2"],
+    }
+    unresolved = [{"label": "5 years earlier", "formula_type": "retirement_annuity@tier2",
+                   "reason": "at that retirement age 1-160 does not apply: retiring at 62 or over (member: 60)"}]
+    table = render_branches(asked, unresolved)
+    assert "5 years earlier" in table
+    assert "36,000" in table and "38,000" not in table
+    assert "31,000" not in table and "not payable" in table
+
+
+def test_a_tier_that_does_not_pay_today_still_shows_its_what_if():
+    asked = {
+        "retirement_annuity@tier1": {**_PRICED["retirement_annuity@tier1"],
+                                     "scenarios": [{"label": "at age 66", "annual_amount": "12000.00",
+                                                    "monthly_amount": "1000.00"}]},
+        "retirement_annuity@tier2": {"branch": {"fact": "tier", "value": 2}, "section": "8-138",
+                                     "base": {"ok": False, "not_applicable": "retiring at 62 or over (member: 61)"},
+                                     "scenarios": [{"label": "at age 66", "annual_amount": "11280.00",
+                                                    "monthly_amount": "940.00"}]},
+    }
+    table = render_branches(asked)
+    assert "12,000" in table and "11,280" in table
+
+
+def test_without_a_what_if_a_tier_that_does_not_pay_today_says_so():
+    now = {
+        "retirement_annuity@tier1": _PRICED["retirement_annuity@tier1"],
+        "retirement_annuity@tier2": {"branch": {"fact": "tier", "value": 2}, "section": "8-138",
+                                     "base": {"ok": False, "not_applicable": "retiring at 62 or over (member: 61)"}},
+    }
+    table = render_branches(now)
+    assert "38,000" in table and "not payable now" in table
+
+
+def test_a_missing_service_figure_is_blank_not_none():
+    # Live, 2026-10-01: "if you retire now | None | $12,000.00".
+    from pension_chat.agent.blocks import render_comparison
+
+    table = render_comparison([{"label": "if you retire now", "service_years": None, "annual": "12000.00"}])
+    assert "None" not in table
+
+
+def test_retiring_now_is_filed_with_service_under_any_name():
+    from pension_chat.agent.graph import _recorded_scenarios
+
+    filed = _recorded_scenarios({"section": "8-138"}, {"annual_amount": "12000.00"}, {"service_years": 10}, 3)
+    assert next(iter(filed.values()))["service_years"] == 10

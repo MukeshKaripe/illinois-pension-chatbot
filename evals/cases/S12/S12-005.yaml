@@ -1,0 +1,37 @@
+id: S12-005
+family: S12
+areas:
+- retrieval
+- calculation
+tiers:
+- full
+employee: tier3_recent
+turns:
+- q: What does this employee contribute?
+  goal: The Tier 3 rate.
+  reference: A member subject to §1-160(c-5) (first joined on or after July 6, 2017) contributes 9.5% of each salary
+    payment for age and service annuity (§8-174(a-10)), against 6.5% for other members (§8-174(a)).
+  checks:
+    must_state:
+    - 9.5%
+- q: When can they retire?
+  goal: Age 65 with 10 years.
+  reference: §1-160(c-5).
+  checks:
+    cites_any:
+    - 1-160
+- q: Estimate their annuity at 65.
+  goal: An estimate at 65.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+- q: How does that compare with the regular Tier 2 rules?
+  goal: Tier 3 against Tier 2.
+  reference: 'Age 67 with at least 10 years of service credit (§1-160(c)); from age 62 with 10 years a reduced annuity,
+    reduced by 1/2 of 1% for each full month under 67 (§1-160(c), §1-160(d)). A member first joining on or after
+    July 6, 2017: age 65 with 10 years (§1-160(c-5)); members who joined 2011 to July 5, 2017 could elect the (c-5)
+    age in exchange for higher contributions (§1-160(d-10)).'
+  checks:
+    cites_any:
+    - 1-160

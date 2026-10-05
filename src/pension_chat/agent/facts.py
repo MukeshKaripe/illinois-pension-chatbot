@@ -230,6 +230,12 @@ def build_member_facts(
     }
     for alias in aliases_of("current_annual_salary"):
         facts[alias] = facts["current_annual_salary"]
+    # A record that holds no service figure (PBMS stores one for few MEABF
+    # members) leaves service unknown -- a missing input to ask for -- rather
+    # than publishing 0 years under the record's name.
+    if employee.get("total_service_years") is None:
+        for alias in aliases_of("total_service_years"):
+            facts.pop(alias, None)
     # Facts only some funds have (`funds.Fund.extra_fields`), under every name a
     # derivation might give them, as the ones above are.
     for name, value in (employee.get("extra_facts") or {}).items():
@@ -260,6 +266,15 @@ def build_member_facts(
             "carried forward at today's level; future pay rises are not projected"
         )
 
+    # Which window the generic "final average salary" means is set by the tier:
+    # 4 consecutive years in the last 10 for the older formulas (Article 11,
+    # Article 8 Tier 1 under §8-138), and for anyone Section 1-160 governs --
+    # Tier 2, and Article 8's Tier 3 -- "8 consecutive years ... within the last
+    # 10 years" (§1-160(b)). A Tier 2 member without 8 years of salary has no
+    # final average salary to publish: it is a missing input, never the 4-year
+    # figure standing in for it.
+    tier_2_rule = employee.get("tier") in (2, 3)
+    generic_window = 8 if tier_2_rule else 4
     if projected_history:
         for consecutive in (4, 5, 8):
             average = highest_average_salary(
@@ -269,10 +284,10 @@ def build_member_facts(
                 continue
             value = _num(average)
             facts[f"highest_average_annual_salary_{consecutive}yr"] = value
-            if consecutive == 4:
-                # 4 consecutive years is the Article 11 default for withdrawals
-                # under the post-1988 formulas, so it also answers the generic
-                # "final average salary" input name.
+            if consecutive == 8:
+                for alias in aliases_of("final_average_salary_8_year"):
+                    facts[alias] = value
+            if consecutive == generic_window:
                 facts["final_average_salary"] = value
                 facts["highest_average_annual_salary"] = value
                 facts["fas"] = value
@@ -298,9 +313,18 @@ ALIAS_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({
         "months_before_age_60", "months_before_60", "full_months_under_age_60",
     }),
+    # The generic name. Aliases here only label a value's source and decide
+    # which figures a correction invalidates -- nothing fills one name from
+    # another -- so the 4-year name stays, although for a Tier 2 member the
+    # generic value is the 8-year window.
     frozenset({
         "final_average_salary", "highest_average_annual_salary",
         "highest_average_annual_salary_4yr", "fas",
+    }),
+    # §1-160(b)'s window, under the names a derivation gives it.
+    frozenset({
+        "final_average_salary_8_year", "final_average_salary_96_months",
+        "tier_2_final_average_salary", "highest_average_annual_salary_8yr",
     }),
     frozenset({"withdrawal_date", "annuity_start_date", "as_of_date"}),
     # §3-111 and §4-109 pay on "the salary attached to the rank", which on a

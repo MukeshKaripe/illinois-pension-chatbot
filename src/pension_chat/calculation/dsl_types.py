@@ -76,6 +76,9 @@ class ParameterSpec(BaseModel):
     # was never required. The model emitting `"subsection": None` is being more
     # honest than one that omits the key or invents "(a)".
     source: dict[str, str | None] = Field(default_factory=dict)
+    # The statute's own words this value was read from, copied verbatim. The
+    # validator checks they are in the cited subsection and state the value.
+    quote: str | None = None
     effective_date: str | None = None
 
 
@@ -95,6 +98,8 @@ class ApplicabilityPredicate(BaseModel):
     # optional. The section is still checked by `validator._check_citations`,
     # so a parameter that traces to nothing is still refused.
     source: dict[str, str | None] = Field(default_factory=dict)
+    # As `ParameterSpec.quote`: the words a numeric condition was read from.
+    quote: str | None = None
 
 
 class OperationNode(BaseModel):

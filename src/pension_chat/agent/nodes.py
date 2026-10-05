@@ -35,8 +35,9 @@ from sqlalchemy.orm import selectinload
 
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent import gaps, guardrails, ledger
+from pension_chat.agent import people as people_mod
 from pension_chat.agent.derivation import derive_recipe
-from pension_chat.agent.facts import build_member_facts
+from pension_chat.agent.facts import age_on, aliases_of, build_member_facts, nth_birthday
 from pension_chat.agent.llm import complete
 from pension_chat.agent.registry import (
     RegistryRecipe,
@@ -51,8 +52,10 @@ from pension_chat.agent.retrieval import (
     canonical_section_texts,
     extract_article_references,
     extract_section_references,
+    fetch_sections,
     retrieve,
 )
+from pension_chat.agent.section_scope import restricted_sources, scoped_evidence
 from pension_chat.agent.state import PensionAgentState
 from pension_chat.agent.worksheet import (
     SOURCE_ASSUMED,
@@ -80,6 +83,13 @@ from pension_chat.calculation.validator import RecipeValidator
 from pension_chat.config import get_settings
 from pension_chat.db.models import Employee
 from pension_chat.db.session import get_db_session
+from pension_chat.records import (
+    EmployeeMatch,
+    NameSearch,
+    RecordUnavailable,
+    agent_history,
+    current_provider,
+)
 
 logger = logging.getLogger("pension_chat.agent.nodes")
 
@@ -110,6 +120,39 @@ def _history(state: PensionAgentState, turns: int) -> str:
 
 # ── 1. Triage ─────────────────────────────────────────────────────
 
+_MAX_CANDIDATES = 200
+
+
+def _candidate(m: EmployeeMatch) -> dict[str, Any]:
+    return {"ref": m.key, "display_name": m.display_name, "first_name": m.first_name, "last_name": m.last_name,
+            "employer": m.employer, "department": m.department, "status": m.status, "birth_year": m.birth_year}
+
+
+async def _suggestion(provider: Any, decided: people_mod.TurnPeople, subjects: list[dict],
+                      question: str) -> dict[str, Any] | None:
+    """The choice a turn puts to the user instead of answering (spec §4.2), or None."""
+    if decided.which_of:
+        roster = {s["ref"]: s for s in subjects}
+        return {"kind": "which_one", "question": question,
+                "choices": [{"first_name": None, "last_name": None, "unavailable": False,
+                             "candidates": [roster[r] for r in decided.which_of if r in roster]}]}
+    if not decided.unfamiliar:
+        return None
+
+    async def choices_for(first: str, last: str) -> dict[str, Any]:
+        choice: dict[str, Any] = {"first_name": first, "last_name": last, "unavailable": False, "candidates": []}
+        try:
+            matches = await provider.find_by_name(first, last)
+        except RecordUnavailable:
+            choice["unavailable"] = True
+            return choice
+        choice["candidates"] = [_candidate(m) for m in matches[:_MAX_CANDIDATES]]
+        return choice
+
+    choices = await asyncio.gather(*(choices_for(f, la) for f, la in decided.unfamiliar))
+    return {"kind": "choose", "question": question, "choices": list(choices)}
+
+
 async def triage(state: PensionAgentState) -> dict:
     """Deterministic gate before anything expensive runs.
 
@@ -134,6 +177,39 @@ async def triage(state: PensionAgentState) -> dict:
     scope = guardrails.classify_scope(
         question, has_history=len(state.get("messages") or []) > 1
     )
+
+    # Who this turn is about (spec §4.2) -- only where there are people to be
+    # about: a conversation with people in it, or a record source that can find
+    # them by name. Everywhere else this turn is exactly as it was.
+    subjects = list(state.get("subjects") or [])
+    provider = current_provider()
+    name_search = provider if isinstance(provider, NameSearch) else None
+    if subjects or name_search is not None:
+        decided = people_mod.decide(
+            question, subjects, list(state.get("last_people") or []),
+            name_search.names_in(question) if name_search is not None else [],
+        )
+        suggestion = await _suggestion(name_search, decided, subjects, question)
+        if suggestion is not None:
+            return {
+                "in_scope": False,
+                "out_of_scope_reason": "subject_suggestion",
+                "subject_suggestion": suggestion,
+                "turn_people": decided.people,
+                "timings": {"triage": time.perf_counter() - started},
+            }
+        return {
+            "in_scope": scope.in_scope,
+            "out_of_scope_reason": scope.reason,
+            "override_signal": guardrails.detect_instruction_override(question).to_dict(),
+            "explicit_sections": extract_section_references(question),
+            "explicit_articles": extract_article_references(question),
+            "turn_people": decided.people,
+            # A directory that never loaded matches no name, which would read as
+            # "nobody was named" -- the turn says it could not look names up instead.
+            "names_unavailable": getattr(name_search, "names_ready", True) is False,
+            "timings": {"triage": time.perf_counter() - started},
+        }
 
     return {
         "in_scope": scope.in_scope,
@@ -160,12 +236,22 @@ _MAX_GENERAL_SECTIONS = 3
 
 
 def _record_coverage(record_article: str | None, turn: int) -> dict:
-    """What we believe when the member has said nothing about themselves."""
+    """What we believe when the member has said nothing about themselves.
+
+    The record first. With no record, an assistant deployed for one fund
+    (`deployment_article`, D4: MEABF, so Article 8) is answering about that
+    fund's members; without one configured, coverage stays unresolved.
+    """
+    deployed = get_settings().deployment_article
+    if record_article:
+        article, basis = record_article, coverage_mod.BASIS_RECORD
+    elif deployed is not None:
+        article, basis = str(deployed), coverage_mod.BASIS_DEPLOYMENT
+    else:
+        article, basis = None, coverage_mod.BASIS_UNRESOLVED
     return {
-        "article": record_article,
-        "basis": (
-            coverage_mod.BASIS_RECORD if record_article else coverage_mod.BASIS_UNRESOLVED
-        ),
+        "article": article,
+        "basis": basis,
         "record_article": record_article,
         "candidates": [],
         "conflict": False,
@@ -287,6 +373,9 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
     A pin is used only for the profile it was taken from.
     """
     started = time.perf_counter()
+    refs = list(state.get("turn_people") or [])
+    if refs and current_provider() is not None:
+        return await _fetch_people(state, refs, started)
     employee_id = state.get("employee_id")
     if not employee_id:
         return {"employee_record": None, "salary_history": []}
@@ -295,7 +384,7 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
     if (pinned.get("record") or {}).get("id") == str(employee_id):
         record, history = pinned["record"], pinned["salary_history"]
     else:
-        loaded = await _load_record(employee_id)
+        loaded = await _from_provider(str(employee_id)) if current_provider() else await _load_record(employee_id)
         if loaded is None:
             return {"employee_record": None, "salary_history": []}
         record, history = loaded
@@ -311,6 +400,68 @@ async def fetch_employee_record(state: PensionAgentState) -> dict:
         "pinned_record": {"record": record, "salary_history": history},
         "timings": {"fetch_employee_record": time.perf_counter() - started},
     }
+
+
+async def _fetch_people(state: PensionAgentState, refs: list[str], started: float) -> dict:
+    """Every person this turn is about, read in parallel (spec §4.3).
+
+    A pinned person is not read again. One unreadable record does not sink the
+    others: it is listed in `unavailable_people` and the answer says whose. The
+    first person also fills the single-member keys, so a one-person turn is
+    exactly the path every other turn has always taken.
+    """
+    pinned: dict[str, dict] = dict(state.get("pinned_people") or {})
+    names = people_mod.labels(state.get("subjects") or [])
+
+    async def load(ref: str) -> dict | None:
+        if ref in pinned:
+            return pinned[ref]
+        loaded = await _from_provider(ref)
+        return None if loaded is None else {"record": loaded[0], "salary_history": loaded[1]}
+
+    results = await asyncio.gather(*(load(ref) for ref in refs), return_exceptions=True)
+    loaded_people: dict[str, dict] = {}
+    unavailable: list[str] = []
+    for ref, result in zip(refs, results, strict=True):
+        if isinstance(result, RecordUnavailable) or result is None:
+            unavailable.append(ref)
+            continue
+        if isinstance(result, BaseException):
+            raise result
+        pinned[ref] = result
+        facts = build_member_facts(
+            result["record"],
+            [(date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+             for h in result["salary_history"]],
+        )
+        loaded_people[ref] = {**result, "member_facts": facts,
+                              "label": names.get(ref) or result["record"].get("display_name") or "Employee"}
+
+    update: dict[str, Any] = {
+        "people": loaded_people,
+        "unavailable_people": unavailable,
+        "pinned_people": pinned,
+        "last_people": refs,
+        "timings": {"fetch_employee_record": time.perf_counter() - started},
+    }
+    first = next((loaded_people[r] for r in refs if r in loaded_people), None)
+    if first is None:
+        update.update(employee_record=None, salary_history=[])
+    else:
+        update.update(employee_record=first["record"], salary_history=first["salary_history"],
+                      member_facts=first["member_facts"])
+    return update
+
+
+async def _from_provider(key: str) -> tuple[dict, list[dict]] | None:
+    """The record from the provider in force: PBMS in production, fixtures in evals."""
+    provider = current_provider()
+    assert provider is not None
+    record = await provider.get_record(key)
+    if record is None:
+        return None
+    history = await provider.get_salary_history(key)
+    return record.to_agent_record(history), agent_history(history)
 
 
 async def _load_record(employee_id: str) -> tuple[dict, list[dict]] | None:
@@ -367,6 +518,19 @@ async def _load_record(employee_id: str) -> tuple[dict, list[dict]] | None:
 _MAX_PINNED_SECTIONS = 6
 
 
+def _ledger_subject(state: Mapping[str, Any]) -> str:
+    """Whose facts the ledger reads and writes this turn.
+
+    The ledger was always per subject; everything simply used `SELF`. With the
+    fund's records (PBMS) a conversation is about several people, and a value
+    remembered for one must never resolve another's input -- found live, B's
+    annuity computed on A's final average salary. A member's own conversation
+    keeps `SELF`, exactly as before.
+    """
+    record = state.get("employee_record") or {}
+    return str(record["id"]) if record.get("record_source") and record.get("id") else ledger.SELF
+
+
 def _available_facts(state: PensionAgentState) -> dict:
     """The member facts this turn is allowed to use.
 
@@ -391,11 +555,12 @@ def _available_facts(state: PensionAgentState) -> dict:
     must not pin a stale copy over a fresher read.
     """
     if not _record_facts_usable(state):
-        return dict(ledger.stated_only(state.get("fact_ledger") or {}, ledger.SELF))
+        return dict(ledger.stated_only(state.get("fact_ledger") or {}, _ledger_subject(state)))
     facts = dict(state.get("member_facts") or {})
     held = state.get("fact_ledger") or {}
-    sources = ledger.provenance(held, ledger.SELF)
-    for name, value in ledger.recall(held, ledger.SELF).items():
+    subject = _ledger_subject(state)
+    sources = ledger.provenance(held, subject)
+    for name, value in ledger.recall(held, subject).items():
         # Strictly better than the record, or the record does not supply it.
         # `outranks` is non-strict on purpose -- a later statement replaces an
         # earlier one -- but here a tie means a ledger copy of the record facing
@@ -467,6 +632,214 @@ def _article_of_sections(sections) -> int | None:
     return int(articles.pop()) if len(articles) == 1 else None
 
 
+#: Knowledge statuses a reviewer has vouched for. Everything else must meet the
+#: validation a new derivation meets today.
+_REVIEWED_STATUSES = frozenset({"approved", "validated"})
+
+
+def _meets_current_validation(recipe: dict) -> bool:
+    """Whether a saved recipe may be reused as it stands.
+
+    Recipes saved before quote anchoring carry no quotes, and one of the first
+    two saved on the client's registry (2026-09-30) was a Tier 2 formula missing
+    §1-160(d)'s reduction below 67. Unless a reviewer approved it, a saved recipe
+    whose statutory numbers are not all quoted is re-derived, so the version
+    that is reused has had every number checked against the statute's words.
+    """
+    if recipe.get("status") in _REVIEWED_STATUSES:
+        return True
+    spec = recipe.get("spec") or {}
+    anchors = [*(spec.get("parameters") or {}).values()] + [
+        p for p in spec.get("applicability_predicates") or []
+        if isinstance(p, dict) and isinstance(p.get("value"), (int, float)) and not isinstance(p.get("value"), bool)
+    ]
+    return all(isinstance(a, dict) and a.get("quote") for a in anchors)
+
+
+#: What a derivation searches for, in the Code's own words rather than the
+#: question's. "What would their annuity be at 67?" finds the provisions about
+#: age 67; the amount is set by the Article's formula section, which reads
+#: "... % of final average salary for each year of service".
+_FORMULA_QUERIES: dict[str, list[str]] = {
+    "retirement_annuity": [
+        "retirement annuity equal to a percentage of final average salary for each year of service",
+        "age and service annuity amount computed from final average salary and years of service",
+    ],
+    "survivor_annuity": ["amount of the widow's or surviving spouse's annuity"],
+    "disability_benefit": ["amount of the duty disability and ordinary disability benefit as a percentage of salary"],
+    "refund_of_contributions": ["refund of accumulated employee contributions with interest on withdrawal"],
+    "service_credit": ["periods of service counted as service credit and how service is computed"],
+}
+
+
+async def _derivation_evidence(
+    formula_type: str, article: Any, sections: list[RetrievedSection]
+) -> list[RetrievedSection]:
+    """The governing Article's own provision for this benefit, then the turn's.
+
+    A turn's search runs on the member's question, and the one that derived
+    1.25% for a Tier 2 MEABF member never saw §8-138 -- Article 8's formula,
+    2.4% in (g-1) -- so the derivation borrowed another fund's rate. Searched
+    within the governing Article alone: the cross-cutting Articles are already
+    in the turn's evidence, and searching them here surfaces §1-161 and §1-162,
+    other funds' optional benefits, above the fund's own formula.
+    """
+    queries = _FORMULA_QUERIES.get(formula_type)
+    if not queries or not article:
+        return scoped_evidence(sections, article)
+    settings = get_settings()
+    try:
+        found = await retrieve(
+            queries,
+            articles=[str(article)],
+            top_sections=settings.derivation_top_sections,
+            char_budget=settings.derivation_context_token_budget * 4,
+            follow_cross_references=0,
+        )
+    except Exception:
+        logger.exception("Derivation search failed for %s under Article %s", formula_type, article)
+        return scoped_evidence(sections, article)
+    have = {s.section for s in found}
+    return scoped_evidence(list(found) + [s for s in sections if s.section not in have], article)
+
+
+#: "joined in 2015", "hired in 2004", "became a member in 2019", "member since 2012".
+_JOINED_RE = re.compile(
+    r"\b(?:joined|hired|started|began|became a member|first became a member|member since|since)"
+    r"\b[^.?!\d]{0,30}?\b(19[4-9]\d|20[0-4]\d)\b",
+    re.IGNORECASE,
+)
+
+#: "is 62" / "aged 56" / "age 60" / "58-year-old" -- an adult working age.
+_AGE_RE = re.compile(
+    r"(?:\b(?:is|aged?)\s+([2-8]\d)\b(?!\s*(?:years? of service|%|\.\d)))"
+    r"|(?:\b([2-8]\d)[- ]years?[- ]old\b)"
+    # "at 40 years of age"; "they are 65", "I'm 58" -- after a pronoun only, so
+    # "years of service are 25" is never read as an age (live, 2026-10-01).
+    r"|(?:\b([2-8]\d)\s+years?\s+of\s+age\b)"
+    r"|(?:\b(?:i\s+am|i'm|they\s+are|they're|he\s+is|she\s+is|he's|she's)\s+([2-8]\d)\b"
+    r"(?!\s*(?:years? of service|%|\.\d)))",
+    re.IGNORECASE,
+)
+
+#: A pay word, then within a few words an amount of 4 to 7 digits ($80,000).
+_SALARY_RE = re.compile(
+    r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?!\d|,\d)"
+    r"|\$\s?(\d{1,3}(?:,\d{3})+|\d{4,7})(?!\d|,\d)\s+(?:a year |per year |annual )?(?:salary|a year|per year|annually)",
+    re.IGNORECASE,
+)
+
+#: The same, written in thousands: "$80k", "72.5K", "80 thousand" (live,
+#: 2026-10-01: "average annual salary is $80k" was read as no salary at all).
+_SALARY_THOUSANDS_RE = re.compile(
+    r"(?:earn|earns|earning|salary|paid|makes|making)[^.?!$\d]{0,20}\$?\s?(\d{1,4}(?:\.\d+)?)\s?(?:k|thousand)\b",
+    re.IGNORECASE,
+)
+
+#: Articles whose members first joining on or after July 6, 2017 are Tier 3
+#: (§1-160(c-5): "a retirement annuity under Article 8 or Article 11").
+_TIER_3_ARTICLES = frozenset({8, 11})
+
+
+def _stated_age(said: str) -> int | None:
+    """An age the user wrote down: "is 62", "aged 56", "age 60", "a 58-year-old".
+
+    Never a number of years of service: "11 years of service" is not an age.
+    """
+    match = _AGE_RE.search(said or "")
+    return int(next(g for g in match.groups() if g)) if match else None
+
+
+def _may_take_stated_salary(state: Mapping[str, Any]) -> bool:
+    """Whether a salary the user stated may stand in for a missing average.
+
+    For a described employee with no record, as before. And for one person from
+    the fund's records whose salary record is too short -- PBMS Dev holds active
+    members' salary only from 2019 -- so the employer can supply it. Never when
+    the turn is about several people: whose salary it was is a guess. A
+    member's own record is untouched. It only ever fills an input still missing.
+    """
+    record = state.get("employee_record") or {}
+    if not record:
+        return True
+    return bool(record.get("record_source")) and len(state.get("people") or {}) <= 1
+
+
+def _stated_annual_salary(said: str) -> int | None:
+    """An annual salary the user wrote down -- "earns $80,000", "salary is 72,500".
+
+    Data, not judgement: a money amount beside a word for pay. A year or a date
+    is never one; without a pay word, nothing is read.
+    """
+    if thousands := _SALARY_THOUSANDS_RE.search(said or ""):
+        return round(float(thousands.group(1)) * 1000)
+    match = _SALARY_RE.search(said or "")
+    if not match:
+        return None
+    return int(next(g for g in match.groups() if g).replace(",", ""))
+
+
+def _described_tiers(said: str, article: Any) -> list[int]:
+    """The tiers a described employee can be in, from the year they joined.
+
+    Tier follows from when someone first became a member (§1-160(a), (c-5)),
+    and a described employee says it in words -- "joined in 2015" -- which is
+    data, not a judgement. A bare year is only as precise as it is: 2011 to
+    2016 is Tier 2, before 2011 Tier 1, and 2017 either side of July 6. Saying
+    nothing leaves both Tier 1 and Tier 2 open, as before.
+    """
+    match = _JOINED_RE.search(said or "")
+    if not match:
+        return [1, 2]
+    year = int(match.group(1))
+    tier_3 = str(article).isdigit() and int(str(article)) in _TIER_3_ARTICLES
+    if year < 2011:
+        return [1]
+    if year < 2017 or not tier_3:
+        return [2]
+    return [2, 3] if year == 2017 else [3]
+
+
+def _at_scenario_age(state: PensionAgentState, facts: dict) -> dict:
+    """The member as they would be at the retirement the question is about.
+
+    Which provision governs is a question about a member at a date:
+    `compute_benefit(retirement_age=67)` asked about a 58-year-old at 67, and
+    handing derivation (and the registry's applicability check) the member as
+    of today asked it about an annuity at 58 instead -- which §1-160 does not
+    pay, so every Tier 2 turn derived nothing. Execution already re-evaluates
+    each scenario at its own age; this makes the recipe step agree with it.
+
+    Only the facts the retirement age moves are replaced (the age names, the
+    dates, service accrued to that date), so anything the user stated keeps
+    its own value. The first scenario that resolves to an age decides; without
+    one, today stands.
+    """
+    member_facts = state.get("member_facts") or {}
+    age = next(
+        (
+            resolved
+            for scenario in state.get("scenarios") or []
+            if (resolved := _resolve_retirement_age(scenario, member_facts)) is not None
+        ),
+        None,
+    )
+    if age is None:
+        return facts
+    employee = state.get("employee_record")
+    if not employee or not _record_facts_usable(state):
+        # A described employee: no record to project, but the annuity still
+        # starts at the age asked about.
+        return {**facts, "age_at_annuity_start": age}
+    history = [
+        (date.fromisoformat(h["effective_date"]), Decimal(str(h["annual_salary"])))
+        for h in state.get("salary_history") or []
+    ]
+    at_age = build_member_facts(employee, history, assumed_retirement_age=age)
+    moved = {name: value for name, value in at_age.items() if member_facts.get(name) != value}
+    return {**facts, **moved}
+
+
 async def resolve_recipes(state: PensionAgentState) -> dict:
     """Reuse a registry recipe where one exists; derive from statute otherwise.
 
@@ -486,7 +859,13 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     employee = state.get("employee_record")
     article = _governing_article(state)
     tier = employee["tier"] if employee else None
-    facts = _available_facts(state)
+    facts = _at_scenario_age(state, _available_facts(state))
+    if not employee:
+        # A described employee ("joined in 2015, 62, earns $80,000, 11 years"):
+        # their values are extracted only once a recipe exists to declare them,
+        # so without their words a derivation had nothing but an age and could
+        # not tell which provision applies. What they said is the evidence.
+        facts = {**facts, "described_in_conversation": _member_words(state)[-2000:]}
 
     # Tier keys the registry, so an unknown tier is not a missing number -- it
     # is two provisions. Ask for both and price whichever are genuinely
@@ -497,7 +876,11 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
     # Only the registry lookup branches. Derivation reads the statute, not the
     # member, so running it twice would spend two model calls producing one
     # recipe.
-    branches: list[int | None] = [tier] if tier is not None else [1, 2]
+    branches: list[int | None] = (
+        [tier] if tier is not None
+        else list(_described_tiers(_member_words(state), article)) if not employee
+        else [1, 2]
+    )
 
     recipes: dict[str, dict] = {}
     provenance: list[dict] = []
@@ -521,6 +904,12 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
             mismatches = await verify_freshness(row, relevant) if relevant else {}
             if not mismatches:
                 recipe = RegistryRecipe(row).to_dict()
+                if not _meets_current_validation(recipe):
+                    logger.info(
+                        "Registry recipe %s predates quote anchoring and is unapproved; re-deriving",
+                        row.formula_id,
+                    )
+                    return None
                 # Freshness says the law has not moved under the recipe. It says
                 # nothing about whether the recipe's provision reaches the member
                 # asking today — and matching on article, formula type and tier
@@ -600,7 +989,9 @@ async def resolve_recipes(state: PensionAgentState) -> dict:
         if found:
             return
 
-        derived = await derive_recipe(formula_type, sections, facts)
+        derived = await derive_recipe(
+            formula_type, await _derivation_evidence(formula_type, article, sections), facts
+        )
         if not derived.ok:
             failures.append(
                 {"formula_type": formula_type, "reason": derived.cannot_derive or "unknown"}
@@ -710,6 +1101,9 @@ _ASK_INSTEAD = {
     "age_at_annuity_start": "your date of birth",
     "age_at_withdrawal": "your date of birth",
     "withdrawal_date": "the date you plan to stop working",
+    # A stated age places the birth date (assumption_policy), so an age is
+    # enough -- asking for a date of birth asks for more than the figure needs.
+    "birth_date": "your age (or date of birth)",
     "creditable_service_years": "how many years of service you have with the fund",
     "service_years": "how many years of service you have with the fund",
     "highest_average_annual_salary_4yr": (
@@ -833,7 +1227,7 @@ def _input_origins(
     taken: dict[str, Any],
     filled_origins: dict[str, str],
     sheet: WorkSheet,
-    question: str,
+    spoken: str,
     stand_in: bool = False,
     held: dict[str, str] | None = None,
 ) -> dict[str, str]:
@@ -844,8 +1238,11 @@ def _input_origins(
       held, `statutory_parameter` for one the Code states, `assumed` only for
       one nobody supplied.
     - Read out of the conversation by the model: `stated` when the member wrote
-      that value in this message, otherwise `derived` -- "I am 60" states an
-      age; the months before 60 are worked out from it.
+      that value anywhere in the recent conversation, otherwise `derived` --
+      "I am 60" states an age; the months before 60 are worked out from it.
+      Scoped to the current message this labelled a correction made two turns
+      ago as something the assistant had worked out, and the calculation card
+      then told the member so.
     - Otherwise it came through the facts layer: the sheet's own label when it
       has one (a framing default is `assumed`, an earlier statement `stated`),
       else `record`.
@@ -871,7 +1268,7 @@ def _input_origins(
             else:
                 origins[name] = (
                     SOURCE_STATED
-                    if _stated_in(taken[name], question)
+                    if _stated_in(taken[name], spoken)
                     else SOURCE_DERIVED
                 )
         else:
@@ -881,11 +1278,47 @@ def _input_origins(
     return origins
 
 
+def _latest_stated(reader: Any, state: Mapping[str, Any]) -> Any:
+    """What `reader` finds in the member's most recent message that has one.
+
+    Newest first: a correction ("final average salary is $85k") replaces what
+    was said turns before ("$80k"). Reading everything they had typed as one
+    text returned the first mention, and the correction never landed.
+    """
+    said = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    said.append(str(state.get("question") or ""))
+    for text in reversed(said):
+        if (found := reader(text)) is not None:
+            return found
+    return None
+
+
+def _member_words(state: PensionAgentState) -> str:
+    """Everything the member themselves has typed in this conversation.
+
+    Their words only. The assistant's are not evidence about the member, and
+    treating them as such would let a figure the assistant offered come back as
+    something the member had stated.
+    """
+    said = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    said.append(str(state.get("question") or ""))
+    return "\n".join(said)
+
+
 def _ledger_update(
     *,
     resolved: dict[str, Any],
     origins: dict[str, str],
     turn: int,
+    subject: str = ledger.SELF,
 ) -> dict[str, Any]:
     """Turn this turn's resolution into something the next turn can read.
 
@@ -904,7 +1337,7 @@ def _ledger_update(
 
     update: dict[str, Any] = {}
     for source, values in by_source.items():
-        written = ledger.remember(update, ledger.SELF, values, source, turn)
+        written = ledger.remember(update, subject, values, source, turn)
         if written:
             update = {**update, **written}
     return update
@@ -951,14 +1384,49 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # purpose; answering from the record and ignoring what they said produces a
     # confidently wrong answer to a question they did not ask.
     question_has_figures = bool(re.search(r"\d", state["question"]))
-    if outstanding or question_has_figures:
+
+    # A member who corrected the record on an earlier turn must not have to say
+    # it again on the turn that computes.
+    #
+    # `outstanding` is measured against the *record*, so when the file covers
+    # every input the conversation was never read at all -- and a correction
+    # made two turns ago was silently ignored while the figure was worked from
+    # the file. Found by `gold_continuity.yaml` C05: "I actually have 25 years
+    # of service, not what your records say", then an annuity computed on 21.5.
+    #
+    # Bounded twice, because this puts a model call on the critical path. It
+    # runs only when the conversation actually holds a number, and only while
+    # the ledger has nothing stated for a declared input -- once a value is
+    # written down it is read from there, so the cost is paid once rather than
+    # on every calculating turn.
+    stated_already = set(ledger.stated_only(state.get("fact_ledger") or {}, _ledger_subject(state)))
+    # What the member has actually typed, this turn and before it.
+    #
+    # Built from their own messages rather than from `_history`, which renders
+    # a transcript for a prompt: it pairs turns and drops an unpaired one, so a
+    # value stated in the very message the assistant has not yet answered is
+    # invisible to it. The provenance question here is only "did the member
+    # write this down", and their messages are where.
+    spoken = _member_words(state)
+    history_has_figures = bool(re.search(r"\d", spoken))
+    unheard = history_has_figures and not (set(declared) & stated_already)
+
+    if outstanding or question_has_figures or unheard:
         catalogue = [
             {
                 "name": spec["name"],
                 "type": spec.get("type"),
                 "description": spec.get("description", ""),
             }
-            for spec in (outstanding if not question_has_figures else declared.values())
+            # Everything declared, not just what the record could not supply:
+            # the point of reading the conversation here is to hear a value
+            # that contradicts the file, and an input the file answered is
+            # exactly the one being contradicted.
+            for spec in (
+                declared.values()
+                if (question_has_figures or unheard)
+                else outstanding
+            )
         ]
         try:
             raw = await complete(
@@ -985,7 +1453,16 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         for name, value in extracted.items():
             if name not in declared or value is None:
                 continue
-            if name in from_record and not _stated_in(value, state["question"]):
+            # Written by the member *anywhere in the conversation*, not only in
+            # this message. The guard's purpose is that the model may fill a
+            # gap but may not quietly replace a value the record supplied
+            # unless the member actually typed it -- it read "I am 56" and
+            # supplied months_before_age_60 = 48 where the record gives 44.
+            #
+            # Scoped to the current message, it also threw away a correction
+            # made two turns earlier, which is a member being ignored rather
+            # than a model being caught.
+            if name in from_record and not _stated_in(value, spoken):
                 # The extraction step may fill a gap, but it may not quietly
                 # replace a value the facts layer computed from the record
                 # unless the member actually wrote that value down. Left
@@ -1081,6 +1558,16 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     # the recipe with the section that states it, so it fills a gap at its own
     # rank rather than spending the assumption ceiling -- and the answer names
     # the section instead of saying it could not establish the value.
+    # A described employee's age, read as written ("is 62", "aged 56", "a
+    # 58-year-old") when the extraction step did not hear it -- it varies run to
+    # run, and an age the user typed must not become a question back to them.
+    stated_age = None if state.get("employee_record") else _latest_stated(_stated_age, state)
+    if stated_age is not None:
+        for name in declared:
+            if name in aliases_of("age") and name not in resolved:
+                resolved[name] = stated_age
+                taken[name] = stated_age
+
     statutory = statutory_fills(recipes)
     cited: dict[str, Any] = {}
     cited_origins: dict[str, str] = {}
@@ -1095,9 +1582,26 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         cited_origins[fill.name] = SOURCE_STATUTORY
     resolved.update(cited)
 
+    # What a default may be computed from: the facts, what was stated this turn
+    # ("is 62" lives in `resolved`, not in `facts`), statutory values, and --
+    # for a described employee with no record -- the salary they stated, which
+    # the missing-input policy lets stand, flat, for the averaging period.
+    known = {"as_of_date": date.today().isoformat(), **facts, **resolved, **cited}
+    # A stated age is a fact to compute from even when no input declared takes
+    # an age: the core formulas declare `birth_date`, and "is 62" must still
+    # place it rather than become a question back to the user.
+    if stated_age is not None:
+        known.setdefault("age", stated_age)
+    if _may_take_stated_salary(state):
+        stated_salary = _latest_stated(_stated_annual_salary, state)
+        if stated_salary is not None:
+            known["stated_annual_salary"] = stated_salary
     assumed, assumed_origins, still_missing = apply_assumptions(
-        sheet, outstanding_asks, {**facts, **cited}, settings_ceiling
+        sheet, outstanding_asks, known, settings_ceiling
     )
+    # Asks drawn up before an input was read (a stated age read from the user's
+    # words, above) are not still asks: a value resolved is not also missing.
+    still_missing = [m for m in still_missing if str(m.get("name") or "") not in resolved]
     filled_origins = {**cited_origins, **assumed_origins}
     resolved.update(assumed)
 
@@ -1106,9 +1610,9 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
         taken=taken,
         filled_origins=filled_origins,
         sheet=sheet,
-        question=state["question"],
+        spoken=spoken,
         stand_in=_stand_ins_allowed(state),
-        held=ledger.provenance(state.get("fact_ledger") or {}, ledger.SELF),
+        held=ledger.provenance(state.get("fact_ledger") or {}, _ledger_subject(state)),
     )
 
     return {
@@ -1118,6 +1622,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
             resolved=resolved,
             origins=origins,
             turn=int(state.get("turn_index") or 0),
+            subject=_ledger_subject(state),
         ),
         # An input the sheet holds is not missing, and an input it holds but
         # cannot use under this premise is not missing either -- it is withheld,
@@ -1177,6 +1682,40 @@ def _dedupe_missing_inputs(missing: list[dict[str, Any]]) -> list[dict[str, Any]
 # ── 5. Validation ─────────────────────────────────────────────────
 
 
+async def _parameter_texts(recipes: dict[str, dict]) -> dict[str, dict[str, str]]:
+    """The text of every section a recipe's constants cite, by subsection.
+
+    What `_validate_parameters_in_source` checks each constant against. Every
+    printed version of a subsection is joined, so a value any version states is
+    found. Fetched whole rather than taken from this turn's retrieval, which is
+    budget-trimmed and could cut the very subsection a constant cites.
+    """
+    anchors = [
+        anchor
+        for recipe in recipes.values()
+        for anchor in [
+            *((recipe.get("spec") or {}).get("parameters") or {}).values(),
+            *((recipe.get("spec") or {}).get("applicability_predicates") or []),
+        ]
+        if isinstance(anchor, dict)
+    ]
+    cited = sorted({
+        str((anchor.get("source") or {}).get("section") or "").split("(")[0].strip()
+        for anchor in anchors
+    } - {""})
+    if not cited:
+        return {}
+    texts: dict[str, dict[str, str]] = {}
+    for section, chunks in (await fetch_sections(cited)).items():
+        by_subsection: dict[str, list[str]] = {}
+        for chunk in chunks:
+            by_subsection.setdefault(str(chunk.get("subsection_id") or ""), []).append(
+                str(chunk.get("content") or "")
+            )
+        texts[section] = {sub: "\n".join(parts) for sub, parts in by_subsection.items()}
+    return texts
+
+
 async def validate_recipes(state: PensionAgentState) -> dict:
     """Validate and risk-tier every recipe, and decide whether it may execute.
 
@@ -1204,8 +1743,13 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     # Predicates are checked against the member's record *and* anything they
     # stated themselves, so an anonymous user who supplies their age and service
     # gets the same applicability test a signed-in member does.
-    checkable_facts = facts_for_evaluation(
-        _available_facts(state), state.get("resolved_inputs")
+    #
+    # And at the age the question is about: "annuity at 67" for a 58-year-old
+    # was blocked by §8-138(g-1)'s "no earlier than age 60", tested against
+    # today. Execution re-asks each scenario at its own age; this gate agrees.
+    checkable_facts = _at_scenario_age(
+        state,
+        facts_for_evaluation(_available_facts(state), state.get("resolved_inputs")),
     )
 
     errors: list[dict] = []
@@ -1215,19 +1759,27 @@ async def validate_recipes(state: PensionAgentState) -> dict:
     blocked: str | None = None
     can_execute = True
 
+    parameter_texts = await _parameter_texts(recipes)
+
     for formula_type, recipe in recipes.items():
+        recipe.pop("blocked", None)          # decided afresh on every validation
         spec = recipe.get("spec") or {}
         sources = recipe.get("source_sections") or []
 
-        result = validator.validate(spec, sources, indexed, set(), strict=True)
+        # A new derivation must anchor every number to the statute's words; a
+        # reused recipe saved before anchoring, or approved by a reviewer, is
+        # not refused for carrying none.
+        result = validator.validate(
+            spec, sources, indexed, set(), strict=True, parameter_texts=parameter_texts,
+            require_quotes=recipe.get("source") == "derived",
+        )
         for error in result.errors:
             errors.append({"formula_type": formula_type, **error.to_dict()})
         for warning in result.warnings:
             warnings.append({"formula_type": formula_type, **warning.to_dict()})
 
         if not result.is_valid:
-            can_execute = False
-            blocked = "validation_failed"
+            recipe["blocked"] = "validation_failed"
 
         # The gate the whole applicability layer exists for: a recipe may not
         # produce a figure for a member the provision demonstrably does not
@@ -1239,8 +1791,7 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         )
         recipe["applicability_check"] = applicable.to_dict()
         if applicable.blocks_execution:
-            can_execute = False
-            blocked = "applicability_not_satisfied"
+            recipe.setdefault("blocked", "applicability_not_satisfied")
             for failure in applicable.failed:
                 errors.append(
                     {
@@ -1284,6 +1835,15 @@ async def validate_recipes(state: PensionAgentState) -> dict:
         if recipe.get("policy") == "no_execute":
             can_execute = False
             blocked = "execution_policy_no_execute"
+
+    # A formula ruled out -- by validation, or by a condition this member does
+    # not meet -- is skipped at execution, not a reason to compute nothing: with
+    # the tier unknown, the Tier 1 formula's 20-year condition used to block the
+    # Tier 2 formula that applied. The turn is blocked only when none is left.
+    reasons = [r.get("blocked") for r in recipes.values() if r.get("blocked")]
+    if can_execute and len(reasons) == len(recipes):
+        can_execute = False
+        blocked = "validation_failed" if "validation_failed" in reasons else reasons[0]
 
     if can_execute and state.get("missing_inputs"):
         can_execute = False
@@ -1455,6 +2015,8 @@ async def execute_calculations(state: PensionAgentState) -> dict:
     unresolved: list[dict] = []
 
     for formula_type, recipe in recipes.items():
+        if recipe.get("blocked"):
+            continue
         spec = recipe.get("spec") or {}
         output_name = spec.get("output_name", "result")
 
@@ -1488,7 +2050,29 @@ async def execute_calculations(state: PensionAgentState) -> dict:
             "base": run(base_inputs),
         }
 
-        if scenarios and not employee:
+        # A formula that takes no age (Tier 1's) still has a person with one:
+        # what they said. Without it their what-if was refused as needing a
+        # record (live, 2026-10-01).
+        described_age = (
+            None if employee else _described_age(base_inputs) or _latest_stated(_stated_age, state)
+        )
+
+        # Retiring now is a scenario too, and the formula may not pay it yet.
+        # The recipe gate tests the age the question is about, so a turn asking
+        # "at 66" let the base run at 61 under a Tier 2 formula that begins no
+        # earlier than 62 -- "Retiring now: $8,040" (live, 2026-10-01). Tested
+        # here at today's age; the what-ifs below are tested at their own.
+        if entry["base"].get("ok"):
+            today_facts = (
+                facts_for_evaluation(member_facts, user_supplied)
+                if employee
+                else {**base_inputs, **({"age": described_age, "age_at_annuity_start": described_age}
+                                        if described_age is not None else {})}
+            )
+            now = evaluate_predicates(spec.get("applicability_predicates"), today_facts)
+            if now.blocks_execution:
+                entry["base"] = {"ok": False, "not_applicable": now.summary()}
+        if scenarios and not employee and described_age is None:
             unresolved.extend(
                 {
                     "label": sc.get("label") or "unspecified",
@@ -1500,10 +2084,12 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 for sc in scenarios[:6]
             )
 
-        if scenarios and employee:
+        if scenarios and (employee or described_age is not None):
             variants = []
             for scenario in scenarios[:6]:
-                age = _resolve_retirement_age(scenario, member_facts)
+                age = _resolve_retirement_age(
+                    scenario, member_facts if employee else {"age": described_age}
+                )
                 if age is None:
                     # Never drop a scenario in silence. The member asked for it;
                     # if it cannot be resolved the answer has to say so, rather
@@ -1518,17 +2104,39 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                         }
                     )
                     continue
-                scenario_facts = build_member_facts(
-                    employee,
-                    salary_history,
-                    assumed_retirement_age=int(age),
-                    salary_growth=_growth_rate(scenario),
-                )
-                # Recomputed facts replace the record-derived values (that is
-                # what varying the retirement age means), but anything the user
-                # stated themselves still wins — their figure is not a fact the
-                # scenario re-derives.
-                scenario_inputs = {**base_inputs, **scenario_facts, **user_supplied}
+                if scenario.get("years_from_now") is not None and scenario.get("retirement_age") is None:
+                    # "5 years earlier" alone was written up as "At age 5 years
+                    # earlier"; the age it resolved to says what it means.
+                    scenario = {**scenario, "label": f"at age {age} ({scenario.get('label')})"}
+                if employee:
+                    scenario_facts = build_member_facts(
+                        employee,
+                        salary_history,
+                        assumed_retirement_age=int(age),
+                        salary_growth=_growth_rate(scenario),
+                    )
+                    # Recomputed facts replace the record-derived values (that
+                    # is what varying the retirement age means), but anything
+                    # the user stated themselves still wins — their figure is
+                    # not a fact the scenario re-derives.
+                    scenario_inputs = {**base_inputs, **scenario_facts, **user_supplied}
+                    evaluation = facts_for_evaluation(scenario_facts, user_supplied)
+                else:
+                    moved = _described_at_age(base_inputs, int(age), date.today(), described_age)
+                    if moved is None:
+                        unresolved.append(
+                            {
+                                "label": scenario.get("label") or f"at age {age}",
+                                "reason": "their age is not known",
+                            }
+                        )
+                        continue
+                    # Only the dates and ages move; what the user said stands.
+                    scenario_inputs = {**base_inputs, **moved}
+                    scenario_facts = scenario_inputs
+                    # The age is tested even where no input carries it, so a
+                    # formula's "no earlier than 60" is asked at this age.
+                    evaluation = {**scenario_inputs, "age": int(age), "age_at_annuity_start": int(age)}
 
                 # Applicability is a question about a member at a date, not
                 # about a member — so it is re-asked at each retirement age. A
@@ -1536,13 +2144,14 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                 # answering "what changes when I reach 60" by silently running
                 # the same recipe at both ages would assume away the question.
                 applicable = evaluate_predicates(
-                    spec.get("applicability_predicates"),
-                    facts_for_evaluation(scenario_facts, user_supplied),
+                    spec.get("applicability_predicates"), evaluation
                 )
                 if applicable.blocks_execution:
                     unresolved.append(
                         {
                             "label": scenario.get("label") or f"at age {age}",
+                            # Which branch, so its row can say it does not pay.
+                            "formula_type": formula_type,
                             "reason": (
                                 f"at that retirement age {recipe.get('section') or 'the provision'} "
                                 f"does not apply: {applicable.summary()}"
@@ -1594,7 +2203,10 @@ async def execute_calculations(state: PensionAgentState) -> dict:
                             ),
                             "service_basis": (
                                 "assumes continuous employment to that age"
-                                if employee.get("employment_status") == "active"
+                                if (employee and employee.get("employment_status") == "active")
+                                or (not employee and described_age is not None and int(age) > described_age)
+                                else "assumes they stop working that much sooner, with that much less service"
+                                if not employee and described_age is not None and int(age) < described_age
                                 else "no further service assumed"
                             ),
                         },
@@ -1672,6 +2284,12 @@ async def _persist_new_recipes(state: PensionAgentState, results: dict) -> None:
         derived = recipe.get("_derived")
         if derived is None or recipe.get("source") != "derived":
             continue
+        # A recipe resting on a conditional section (1-162: only an "affected"
+        # fund's members) is right for some members of the fund and wrong for
+        # the rest; filed under the fund, reuse would hand it to all of them.
+        if conditional := restricted_sources(derived.source_sections):
+            logger.info("Not saving %s: rests on conditional sections %s", formula_type, conditional)
+            continue
         if any(e.get("formula_type") == formula_type for e in errors):
             continue
         if not (results.get(formula_type, {}).get("base", {}).get("ok")):
@@ -1725,7 +2343,8 @@ not how the answer was assembled. If they ask outright how you arrived at
 something, tell them plainly and without jargon.
 
 Never open with a preamble, an apology, or a restatement of the question. Never
-close by offering further help — just stop.
+close by offering further help — just stop. (Asking for what you need, under
+ASKING below, is not offering help.)
 
 
 
@@ -1742,7 +2361,26 @@ CLOSING
 An answer containing a pension figure ends with this line, once:
 "This is an estimate — your retirement fund makes the binding determination."
 Do not express that sentiment anywhere else in the answer. An answer with no
-figure in it does not need the line at all.
+figure in it does not need the line at all. The only thing that may follow it is
+the question ASKING calls for.
+
+
+ASKING
+
+If you cannot fully do what was asked because something about the person or
+their situation is unknown -- their age, years of service, salary, tier or when
+they joined, whether a disability happened on duty, how long a spouse was
+married to them, which benefit they mean -- end the answer with one direct
+question that asks for exactly what would let you finish. Name every missing
+item in that one question, in plain words ("their age", not "birth_date"); an
+age is enough wherever a date of birth would be. Ask for everything at once --
+never one item now and the next item on the following turn. Ask about facts the
+person knows -- their age, years of service, salary, the year they first became
+a member -- never about how the Code classifies them (their tier, whether their
+fund is an "affected pension fund"); you work the classification out from what
+they tell you. Ask only for what the answer turns on, and never ask for
+something already said in the conversation or shown as on file. When nothing is
+missing, do not ask anything.
 
 
 CITING
@@ -1886,6 +2524,70 @@ def _growth_rate(scenario: dict) -> Decimal | None:
     return rate if Decimal("0") <= rate <= Decimal("0.25") else None
 
 
+def _described_age(inputs: Mapping[str, Any]) -> int | None:
+    """A described employee's age today, from the birth date their stated age placed, or the age itself."""
+    born = inputs.get("birth_date")
+    if born:
+        try:
+            return age_on(date.fromisoformat(str(born)), date.today())
+        except ValueError:
+            return None
+    for name, value in inputs.items():
+        if name in aliases_of("age") and value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _described_at_age(
+    inputs: Mapping[str, Any], age: int, today: date, now: int | None = None
+) -> dict[str, Any] | None:
+    """A described employee's inputs moved to retiring at `age`, or None without an age.
+
+    With no record nothing can be re-derived, but their stated age is enough to
+    move the retirement date: ages become `age`, and the annuity start and
+    withdrawal dates move to that birthday. Everything the user stated --
+    salary, service -- stands as given.
+
+    An age younger than today's ("what if I retire 5 years early?" from someone
+    of 65) is priced as if they were that age now: the person moves, not the
+    calendar, so the birth date shifts and the dates stay today. Refusing it as
+    "already older" left the answer re-showing the age-65 figure (live,
+    2026-10-01).
+    """
+    now = _described_age(inputs) if now is None else now
+    if now is None:
+        return None
+    born = inputs.get("birth_date")
+    moved: dict[str, Any] = {}
+    if age < now:
+        when = today
+        if born:
+            moved["birth_date"] = nth_birthday(date.fromisoformat(str(born)), now - age).isoformat()
+    elif born:
+        when = max(nth_birthday(date.fromisoformat(str(born)), age), today)
+    else:
+        when = nth_birthday(today, age - now) if age > now else today
+    moved["as_of_date"] = when.isoformat()
+    for name in inputs:
+        if name in aliases_of("age"):
+            moved[name] = age
+        elif name in ("annuity_start_date", "withdrawal_date"):
+            moved[name] = when.isoformat()
+        elif name in aliases_of("service_years") and inputs[name] is not None:
+            # Working to that age, or stopping that much sooner, moves service
+            # with it -- as the record path projects it. Keeping the stated 10
+            # years at 66 while saying "assumes you keep working" disagreed
+            # with itself (live, 2026-10-01).
+            try:
+                moved[name] = max(0.0, float(inputs[name]) + (age - now))
+            except (TypeError, ValueError):
+                pass
+    return moved
+
+
 def _resolve_retirement_age(scenario: dict, facts: dict) -> int | None:
     """Turn a scenario into an absolute retirement age.
 
@@ -1942,12 +2644,17 @@ def _stated_in(value: Any, text: str) -> bool:
     # against "at age 60", and the inferred value then overrode the record: the
     # early-retirement reduction silently became zero while service stayed at
     # 21.5 years, giving a base figure inconsistent with its own inputs.
-    for token in _NUMBER_TOKEN.findall(haystack):
+    for match in _NUMBER_TOKEN.finditer(haystack):
         try:
-            if Decimal(token.replace(",", "")) == number:
-                return True
+            written = Decimal(match.group().replace(",", ""))
         except InvalidOperation:
             continue
+        # "$85k" and "85 thousand" are 85,000 as the member wrote it.
+        if re.match(r"\s?(?:k\b|thousand\b)", haystack[match.end():]):
+            if written * 1000 == number:
+                return True
+        if written == number:
+            return True
     return False
 
 

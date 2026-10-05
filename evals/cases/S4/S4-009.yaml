@@ -1,0 +1,19 @@
+id: S4-009
+family: S4
+areas:
+- calculation
+- records
+tiers:
+- full
+employee: tier1_capped
+turns:
+- q: What would this employee's annuity be if they retired now?
+  goal: A Tier 1 annuity at 62 with 36 years, capped.
+  reference: 'Tier 1 at 62 with 36 years on a flat $100,000: 2.4% x 36 = 86.4%, capped at 80% of final average salary
+    (§8-138(g-1)): $80,000.00 a year.'
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    expected_figure:
+      annual: 80000.0
+    ttft_class: heavy

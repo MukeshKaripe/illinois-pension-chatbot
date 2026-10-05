@@ -1,0 +1,43 @@
+id: S4b-001
+family: S4b
+areas:
+- calculation
+- clarification
+- assumptions
+tiers:
+- smoke
+- full
+turns:
+- q: An employee is 56, earns $72,000 a year and has 18 years of service. What would their pension be at 60?
+  goal: An estimate of the annuity at 60, or the one question that decides the rule.
+  reference: 'Tier is unknown and decides the formula (§1-160(a)): must ask when they first joined, OR give both
+    the Tier 1 and the Tier 2 answer (Tier 2 is not eligible at 60, §1-160(c)). Salary history may be assumed flat
+    if stated.'
+  acceptable:
+  - ask_critical
+  - branch_on_critical
+  checks:
+    critical_inputs:
+    - participation_date
+    max_assumed: 2
+    assumptions_disclosed: true
+    figures_from:
+    - engine
+    - user
+    - statute
+    - assumed
+    ttft_class: heavy
+- q: They joined in 2009.
+  goal: The Tier 1 estimate at 60, using the given facts.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).
+  checks:
+    calculation: true
+    worked_from_article: '8'
+    ttft_class: heavy
+    no_reask:
+    - age
+    - salary
+    - service
+    - participation_date

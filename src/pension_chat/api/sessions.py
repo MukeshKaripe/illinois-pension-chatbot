@@ -23,12 +23,15 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy import text as sa_text
 
+from pension_chat.agent import pending as pending_writes
 from pension_chat.api.auth import TokenData, get_current_user
+from pension_chat.api.subject import by_recency, store_roster
 from pension_chat.db.models import Employee, Session, SessionMessage
 from pension_chat.db.session import get_admin_session, get_db_session
 from pension_chat.sse import (
     sse_done,
     sse_error,
+    sse_people,
     sse_preamble,
     sse_progress,
     sse_replace,
@@ -408,7 +411,7 @@ async def send_message(
         answer_parts: list[str] = []
         replaced_answer: str | None = None
         final_state: dict = {}
-        card: dict | None = None
+        cards: list[dict] = []
         # The what-ifs the conversation holds after this turn, for the chip.
         scenarios: list[dict] = []
         stream_failed = False
@@ -422,6 +425,10 @@ async def send_message(
             # thing yielded, so it reaches the browser as soon as the response
             # opens (§8).
             yield sse_preamble(body.content)
+
+            # The previous turn's transcript rows are written after its `done`;
+            # this turn's question must land after them.
+            await pending_writes.settle(session_id)
 
             # The write of the member's own message is not something the answer
             # depends on, so it overlaps the agent run instead of preceding it.
@@ -439,6 +446,7 @@ async def send_message(
                 # Names the thread's owner, which scopes its checkpoints to
                 # the same row-level policy as the transcript. This thread is a
                 # real session row, so the policy can resolve it.
+                subjects=list(session.subjects or []),
                 thread_owner={
                     "employee_id": str(employee_id) if employee_id else None,
                     "session_token": (
@@ -453,6 +461,8 @@ async def send_message(
                     yield sse_progress(event["text"], event["at"])
                 elif kind == "view":
                     yield sse_view(event["slot"], event["markdown"])
+                elif kind == "people":
+                    yield sse_people(event["active"])
                 elif kind == "token":
                     answer_parts.append(event["text"])
                     yield sse_token(event["text"])
@@ -467,7 +477,7 @@ async def send_message(
                     yield sse_error(event["message"])
                 elif kind == "done":
                     final_state = event.get("state") or {}
-                    card = event.get("card")
+                    cards = event.get("cards") or ([event["card"]] if event.get("card") else [])
                     scenarios = event.get("scenarios") or []
             completed = True
         except Exception:
@@ -484,54 +494,66 @@ async def send_message(
             if not completed and answer_parts:
                 await save_stopped_answer("".join(answer_parts), save_task)
 
-        # The user's turn must land before the assistant's, so that reloading
-        # the conversation shows them in order.
-        try:
-            if save_task is not None:
-                await save_task
-        except Exception:
-            logger.exception("Failed to persist user message")
-
         answer = replaced_answer or "".join(answer_parts)
         if stream_failed and not answer:
+            if save_task is not None:
+                pending_writes.defer(session_id, save_task)
             return
 
         # The calculation card rides in the audit trail: it is provenance too,
         # and there it needs no column of its own.
-        tool_calls = _audit_trail(final_state) + ([card] if card else [])
+        tool_calls = _audit_trail(final_state) + cards + _subject_trail(final_state)
 
         # Persist the assistant turn, including the audit metadata the
         # architecture requires (§7.1): citations, and whether the answer passed
-        # verification.
-        try:
-            async with _scoped() as db:
-                assistant_msg = SessionMessage(
-                    session_id=session_uuid,
-                    role="assistant",
-                    content=answer,
-                    # Only the provisions the answer actually relied on and that
-                    # passed verification. `citations` used to hold every
-                    # retrieved section, which the client rendered as chips --
-                    # six of them under an answer resting on two, implying a
-                    # reliance it did not have. Persisting the verified subset is
-                    # also what lets a reloaded conversation show its chips at
-                    # all: there is no column for the verified list, and this one
-                    # is ours to define.
-                    citations=_verified_citations(final_state),
-                    tool_calls=tool_calls,
-                    guardrail_passed=final_state.get("guardrail_passed", True),
-                )
-                db.add(assistant_msg)
-                await db.flush()
-                await db.refresh(assistant_msg)
-                msg_id = assistant_msg.id
-                await db.commit()
-        except Exception:
-            logger.exception("Failed to persist assistant message")
-            msg_id = -1
+        # verification. After `done`, in the background (`agent.pending`): from
+        # a distant database these writes cost seconds the member would spend
+        # waiting for the cards, and the next turn waits for them instead.
+        async def persist() -> None:
+            # The user's turn must land before the assistant's, so that
+            # reloading the conversation shows them in order.
+            try:
+                if save_task is not None:
+                    await save_task
+            except Exception:
+                logger.exception("Failed to persist user message")
+            try:
+                async with _scoped() as db:
+                    db.add(SessionMessage(
+                        session_id=session_uuid,
+                        role="assistant",
+                        content=answer,
+                        # Only the provisions the answer actually relied on and
+                        # that passed verification. `citations` used to hold every
+                        # retrieved section, which the client rendered as chips --
+                        # six of them under an answer resting on two, implying a
+                        # reliance it did not have. Persisting the verified subset
+                        # is also what lets a reloaded conversation show its chips
+                        # at all: there is no column for the verified list, and
+                        # this one is ours to define.
+                        citations=_verified_citations(final_state),
+                        tool_calls=tool_calls,
+                        guardrail_passed=final_state.get("guardrail_passed", True),
+                    ))
+                    await db.commit()
+            except Exception:
+                logger.exception("Failed to persist assistant message")
+
+            # The people this turn was about move to the front; one write, only
+            # when the order changed (spec §4.4).
+            roster = list(session.subjects or [])
+            reordered = by_recency(roster, list(final_state.get("turn_people") or []))
+            if reordered != roster:
+                try:
+                    await store_roster(session, reordered)
+                except Exception:
+                    logger.exception("Could not reorder the conversation's people")
+
+        pending_writes.defer(session_id, persist())
 
         yield sse_done(
-            message_id=msg_id,
+            # Not yet written; the client keeps its own key for the message.
+            message_id=None,
             citations=final_state.get("citations"),
             tool_calls=tool_calls,
             guardrail_passed=final_state.get("guardrail_passed", True),
@@ -550,6 +572,16 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _subject_trail(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Who this turn was about, and any choice it offered -- for the audit and the choice cards."""
+    trail: list[dict[str, Any]] = []
+    if state.get("turn_people"):
+        trail.append({"type": "subjects", "refs": list(state["turn_people"])})
+    if suggestion := state.get("subject_suggestion"):
+        trail.append({"type": "subject_suggestion", **suggestion})
+    return trail
 
 
 async def _authorised_session(
@@ -626,6 +658,8 @@ async def get_messages(
 ):
     """Reload one session's conversation (page refresh / sidebar click)."""
     session_uuid = uuid.UUID(session_id)
+    # The last answer is written after its `done`; a reload must still see it.
+    await pending_writes.settle(session_id)
 
     # As above: the access check runs unrestricted, the message read does not.
     async with get_admin_session() as db:

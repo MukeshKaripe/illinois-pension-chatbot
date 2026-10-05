@@ -447,18 +447,58 @@ function Deploy-Frontend {
         # on that is failing on a file lock. What actually matters is whether
         # node_modules is populated and whether the export produced a page, so
         # that is what is checked.
-        $npmCi = Invoke-Native npm ci
+        #
+        # `npm.cmd`, not bare `npm`: bare `npm` resolves to `npm.ps1` here,
+        # Node's own PowerShell shim, which reconstructs its command line as
+        # *text* from `$MyInvocation.Line`/`Statement` and re-parses it -- and
+        # that reconstruction reads the *caller's source line* (literally
+        # `& $exe @rest`, as written in `Invoke-Native`) rather than the
+        # resolved arguments, when reached through a splatted variable from
+        # inside a function. The build still "succeeds": it runs *something*,
+        # produces `out/index.html`, and exits 0 -- while `next build` never
+        # actually sees `$env:NEXT_PUBLIC_API_URL`, so the deployed bundle
+        # silently falls back to `http://localhost:8000/api/v1`. No error
+        # anywhere in this script caught it; only the live site did, with chat
+        # disabled and "Could not load the member presets". `npm.cmd` is the
+        # plain batch shim and does not reconstruct anything.
+        $npmCi = Invoke-Native npm.cmd ci
         if (-not (Test-Path "node_modules")) { Fail "npm ci did not install node_modules (exit $npmCi)." }
         if ($npmCi -ne 0) { Note "npm ci exited $npmCi but node_modules is present; continuing." }
 
-        $build = Invoke-Native npm run build
+        $build = Invoke-Native npm.cmd run build
         if (-not (Test-Path (Join-Path "out" "index.html"))) {
             Fail "the frontend build produced no out/index.html (exit $build)."
+        }
+        # Join-Path takes only -Path/-ChildPath in Windows PowerShell 5.1 --
+        # nested rather than the multi-segment form, same trap as elsewhere
+        # in this script.
+        $chunksGlob = Join-Path (Join-Path (Join-Path "out" "_next") "static") "chunks"
+        $chunksGlob = Join-Path $chunksGlob "*.js"
+        if (-not (Select-String -Path $chunksGlob -Pattern ([regex]::Escape($script:ApiBase)) -Quiet -ErrorAction SilentlyContinue)) {
+            Fail "the built bundle does not contain $($script:ApiBase) -- NEXT_PUBLIC_API_URL was not baked in. Refusing to upload a build that would silently fall back to localhost."
         }
 
         $token = Invoke-Az staticwebapp secrets list -g $ResourceGroup -n $SwaName `
             --query "properties.apiKey" -o tsv
-        if ((Invoke-Native npx --yes @azure/static-web-apps-cli deploy ./out --deployment-token $token --env production) -ne 0) {
+        # Two independent traps stacked here, and both had to be fixed to get
+        # one working command.
+        #
+        # 1. The package's own bin entry is named `swa`, not
+        #    `static-web-apps-cli`, and npx's single-bin fallback that used to
+        #    paper over that mismatch no longer does on npm 11 -- bare
+        #    `npx @azure/static-web-apps-cli deploy` fails with "could not
+        #    determine executable to run". `-p <package> swa` names the
+        #    binary explicitly.
+        # 2. Bare `npx` on Windows resolves to `npx.ps1`, Node's own
+        #    PowerShell shim -- not `npx.cmd`. That shim reconstructs its
+        #    command line as *text* from `$MyInvocation.Line` and re-parses it
+        #    through `Invoke-Expression`, and that re-parse mangles the
+        #    `@scope/package` token when the call arrives via a splatted array
+        #    from inside a function, as `Invoke-Native` does here -- the same
+        #    "could not determine executable to run", for a different reason,
+        #    surviving fix 1 alone. `npx.cmd` is the plain batch shim: it
+        #    passes the real argv through with no text round-trip.
+        if ((Invoke-Native npx.cmd --yes -p @azure/static-web-apps-cli swa deploy ./out --deployment-token $token --env production) -ne 0) {
             Fail "the frontend upload failed."
         }
     } finally { Pop-Location; Remove-Item Env:NEXT_PUBLIC_API_URL -ErrorAction SilentlyContinue }

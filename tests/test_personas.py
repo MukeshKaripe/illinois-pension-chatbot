@@ -8,7 +8,7 @@ picked persona safe — that it cannot be edited into something incoherent, and
 that editing it changes what the member expects it to change.
 
 The regression guard at the bottom is the important one. The two originally
-seeded members are pinned by id in `eval_agent.py` and `gold_coverage.yaml`, and
+seeded members were pinned by id in the retired `eval_agent.py` and `gold_coverage.yaml`, and
 their salary history feeds the expected figure of every calculation case in the
 benchmark. Both were previously left to `gen_random_uuid()`, so a fresh database
 bound those cases to nothing at all.
@@ -163,7 +163,7 @@ def test_a_persona_without_salary_history_is_rejected():
 
 
 def test_the_two_pilot_members_keep_the_ids_the_benchmark_binds_to():
-    """`eval_agent.py:65` and `gold_coverage.yaml` name these outright.
+    """The retired `eval_agent.py:65` and `gold_coverage.yaml` named these outright.
 
     Both rows previously took `gen_random_uuid()`, so re-seeding a database
     produced ids that matched neither, and the cases bound to nothing without

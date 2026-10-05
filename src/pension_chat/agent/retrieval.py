@@ -23,13 +23,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
 from azure.search.documents.models import VectorizedQuery
 
-from pension_chat.agent import corpus
+from pension_chat.agent import corpus, instrument
 from pension_chat.agent.llm import get_async_search_client, get_llm
 from pension_chat.config import get_settings
 
@@ -82,6 +82,7 @@ class RetrievedSection:
     referenced_sections: list[str] = field(default_factory=list)
     source_public_act: str | None = None
     truncated: bool = False
+    spans: list[tuple[str, int]] = field(default_factory=list)
 
     @property
     def citation(self) -> str:
@@ -99,6 +100,7 @@ class RetrievedSection:
             "relevance": self.relevance,
             "referenced_sections": self.referenced_sections,
             "truncated": self.truncated,
+            "spans": [list(span) for span in self.spans],
         }
 
 
@@ -208,9 +210,10 @@ async def _embed(queries: list[str]) -> list[list[float] | None]:
     missing = [q for q in queries if q not in _EMBED_CACHE]
     if missing:
         try:
-            response = await client.embeddings.create(
-                model=settings.azure_openai_embedding_deployment, input=missing
-            )
+            async with instrument.timed("embedding", "query"):
+                response = await client.embeddings.create(
+                    model=settings.azure_openai_embedding_deployment, input=missing
+                )
             if len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
                 _EMBED_CACHE.clear()
             for query, item in zip(missing, response.data):
@@ -291,9 +294,12 @@ async def _search_one(
         ]
 
     try:
-        results = await client.search(**kwargs)
-        return [dict(doc) async for doc in results]
+        # Timed with the iteration: results are fetched lazily as they are read.
+        async with instrument.timed("search", query):
+            results = await client.search(**kwargs)
+            return [dict(doc) async for doc in results]
     except Exception as exc:
+        instrument.note("semantic_fallback", query)
         logger.warning("Semantic hybrid search failed for %r: %s", query, exc)
 
     # Retry without the semantic ranker — it has its own quota and is the most
@@ -301,8 +307,10 @@ async def _search_one(
     kwargs.pop("query_type", None)
     kwargs.pop("semantic_configuration_name", None)
     try:
-        results = await client.search(**kwargs)
-        return [dict(doc) async for doc in results]
+        # Timed with the iteration: results are fetched lazily as they are read.
+        async with instrument.timed("search", query):
+            results = await client.search(**kwargs)
+            return [dict(doc) async for doc in results]
     except Exception as exc:
         logger.error("Search failed entirely for %r: %s", query, exc)
         return []
@@ -337,13 +345,14 @@ async def fetch_sections(
         filter_parts.append(article_expr)
 
     try:
-        results = await client.search(
-            search_text="*",
-            filter=" and ".join(filter_parts),
-            top=200,
-            select=_SELECT_FIELDS,
-        )
-        docs = [dict(doc) async for doc in results]
+        async with instrument.timed("search", "fetch"):
+            results = await client.search(
+                search_text="*",
+                filter=" and ".join(filter_parts),
+                top=200,
+                select=_SELECT_FIELDS,
+            )
+            docs = [dict(doc) async for doc in results]
     except Exception as exc:
         logger.error("Section fetch failed for %s: %s", pending, exc)
         return cached
@@ -388,6 +397,92 @@ async def canonical_section_texts(section_ids: Iterable[str]) -> dict[str, str]:
     return texts
 
 
+#: The chunker's version prefix: "(from P.A. 102-719)" on its own first line.
+_VARIANT_LABEL_RE = re.compile(r"\A\(([^()\n]+)\)\n")
+
+
+def _variant_of(chunk: dict[str, Any]) -> tuple[str | None, str]:
+    """Which printed version a chunk belongs to, and its text without the label.
+
+    Read off what the chunker wrote: a key suffixed ``__<label>`` and content
+    prefixed with the label on its own line. Both, because subsection text can
+    itself open with a parenthesis.
+    """
+    content = (chunk.get("content") or "").strip()
+    if "__" in str(chunk.get("id") or ""):
+        match = _VARIANT_LABEL_RE.match(content)
+        if match:
+            return match.group(1), content[match.end():].strip()
+    return None, content
+
+
+def merge_variants(
+    chunks: list[dict[str, Any]], subsection_key: Callable[[str], Any] = _subsection_sort_key
+) -> list[str]:
+    """The texts of `merge_variants_with_ids`, without the subsection ids."""
+    return [text for text, _ in merge_variants_with_ids(chunks, subsection_key)]
+
+
+def merge_variants_with_ids(
+    chunks: list[dict[str, Any]], subsection_key: Callable[[str], Any] = _subsection_sort_key
+) -> list[tuple[str, list[str]]]:
+    """A section's text in statute order, with each printed version read once.
+
+    ILGA prints a section amended by concurrent Public Acts once per Act, and
+    ingestion keeps every copy (choosing one is a reading of the law). Sorted by
+    subsection alone they interleave -- Section 1-160 read (a)(a)(a)(b)(b)(b)...
+    -- and the copies of Section 1-160, which differ only in (g) and (g-5),
+    tripled the text until the budget ran out before (c), the Tier 2 age-67
+    rule. So text every version shares is given once, a subsection the versions
+    word differently is given once per wording and labelled with the versions
+    that carry it, and a note up front says which is which. A section with one
+    version, labelled or not, comes back exactly as indexed.
+
+    Each text comes with the subsection ids it carries, which is how the eval
+    suite knows what reached the model rather than what was retrieved.
+    """
+    ordered = sorted(
+        chunks,
+        key=lambda c: (subsection_key(str(c.get("subsection_id") or "")), str(c.get("id") or "")),
+    )
+    read = [(str(c.get("subsection_id") or ""), *_variant_of(c)) for c in ordered]
+    labels = list(dict.fromkeys(label for _, label, _ in read if label))
+    if len(labels) < 2:
+        texts = [((c.get("content") or "").strip(), str(c.get("subsection_id") or "")) for c in ordered]
+        return [(text, [sid] if sid else []) for text, sid in texts if text]
+
+    # A subsection is matched across versions by its letter and by how many
+    # times that letter has come up in its own version, so a version that
+    # letters two lists (Section 9-219) keeps both.
+    groups: dict[tuple[str, int], dict[str, tuple[str, list[str | None]]]] = {}
+    seen: dict[tuple[str | None, str], int] = {}
+    for subsection, label, body in read:
+        if not body:
+            continue
+        occurrence = seen[(label, subsection)] = seen.get((label, subsection), 0) + 1
+        wordings = groups.setdefault((subsection, occurrence), {})
+        normalised = " ".join(body.split())
+        wordings.setdefault(normalised, (body, []))[1].append(label)
+
+    parts: list[tuple[str, list[str]]] = [(
+        f"(This Section is printed in {len(labels)} versions: {'; '.join(labels)}. "
+        "Text common to all versions is given once; where they differ, each text "
+        "is labelled with the versions it belongs to.)",
+        [],
+    )]
+    for (subsection, _), wordings in groups.items():
+        ids = [subsection] if subsection else []
+        if len(wordings) == 1:
+            body, holders = next(iter(wordings.values()))
+            if set(holders) >= set(labels):
+                parts.append((body, ids))
+                continue
+        for body, holders in wordings.values():
+            named = [h for h in dict.fromkeys(holders) if h]
+            parts.append((f"({'; '.join(named)})\n{body}" if named else body, ids))
+    return parts
+
+
 def _assemble(
     section_id: str, chunks: list[dict], score: float, char_budget: int
 ) -> RetrievedSection:
@@ -409,9 +504,8 @@ def _assemble(
             if ref not in references:
                 references.append(ref)
 
-        body = (chunk.get("content") or "").strip()
-        if not body:
-            continue
+    spans: list[tuple[str, int]] = []
+    for body, ids in merge_variants_with_ids(chunks):
         if used + len(body) > char_budget:
             remaining = max(0, char_budget - used)
             if remaining > 400:
@@ -421,6 +515,9 @@ def _assemble(
             break
         parts.append(body)
         used += len(body)
+        # Only whole parts are evidence: a subsection cut short is not.
+        end = len("\n".join(parts))
+        spans.extend((sid, end) for sid in ids)
 
     return RetrievedSection(
         section=section_id,
@@ -433,6 +530,7 @@ def _assemble(
         referenced_sections=references,
         source_public_act=first.get("source_public_act") or None,
         truncated=truncated,
+        spans=spans,
     )
 
 

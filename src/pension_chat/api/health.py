@@ -2,6 +2,8 @@
 
 from fastapi import APIRouter
 
+from pension_chat.config import get_settings
+
 router = APIRouter(tags=["health"])
 
 
@@ -12,4 +14,7 @@ async def health_check() -> dict:
         "status": "healthy",
         "service": "pension-chat",
         "version": "0.1.0",
+        # "pbms" when employee records come from the fund; the UI shows the
+        # people chips only then.
+        "record_source": get_settings().record_source,
     }

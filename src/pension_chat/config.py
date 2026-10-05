@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Shipped as the default so local development and tests can construct
@@ -38,6 +39,11 @@ class Settings(BaseSettings):
     azure_search_api_key: str
     azure_search_endpoint: str
     azure_search_index_name: str = "pension-code-dev"
+
+    # ── Azure Blob (statute documents supplied by the client) ─────
+    # Optional: only ingestion with `--source blob` reads them.
+    azure_storage_connection_string: str | None = None
+    azure_storage_container: str | None = None
 
     # ── Database (Postgres) ───────────────────────────────────────
     pghost: str
@@ -152,6 +158,33 @@ class Settings(BaseSettings):
 
     # Calculation knowledge registry
     persist_derived_recipes: bool = True
+    # Reuse counts, contested counts and staleness marks on formula_registry.
+    # The eval suite turns this off: a run must not move production's view of
+    # which recipes are load-bearing, nor mark one stale.
+    registry_writes_enabled: bool = True
+    # The one fund this deployment serves, when it serves one (D4: MEABF -> 8).
+    # Governs a question with no record and nothing said about coverage.
+    deployment_article: int | None = None
+
+    # ── Employee records (Phase 1) ─────────────────────────────────
+    # Where an employee's record comes from. "pbms" reads the client's SQL
+    # Server live and read-only through `pension_chat.pbms`; "postgres" is the
+    # original path. Evals ignore this -- they install their own provider.
+    record_source: Literal["postgres", "pbms"] = "postgres"
+
+    # Where a conversation's agent state (scenarios, settled provision, pinned
+    # records) lives between turns. "postgres" survives restarts and is shared
+    # by every worker. "memory" keeps it in this process: from a machine far
+    # from the database it saves a checkpoint read and write on every turn
+    # (~2-3 s at 250 ms a round trip), but a restart forgets it -- the
+    # transcript is still in Postgres, so a conversation continues from that --
+    # and it is only correct with a single worker.
+    checkpointer: Literal["postgres", "memory"] = "postgres"
+    pbms_sql_server: str | None = None
+    pbms_sql_database: str | None = None
+    pbms_sql_user: str | None = None
+    pbms_sql_password: SecretStr | None = None
+    pbms_query_timeout_s: float = 5.0
     # Recipes the agent derives itself are estimates, never authoritative.
     derived_recipe_execution_policy: str = "estimate"
 

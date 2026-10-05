@@ -1,0 +1,18 @@
+id: S13-004
+family: S13
+areas: [people, clarification]
+tiers: [smoke, full]
+people: [people_a, people_b]
+turns:
+- q: Compare what RO_BK TA_NE and LI_MO GA_RD would each get if they retired now.
+  goal: Both annuities side by side, each from that person's own record.
+  reference: 'RO_BK TA_NE about $19,770.89; LI_MO GA_RD $25,200.00 (§8-138(g-1), §1-160).'
+  checks:
+    expected_figures:
+    - {person: "RO_BK TA_NE", annual: 19770.89}
+    - {person: "LI_MO GA_RD", annual: 25200.00}
+- q: What would she get at 65?
+  goal: Ask which of the two is meant, rather than guessing.
+  reference: 'The answer asks whether RO_BK TA_NE or LI_MO GA_RD is meant, and computes nothing.'
+  checks:
+    no_calculation: true

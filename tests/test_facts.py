@@ -207,6 +207,8 @@ def _active(**over):
         "hire_date": date(1996, 3, 1),
         "employment_status": "active",
         "current_annual_salary": Decimal("90000"),
+        # A record states its service; one that does not leaves it unknown.
+        "total_service_years": 30,
     }
     base.update(over)
     return base
@@ -273,3 +275,59 @@ def test_the_stopped_working_status_is_not_a_second_assumption():
 
     assert "employment_status" not in FRAMING_DEFAULTS
     assert "withdrawal_date" in FRAMING_DEFAULTS
+
+
+# ── Tier 2 and 3 final average salary: §1-160(b) ──────────────────────
+#
+# "the 96 consecutive months (or 8 consecutive years) of service within the
+# last 120 months (or 10 years) of service in which the total salary ... was
+# the highest". The generic name used to carry the 4-year average for every
+# member -- Article 11's and Article 8 Tier 1's rule -- so a Tier 2 MEABF figure
+# came out on the wrong salary basis.
+
+
+def _tiered(tier: int, hire: date) -> dict:
+    return _active(tier=tier, hire_date=hire, article_number=8)
+
+
+def _rising(years: int, last: int = 2026) -> list[tuple[date, Decimal]]:
+    # 50,000 rising 5,000 a year, so every window has a different average.
+    return [(date(last - years + 1 + i, 1, 1), Decimal(50000 + 5000 * i)) for i in range(years)]
+
+
+def test_a_tier_2_members_final_average_salary_is_the_best_8_of_the_last_10_years():
+    history = _rising(10)
+    facts = build_member_facts(_tiered(2, date(2013, 6, 1)), history, today=date(2026, 9, 14))
+    best_8 = sum(Decimal(50000 + 5000 * i) for i in range(2, 10)) / 8
+    best_4 = sum(Decimal(50000 + 5000 * i) for i in range(6, 10)) / 4
+    assert Decimal(str(facts["final_average_salary"])) == best_8
+    assert Decimal(str(facts["final_average_salary_8_year"])) == best_8
+    assert Decimal(str(facts["highest_average_annual_salary_4yr"])) == best_4   # still there, by its own name
+
+
+def test_a_tier_3_member_uses_the_same_rule():
+    facts = build_member_facts(_tiered(3, date(2018, 6, 1)), _rising(10), today=date(2026, 9, 14))
+    assert facts["final_average_salary"] == facts["final_average_salary_8_year"]
+
+
+def test_a_tier_2_member_without_8_years_of_salary_has_no_final_average_salary():
+    # Unknown, to be asked for -- never the 4-year figure in its place.
+    facts = build_member_facts(_tiered(2, date(2020, 6, 1)), _rising(4), today=date(2026, 9, 14))
+    assert "final_average_salary" not in facts and "fas" not in facts
+    assert "highest_average_annual_salary_4yr" in facts
+
+
+def test_a_tier_1_member_keeps_the_4_year_average():
+    history = _rising(10)
+    facts = build_member_facts(_tiered(1, date(1996, 3, 1)), history, today=date(2026, 9, 14))
+    assert facts["final_average_salary"] == facts["highest_average_annual_salary_4yr"]
+
+
+def test_the_generic_final_average_salary_label_names_no_window():
+    # It is 4 years for Tier 1 and 8 for Tier 2; a label naming either is wrong
+    # for the other. The windowed names say their own window.
+    from pension_chat.agent.blocks import _label
+
+    assert "4 years" not in _label("final_average_salary")
+    assert "8" in _label("final_average_salary_8_year")
+    assert "4 years" in _label("highest_average_annual_salary_4yr")

@@ -30,6 +30,7 @@ from azure.core.credentials import AzureKeyCredential
 from azure.search.documents.aio import SearchClient as AsyncSearchClient
 from openai import APIConnectionError, APITimeoutError, AsyncAzureOpenAI, RateLimitError
 
+from pension_chat.agent import instrument
 from pension_chat.config import get_settings
 
 logger = logging.getLogger("pension_chat.agent.llm")
@@ -275,7 +276,8 @@ async def call_with_tools(
     for attempt in range(attempts):
         started = time.perf_counter()
         try:
-            response = await client.chat.completions.create(**kwargs)
+            async with instrument.timed("model", node):
+                response = await client.chat.completions.create(**kwargs)
             accumulator = _resolve_usage(usage)
             if accumulator is not None:
                 accumulator.record(node, response.usage)
@@ -299,8 +301,12 @@ async def call_with_tools(
         except _RETRYABLE as exc:
             last_error = exc
             logger.warning("%s transport error (attempt %d): %s", node, attempt + 1, exc)
+            if isinstance(exc, RateLimitError):
+                instrument.note("rate_limited", f"{0.4 * (attempt + 1):.2f}")
             await asyncio.sleep(0.4 * (attempt + 1))
 
+    if isinstance(last_error, RateLimitError):
+        instrument.note("rate_limit_exhausted", node)
     raise last_error if last_error else RuntimeError(f"{node} failed with no error")
 
 
@@ -343,7 +349,8 @@ async def complete(
     for attempt in range(attempts):
         started = time.perf_counter()
         try:
-            response = await client.chat.completions.create(**kwargs)
+            async with instrument.timed("model", node):
+                response = await client.chat.completions.create(**kwargs)
             accumulator = _resolve_usage(usage)
             if accumulator is not None:
                 accumulator.record(node, response.usage)
@@ -352,8 +359,12 @@ async def complete(
         except _RETRYABLE as exc:
             last_error = exc
             logger.warning("%s transport error (attempt %d): %s", node, attempt + 1, exc)
+            if isinstance(exc, RateLimitError):
+                instrument.note("rate_limited", f"{0.4 * (attempt + 1):.2f}")
             await asyncio.sleep(0.4 * (attempt + 1))
 
+    if isinstance(last_error, RateLimitError):
+        instrument.note("rate_limit_exhausted", node)
     raise last_error if last_error else RuntimeError(f"{node}: completion failed")
 
 
@@ -395,15 +406,20 @@ async def stream(
     last_error: Exception | None = None
     for attempt in range(_STREAM_OPEN_ATTEMPTS):
         try:
-            response = await client.chat.completions.create(**kwargs)
+            async with instrument.timed("model", node):
+                response = await client.chat.completions.create(**kwargs)
             break
         except _RETRYABLE as exc:
             last_error = exc
             logger.warning(
                 "%s could not open the stream (attempt %d): %s", node, attempt + 1, exc
             )
+            if isinstance(exc, RateLimitError):
+                instrument.note("rate_limited", f"{0.4 * (attempt + 1):.2f}")
             await asyncio.sleep(0.4 * (attempt + 1))
     if response is None:
+        if isinstance(last_error, RateLimitError):
+            instrument.note("rate_limit_exhausted", node)
         raise last_error if last_error else RuntimeError(f"{node}: stream failed to open")
 
     async for chunk in response:
@@ -412,6 +428,9 @@ async def stream(
             accumulator.record(node, chunk.usage)
         if not chunk.choices:
             continue
-        delta = chunk.choices[0].delta.content
+        # Azure can send a choice with no delta (a content-filter result, or the
+        # closing chunk); it carries no text, and reading it took the turn down.
+        message = chunk.choices[0].delta
+        delta = message.content if message is not None else None
         if delta:
             yield delta

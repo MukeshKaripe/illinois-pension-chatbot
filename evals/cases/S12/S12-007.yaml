@@ -1,0 +1,27 @@
+id: S12-007
+family: S12
+areas:
+- retrieval
+- calculation
+tiers:
+- full
+employee: reciprocal
+turns:
+- q: This employee has 9 years in another Illinois system. Does that count?
+  goal: Reciprocal combination under Article 20.
+  reference: §20-115, §20-117.
+  checks:
+    cites_any:
+    - 20-115
+    - 20-117
+- q: Which system pays?
+  goal: Proportional annuities from each system.
+  reference: §20-121.
+  checks:
+    cites_any:
+    - 20-121
+- q: Estimate the MEABF part.
+  goal: An estimate for the Article 8 portion, with its caveat.
+  reference: For a Tier 1 member (first joined before 2011), the 2.4%-of-final-average-salary annuity (capped at
+    80%) begins no earlier than age 60 with at least 10 years of service (§8-138(g-1)); an annuity from accumulated
+    credits is available from age 55 with 10 years (§8-132).

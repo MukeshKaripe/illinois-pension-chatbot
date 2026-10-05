@@ -45,11 +45,11 @@ def test_a_derivation_does_not_spend_the_ceiling():
     sheet = _sheet()
     filled, origins, missing = apply_assumptions(
         sheet,
-        [_ask("months_before_age_60"), _ask("withdrawal_date"), _ask("annuity_start_date")],
-        {"age": 56, "as_of_date": "2026-09-16"},
+        [_ask("months_before_age_60"), _ask("withdrawal_date"), _ask("final_average_salary")],
+        {"age": 56, "as_of_date": "2026-09-16", "stated_annual_salary": 80000},
         2,
     )
-    assert set(filled) == {"months_before_age_60", "withdrawal_date", "annuity_start_date"}
+    assert set(filled) == {"months_before_age_60", "withdrawal_date", "final_average_salary"}
     assert missing == []
     assert sum(1 for s in origins.values() if s == SOURCE_ASSUMED) == 2
 
@@ -58,12 +58,12 @@ def test_the_ceiling_still_bites_invented_values():
     sheet = _sheet()
     filled, _, missing = apply_assumptions(
         sheet,
-        [_ask("withdrawal_date"), _ask("annuity_start_date")],
-        {"as_of_date": "2026-09-16"},
+        [_ask("withdrawal_date"), _ask("final_average_salary")],
+        {"as_of_date": "2026-09-16", "stated_annual_salary": 80000},
         1,
     )
     assert len(filled) == 1
-    assert [m["name"] for m in missing] == ["annuity_start_date"]
+    assert [m["name"] for m in missing] == ["final_average_salary"]
 
 
 def test_a_derivation_is_not_reported_as_an_assumption_to_the_member():

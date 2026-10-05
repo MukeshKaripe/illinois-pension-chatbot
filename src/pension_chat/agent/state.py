@@ -61,6 +61,25 @@ class PensionAgentState(TypedDict, total=False):
     # of the prose of an earlier answer.
     session_id: str
     employee_id: str | None
+    # The conversation's people (sessions.subjects), most recent first, passed
+    # in every turn. Each is keyed by an internal MEAB ID (`ref`), never shown.
+    # Not the principal: `employee_id` still scopes row-level security.
+    subjects: list[dict[str, Any]]
+    # Who this turn is about (refs), decided deterministically by `triage`.
+    turn_people: list[str]
+    # Who the previous turn was about: a turn that names nobody continues with them.
+    last_people: list[str]
+    # This turn's people, loaded: {ref: {"record", "salary_history", "member_facts", "label"}}.
+    people: dict[str, dict[str, Any]]
+    # Each person's first-loaded record, reused on later turns (spec §4.3).
+    pinned_people: dict[str, dict[str, Any]]
+    # A choice put to the user: unfamiliar names' candidates, or which of several.
+    subject_suggestion: dict[str, Any] | None
+    # People whose record could not be read this turn -- distinct from "no record".
+    unavailable_people: list[str]
+    # The record source finds people by name but its directory has never loaded,
+    # so a name in this question could not be looked up (spec §6, §7).
+    names_unavailable: bool
     messages: Annotated[list[BaseMessage], operator.add]
     turn_index: Annotated[int, operator.add]
     # The provision this conversation settled on: section, subsection,
@@ -283,6 +302,10 @@ DURABLE_KEYS: frozenset[str] = frozenset({
     # The record this conversation started with (spec §6): an answer resting on
     # facts that change under it mid-conversation contradicts the one before it.
     "pinned_record",
+    # Who the last turn was about, and each person's first-loaded record: a
+    # question naming nobody continues with them, on the facts it started with.
+    "last_people",
+    "pinned_people",
 })
 
 # Merged keys need `CLEAR` rather than an empty value: `{}` merges to nothing
@@ -300,6 +323,8 @@ def turn_input(
     question: str,
     session_id: str,
     employee_id: str | None = None,
+    *,
+    subjects: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The update that starts a new turn on an existing thread.
 
@@ -313,6 +338,7 @@ def turn_input(
     fresh.update(
         session_id=session_id,
         employee_id=employee_id,
+        subjects=list(subjects or []),
         question=question,
         messages=[HumanMessage(content=question)],
         turn_index=1,
@@ -331,6 +357,8 @@ def initial_state(
     session_id: str,
     employee_id: str | None = None,
     history: list[BaseMessage] | None = None,
+    *,
+    subjects: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a complete initial state.
 
@@ -344,6 +372,14 @@ def initial_state(
     return {
         "session_id": session_id,
         "employee_id": employee_id,
+        "subjects": list(subjects or []),
+        "turn_people": [],
+        "last_people": [],
+        "people": {},
+        "pinned_people": {},
+        "subject_suggestion": None,
+        "unavailable_people": [],
+        "names_unavailable": False,
         "question": question,
         "messages": list(history or []) + [HumanMessage(content=question)],
         "turn_index": 0,

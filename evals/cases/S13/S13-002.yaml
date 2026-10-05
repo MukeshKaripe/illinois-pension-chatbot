@@ -1,0 +1,17 @@
+id: S13-002
+family: S13
+areas: [people, calculation]
+tiers: [smoke, full]
+people: [people_a, people_b]
+turns:
+- q: Compare what RO_BK TA_NE and LI_MO GA_RD would each get if they retired now.
+  goal: Both annuities side by side, each from that person's own record.
+  reference: 'One row each: RO_BK TA_NE (Tier 2, 62, 14 years, reduced 30% for 60 months under 67) about
+    $19,770.89 a year; LI_MO GA_RD (Tier 2, 67, 15 years, unreduced) $25,200.00 a year (§8-138(g-1), §1-160).
+    Neither figure uses the other person''s salary or service.'
+  checks:
+    calculation: true
+    expected_figures:
+    - {person: "RO_BK TA_NE", annual: 19770.89}
+    - {person: "LI_MO GA_RD", annual: 25200.00}
+    ttft_class: heavy

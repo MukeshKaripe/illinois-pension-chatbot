@@ -1,0 +1,23 @@
+id: S13-003
+family: S13
+areas: [people, calculation]
+tiers: [full]
+people: [people_a, people_b, people_c]
+turns:
+- q: Compare the annuities of RO_BK TA_NE, LI_MO GA_RD and FE_NX OR_TL if each retired now.
+  goal: Three annuities side by side, each from that person's own record.
+  reference: 'RO_BK TA_NE about $19,770.89 (Tier 2, reduced); LI_MO GA_RD $25,200.00 (Tier 2 at 67);
+    FE_NX OR_TL $80,000.00 (Tier 1, 36 years x 2.4% = 86.4%, capped at 80% of $100,000) (§8-138(g-1), §1-160).'
+  checks:
+    calculation: true
+    expected_figures:
+    - {person: "RO_BK TA_NE", annual: 19770.89}
+    - {person: "LI_MO GA_RD", annual: 25200.00}
+    - {person: "FE_NX OR_TL", annual: 80000.00}
+    ttft_class: heavy
+- q: Which of them reaches the 80% cap?
+  goal: Name who hits the maximum, from the figures just compared.
+  reference: 'FE_NX OR_TL: Tier 1 with 36 years accrues 86.4%, capped at 80% (§8-138(g-1)). The other two are well
+    below it.'
+  checks:
+    ttft_class: heavy

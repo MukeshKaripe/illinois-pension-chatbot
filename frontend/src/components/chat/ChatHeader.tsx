@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { PanelLeft, SquarePen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BrandMark } from "@/components/BrandMark";
@@ -7,11 +8,13 @@ interface ChatHeaderProps {
   onNewChat: () => void;
   /** On a phone the sidebar is hidden by default, so New chat always shows there. */
   showNewChatOnDesktop: boolean;
+  /** The conversation's employees (PBMS mode only). */
+  people?: ReactNode;
 }
 
-export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop }: ChatHeaderProps) {
+export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop, people }: ChatHeaderProps) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-2">
       <Button variant="ghost" size="icon" onClick={onToggleSidebar} aria-label="Toggle sidebar">
         <PanelLeft className="size-[18px]" />
       </Button>
@@ -31,6 +34,7 @@ export function ChatHeader({ onToggleSidebar, onNewChat, showNewChatOnDesktop }:
           40 ILCS 5
         </span>
       </h1>
+      {people && <div className="ml-auto flex min-w-0 max-w-full items-center">{people}</div>}
     </header>
   );
 }

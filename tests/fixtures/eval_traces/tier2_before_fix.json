@@ -1,0 +1,10 @@
+{"case_id": "S1-003", "turn_index": 0, "question": "Under Article 8, what is the minimum age and service to retire for a Tier 2 member, and which section says so?",
+ "employee": null,
+ "streamed_answer": "Article 8's heading for age-and-service annuities is Section 8-129, but I could not establish the Tier 2 minimum age and service requirement from the text available to me.",
+ "final_answer": "Sections 1-160 and 1-162 set requirements for certain Tier 2 members, but their text does not establish whether those provisions apply to every Article 8 Tier 2 member.",
+ "replacements": [{"reason": {"excised": true}}],
+ "retrieved": ["1-162", "1-160", "1-103.1", "1-117", "1-161"],
+ "rendered": {"1-162": ["(a)", "(b)", "(c)"], "1-160": ["(a)", "(b)", "(b-5)", "(b-10)"]},
+ "verified_citations": ["1-162"], "guardrail_passed": true,
+ "tools": [{"name": "search_statute", "args": {"prefetch": true}}, {"name": "outline", "args": {"article": "8"}}],
+ "ttft": 18.02, "total": 22.27}

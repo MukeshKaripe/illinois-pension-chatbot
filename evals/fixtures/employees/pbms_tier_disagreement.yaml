@@ -1,0 +1,15 @@
+key: pbms_tier_disagreement
+source: PBMS
+display_name: "QW_XZ PL_MR"
+employer: City of Chicago
+department: Streets and Sanitation
+age: 62
+hire_date: 2019-02-01
+tier: 2
+tier_basis: "PBMS's tier code disagrees with the hire date; the record keeps PBMS's value and reports it"
+status: active
+service_years: 7.5
+service_source: counted from payroll (months with a pension deduction)
+missing:
+  tier: "PBMS records Tier 2, but participation beginning 2019-02-01 indicates Tier 3"
+salary: {current: 72000, growth: 0.02, years: 8}

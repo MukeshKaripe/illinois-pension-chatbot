@@ -1,0 +1,11 @@
+key: tier2_at_62
+display_name: "S. Alvarez"
+employer: City of Chicago
+department: Finance
+age: 62
+hire_date: 2012-03-01
+tier: 2
+status: active
+service_years: 14.0
+service_source: stored
+salary: {current: 90000, growth: 0.02, years: 10}

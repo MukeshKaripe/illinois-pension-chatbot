@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any
 
-from pension_chat.agent import corpus, gaps, memory, recommend
+from pension_chat.agent import corpus, gaps, instrument, memory, recommend
 from pension_chat.agent import coverage as coverage_mod
 from pension_chat.agent.nodes import (
     BENEFIT_TYPES,
@@ -35,7 +35,9 @@ from pension_chat.agent.nodes import (
     validate_recipes,
 )
 from pension_chat.agent.objectives import OBJECTIVES, objective_for
+from pension_chat.agent.people import norm_name
 from pension_chat.agent.retrieval import retrieve, retrieve_coverage
+from pension_chat.agent.section_scope import scoped_evidence
 from pension_chat.agent.worksheet import (
     SOURCE_STAND_IN,
     SOURCE_STATED,
@@ -191,6 +193,14 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
                             "An offset the member named ('two more years'). Never "
                             "convert it to an age yourself -- it is resolved against "
                             "their real age for you."
+                        ),
+                    },
+                    "person": {
+                        "type": "string",
+                        "description": (
+                            "Whose figure, by the label the context lists. Required when "
+                            "the question is about more than one employee -- call once "
+                            "per person; omit when it is about one."
                         ),
                     },
                     "stand_in_facts": {
@@ -375,6 +385,13 @@ def _render(sections: list[dict[str, Any]], budget: int) -> str:
             text = text[: max(0, budget - used)]
         if not text:
             break
+        # What the model is actually shown, subsection by subsection -- the
+        # eval suite's evidence, and a no-op when no run is watching.
+        spans = section.get("spans") or []
+        if spans:
+            instrument.rendered(
+                str(section["section"]), [sid for sid, end in spans if end <= len(text)]
+            )
         blocks.append(
             _HEADING.format(section=section["section"], title=section.get("title", ""))
             + f"\n{text}"
@@ -395,6 +412,21 @@ def _quality(sections: list[dict[str, Any]]) -> str:
     else:
         verdict = "strong"
     return f"{len(sections)} section(s), best match {best:.2f} ({verdict})."
+
+
+def _scoping_article(state: dict) -> int | None:
+    """The Article a scoping decision may rest on: one the conversation settled,
+    the record's, or one the user named -- never one inferred from the very
+    sections being scoped."""
+    coverage = state.get("coverage") or {}
+    for candidate in (
+        coverage.get("article"),
+        (state.get("employee_record") or {}).get("article_number"),
+        *(state.get("explicit_articles") or []),
+    ):
+        if candidate is not None and str(candidate).isdigit():
+            return int(candidate)
+    return None
 
 
 async def _search(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
@@ -439,7 +471,11 @@ async def _search(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         logger.warning("Could not recall anything beside the search: %s", hint)
         hint = []
 
-    rows = [s.to_dict() for s in found]
+    # The answer is written from these, so they are scoped as a derivation's
+    # are: §1-161 (Articles 14-16) never reaches an Article 8 member's evidence,
+    # and §1-162 arrives with its "affected fund" condition in front of its
+    # 1.25% -- which an answer otherwise described as the member's Tier 2 rule.
+    rows = [s.to_dict() for s in scoped_evidence(list(found), _scoping_article(state))]
     body = _render(rows, settings.retrieval_context_token_budget * 4)
     remembered = (
         "Sections that previously answered questions like this, and whose "
@@ -460,7 +496,8 @@ async def _get_section(arguments: dict[str, Any], state: dict) -> tuple[str, dic
     if not section_id:
         return "get_section needs a section id such as '11-134'.", {}
     found = await retrieve([], must_include_sections=[section_id], follow_cross_references=0)
-    rows = [s.to_dict() for s in found]
+    # Asked for by name, so read -- a conditional section with its condition first.
+    rows = [s.to_dict() for s in scoped_evidence(list(found), _scoping_article(state), withhold=False)]
     if not rows:
         return (
             f"Section {section_id} is not in the indexed corpus. "
@@ -537,7 +574,9 @@ def _scenario(arguments: dict[str, Any]) -> list[dict[str, Any]]:
     if age is not None:
         return [{"label": f"at age {int(age)}", "retirement_age": int(age)}]
     if offset is not None:
-        return [{"label": f"{int(offset)} more years", "years_from_now": int(offset)}]
+        years = int(offset)
+        label = f"{-years} years earlier" if years < 0 else f"{years} more years"
+        return [{"label": label, "years_from_now": years}]
     return []
 
 
@@ -566,6 +605,16 @@ def _describe(
     lines: list[str] = []
     for formula_type, entry in (result or {}).items():
         base = (entry or {}).get("base") or {}
+        if not base.get("ok") and base.get("not_applicable"):
+            # Said, so the answer does not price today from the what-if.
+            lines.append(
+                f"{formula_type}: not payable now under Section {entry.get('section')} -- "
+                f"{base['not_applicable']}. Say so; do not give a figure for retiring now."
+            )
+            for variant in entry.get("scenarios") or []:
+                if variant.get("annual_amount"):
+                    lines.append(f"  {variant.get('label')}: {variant.get('annual_amount')} a year")
+            continue
         if base.get("ok"):
             lines.append(
                 f"{formula_type}: {base.get('annual_amount')} a year "
@@ -617,7 +666,8 @@ def _describe(
                 f"Not enough to compute this member's own figure: missing {wants}. "
                 "Do NOT stop at saying so. Set out how the provision computes the "
                 "benefit, work it through on the figures the Code itself states, "
-                "and then say exactly what you would need to make it theirs."
+                "and then say exactly what you would need to make it theirs -- "
+                f"ending with one direct question that asks for it ({wants})."
             )
         else:
             lines.append(
@@ -801,6 +851,18 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
             {},
         )
 
+    # Several people in this turn: whose figure, and only their record (spec §5).
+    # The slice below carries this person's record, history and facts and no one
+    # else's, so another person's salary cannot reach this figure.
+    people = state.get("people") or {}
+    person_ref: str | None = None
+    if len(people) > 1:
+        wanted = norm_name(str(arguments.get("person") or ""))
+        person_ref = next((ref for ref, b in people.items() if norm_name(b["label"]) == wanted), None)
+        if person_ref is None:
+            return ("This question is about more than one employee. Call compute_benefit once for each, "
+                    "with person set to one of: " + "; ".join(b["label"] for b in people.values()) + ".", {})
+
     # A slice of the turn's state, plus what the model asked for. The four nodes
     # run in this order because it is a correctness constraint: resolve_inputs
     # needs the recipe to know which inputs exist, and execute needs the
@@ -818,13 +880,31 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         "stand_in_facts": bool(arguments.get("stand_in_facts"))
         and _invited_stand_ins(state),
     }
+    if person_ref is not None:
+        mine = people[person_ref]
+        slice_.update(employee_record=mine["record"], salary_history=mine["salary_history"],
+                      member_facts=mine["member_facts"])
     update: dict[str, Any] = {}
     for node in (resolve_recipes, resolve_inputs, validate_recipes, execute_calculations):
         produced = await node(slice_)  # type: ignore[arg-type]
         slice_.update(produced)
         update.update(produced)
 
-    stale = _supersede(state, update, slice_["scenarios"])
+    if person_ref is None:
+        stale = _supersede(state, update, slice_["scenarios"])
+    else:
+        # A comparison's figures are fresh side-by-side figures; superseding is
+        # tracked for one person's figure across turns, not between people.
+        stale = []
+        label = people[person_ref]["label"]
+        mine_now = {
+            f"{label} · {key}": {**entry, "person": label, "person_ref": person_ref,
+                                  "input_sources": dict(update.get("input_sources") or {})}
+            for key, entry in (update.get("calculation_result") or {}).items()
+        }
+        others = {key: entry for key, entry in (state.get("calculation_result") or {}).items()
+                  if (entry or {}).get("person_ref") not in (None, person_ref)}
+        update["calculation_result"] = {**others, **mine_now}
     update["stale_figures"] = stale
 
     return (

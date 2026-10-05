@@ -1,0 +1,27 @@
+id: S13-001
+family: S13
+areas: [people, calculation]
+tiers: [smoke, full]
+people: [people_a, people_b]
+turns:
+- q: What would RO_BK TA_NE's annuity be if they retired now?
+  goal: The annuity for RO_BK TA_NE, worked from their own record.
+  reference: 'RO_BK TA_NE is Tier 2, 62, 14 years, on an 8-of-10-year final average salary: 2.4% a year less
+    one-half of 1% for each of the 60 months under 67 (§8-138(g-1), §1-160). About $19,770.89 a year.'
+  checks:
+    calculation: true
+    expected_figure: {annual: 19770.89}
+    ttft_class: heavy
+- q: And what about LI_MO GA_RD if they retired now?
+  goal: The annuity for LI_MO GA_RD, from their own record -- not RO_BK TA_NE's.
+  reference: 'LI_MO GA_RD is Tier 2 at 67 with 15 years on a flat $70,000: 2.4% x 15 = 36%, unreduced at 67
+    (§1-160(d)). $25,200.00 a year.'
+  checks:
+    calculation: true
+    expected_figure: {annual: 25200.00}
+    ttft_class: heavy
+- q: Back to RO_BK TA_NE -- how many years of service do they have?
+  goal: RO_BK TA_NE's service, from their record.
+  reference: '14 years, from RO_BK TA_NE''s record; the answer is about RO_BK TA_NE only.'
+  checks:
+    ttft_class: simple

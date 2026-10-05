@@ -1,18 +1,21 @@
-"""CLI script to run the ingestion pipeline.
-
-Parses statute files, chunks them, generates embeddings, and uploads
-to Azure AI Search. Also updates the pension_articles ingestion status.
+"""Ingest statute text into Azure AI Search.
 
 Usage:
-    uv run python scripts/ingest_articles.py
+    uv run python scripts/ingest_articles.py --corpus meabf --dry-run
+    uv run python scripts/ingest_articles.py --corpus meabf
+    uv run python scripts/ingest_articles.py --corpus meabf --source blob
+    uv run python scripts/ingest_articles.py --corpus ilga-all      # every integer Article, as before
+
+Always run --dry-run first: it converts, checks and parses everything and
+prints what each Article would add or remove, without embedding or writing.
 """
 
+import argparse
 import asyncio
 import logging
 import os
 import sys
 
-# Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dotenv import load_dotenv
@@ -25,18 +28,21 @@ from sqlalchemy import update
 from pension_chat.config import get_settings
 from pension_chat.db.models import PensionArticle
 from pension_chat.db.session import get_admin_session
-from pension_chat.ingestion.chunker import chunk_sections
 from pension_chat.ingestion.embedder import generate_embeddings
 from pension_chat.ingestion.indexer import (
     create_search_index,
     get_index_client,
+    list_indexed_sections,
     prune_stale_records,
     upload_records,
 )
-from pension_chat.ingestion.parser import parse_statute_file
+from pension_chat.ingestion.pipeline import CORPORA, RunReport, Sinks, run
+from pension_chat.ingestion.sources import BlobSource, LocalDirSource
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ingestion_cli")
+
+STATUTE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "statutes")
 
 
 # The name each Article gives itself, from its own heading. Ingesting an
@@ -113,131 +119,71 @@ async def update_article_status(article_number: int, status: str):
         await db.commit()
 
 
-def check_index_exists():
-    """Check if the search index exists."""
-    settings = get_settings()
-    client = get_index_client()
+def index_exists() -> bool:
     try:
-        client.get_index(settings.azure_search_index_name)
+        get_index_client().get_index(get_settings().azure_search_index_name)
         return True
     except ResourceNotFoundError:
         return False
 
 
-async def ingest():
-    """Run the ingestion pipeline."""
-    settings = get_settings()
-    logger.info("Starting ingestion pipeline")
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Required, not defaulted: a bare run against the client's index would widen
+    # it to all 24 Articles and replace the client's Article 8 with ILGA's.
+    parser.add_argument("--corpus", choices=sorted(CORPORA), required=True)
+    parser.add_argument("--source", choices=["local", "blob"], default="local",
+                        help="where the corpus's primary documents come from (ILGA texts are always local)")
+    parser.add_argument("--dry-run", action="store_true", help="convert, check and parse; change nothing")
+    parser.add_argument("--allow-shrink", type=int, action="append", default=[], metavar="N",
+                        help="let Article N lose indexed sections (repeatable)")
+    parser.add_argument("--article", type=int, action="append", default=[], metavar="N",
+                        help="only process Article N (repeatable)")
+    return parser
 
-    # 1. Ensure index exists
-    logger.info("Checking search index '%s'", settings.azure_search_index_name)
-    if not check_index_exists():
+
+def print_report(report: RunReport) -> None:
+    print("\n=== Ingestion report")
+    for name, reason in report.file_errors:
+        print(f"  FILE REFUSED  {name}: {reason}")
+    for a in report.articles:
+        line = f"  Art {a.article:>2} {a.scope:<8} {a.outcome:<8} sections={a.sections:<4} records={a.records:<5}"
+        line += f" +{len(a.added)} -{len(a.missing)}  {', '.join(a.sources)}"
+        print(line + (f"\n           reason: {a.reason}" if a.reason else ""))
+    if report.unavailable:
+        print(f"  Cited but not available: {', '.join(sorted(report.unavailable))}")
+    if report.other_acts:
+        print(f"  Cited from other Acts (not the Pension Code; not ingested): {', '.join(report.other_acts)}")
+    print(f"=== {'FAILED' if report.failed else 'OK'}")
+
+
+async def main() -> int:
+    args = build_parser().parse_args()
+    settings = get_settings()
+    logger.info("Corpus %s into index '%s'%s", args.corpus, settings.azure_search_index_name,
+                " (dry run)" if args.dry_run else "")
+
+    if not args.dry_run and not index_exists():
         logger.info("Creating search index...")
         create_search_index()
-    else:
-        logger.info("Search index already exists")
 
-    # 2. Process articles
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data", "statutes")
-
-    # Find all article text files
-    if not os.path.exists(data_dir):
-        logger.error(f"Data directory not found: {data_dir}")
-        return
-
-    # The whole Code, as far as an integer article number reaches.
-    #
-    # Articles 11 and 12 remain the pilot pair — deliberately adjacent and
-    # confusable — with 8 (municipal) and 9 (county) as the funds nearest them,
-    # and 1 and 20 governing everyone without having members of their own.
-    # Widening past those six changes coverage from a five-way choice to a
-    # twenty-plus-way one, which is more honest about the Code and is *not*
-    # free: Article 10 is the Forest Preserve District fund, which competes
-    # directly with Article 12's park employees on any description involving a
-    # park. Re-run the `coverage` eval category after changing this list.
-    #
-    # The four letter-suffixed Articles are in `UNSUPPORTED_ARTICLES` above.
-    target_articles = [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
-        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-    ]
-
-    present = {
-        f[len("article_") : -len(".txt")]
-        for f in os.listdir(data_dir)
-        if f.startswith("article_") and f.endswith(".txt")
-    }
-    unsupported = sorted(present & set(UNSUPPORTED_ARTICLES))
-    if unsupported:
-        logger.warning(
-            "SKIPPING %d Article(s) with a non-integer number: %s. Their text "
-            "parses to zero sections (the section-header pattern anchors the "
-            "article on digits) and `pension_articles.article_number` is a "
-            "SmallInteger, so there is nowhere to record them. Widening both is "
-            "a schema change, not a parser tweak.",
-            len(unsupported),
-            ", ".join(unsupported),
-        )
-
-    for article_num in target_articles:
-        filepath = os.path.join(data_dir, f"article_{article_num}.txt")
-        if not os.path.exists(filepath):
-            logger.warning("File not found for Article %d: %s", article_num, filepath)
-            continue
-
-        logger.info("================================================")
-        logger.info("Processing Article %d", article_num)
-
-        try:
-            # Update DB status
-            await update_article_status(article_num, "validating")
-
-            # Step 1: Parse
-            logger.info("Parsing %s", filepath)
-            sections = parse_statute_file(filepath, article_num)
-
-            if not sections:
-                # Never fall through to "ingested" here. Uploading merges by
-                # key, so an article that parses to nothing uploads nothing and
-                # fails silently -- the status stays at "validating", which is
-                # the honest record of what happened.
-                logger.error(
-                    "Article %d parsed to ZERO sections -- leaving it at "
-                    "'validating' rather than claiming it was ingested. The "
-                    "header pattern did not match this file's section ids.",
-                    article_num,
-                )
-                continue
-
-            # Step 2: Chunk
-            logger.info("Chunking sections...")
-            records = chunk_sections(sections)
-
-            # Step 3: Embed
-            logger.info("Generating embeddings...")
-            records = generate_embeddings(records)
-
-            # Step 4: Index
-            logger.info("Uploading to Azure AI Search...")
-            uploaded = upload_records(records)
-
-            if uploaded > 0:
-                # Anything still indexed under this Article that this run did
-                # not produce is text a previous, worse parse left behind.
-                prune_stale_records(str(article_num), {r.id for r in records})
-
-                # Mark as fully ingested
-                await update_article_status(article_num, "ingested")
-                logger.info("✓ Article %d fully ingested", article_num)
-            else:
-                logger.warning("No records uploaded for Article %d", article_num)
-
-        except Exception as e:
-            logger.exception("Failed to ingest Article %d: %s", article_num, e)
-
-    logger.info("================================================")
-    logger.info("Ingestion pipeline complete")
+    primary = BlobSource.from_settings() if args.source == "blob" else LocalDirSource(STATUTE_DIR)
+    sinks = Sinks(
+        list_indexed_sections=list_indexed_sections,
+        embed=generate_embeddings,
+        upload=upload_records,
+        prune=prune_stale_records,
+        record_status=update_article_status,
+    )
+    report = await run(
+        CORPORA[args.corpus], primary, LocalDirSource(STATUTE_DIR), sinks,
+        dry_run=args.dry_run,
+        allow_shrink=frozenset(args.allow_shrink),
+        only_articles=set(args.article) or None,
+    )
+    print_report(report)
+    return 1 if report.failed else 0
 
 
 if __name__ == "__main__":
-    asyncio.run(ingest())
+    sys.exit(asyncio.run(main()))

@@ -1,0 +1,10 @@
+key: smith_library
+display_name: "J. Smith"
+employer: Chicago Public Library
+age: 38
+hire_date: 2016-11-01
+tier: 2
+status: active
+service_years: 9.9
+service_source: stored
+salary: {current: 61000, growth: 0.03, years: 9}
