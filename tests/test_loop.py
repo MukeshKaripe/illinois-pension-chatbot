@@ -1161,3 +1161,31 @@ async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetc
     # 0.2s prefetch closure, then provisions and completion overlapping in
     # 0.2s rather than queueing for 0.4s.
     assert elapsed < 0.55, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"
+
+
+async def test_coverage_is_not_offered_when_nobody_described_themselves(monkeypatch):
+    seen: list = []
+    _script(monkeypatch, [_turn(content="Here.")], calls_seen=seen)
+    _tools(monkeypatch)
+    await loop_mod.investigate({"question": "What is the Tier 2 retirement age?", "messages": []})
+    offered = {t["function"]["name"] for t in seen[0]["tools"]}
+    assert "check_coverage" not in offered and "search_statute" in offered
+
+
+async def test_coverage_is_offered_when_the_member_describes_themselves(monkeypatch):
+    seen: list = []
+    _script(monkeypatch, [_turn(content="Here.")], calls_seen=seen)
+    _tools(monkeypatch)
+    await loop_mod.investigate({"question": "I am a park employee, how is my pension calculated?",
+                                "messages": []})
+    assert "check_coverage" in {t["function"]["name"] for t in seen[0]["tools"]}
+
+
+async def test_an_unoffered_tool_is_not_announced_as_spent(monkeypatch):
+    seen: list = []
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")],
+            calls_seen=seen)
+    _tools(monkeypatch)
+    await loop_mod.investigate({"question": "What is the Tier 2 retirement age?", "messages": []})
+    notes = [m["content"] for m in seen[-1]["messages"] if m.get("role") == "system"]
+    assert not any("check_coverage calls left" in n for n in notes)

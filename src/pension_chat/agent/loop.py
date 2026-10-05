@@ -396,10 +396,18 @@ def _standing_figures(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return standing
 
 
-def _available(spent: dict[str, int]) -> list[dict[str, Any]]:
+def _offered(self_described: bool) -> list[dict[str, Any]]:
+    """The tools this turn may use. Coverage is decided by rule (spec §5.3): the
+    record or the deployment settles it, and the model is asked only when the
+    member described themselves -- the rule that a question goes to the member
+    only when the member spoke."""
+    return [t for t in LOOP_TOOLS if self_described or t not in COVERAGE_TOOLS]
+
+
+def _available(spent: dict[str, int], self_described: bool = True) -> list[dict[str, Any]]:
     return [
         tool
-        for tool in LOOP_TOOLS
+        for tool in _offered(self_described)
         if spent.get(tool["function"]["name"], 0) < BUDGETS.get(tool["function"]["name"], 0)
     ]
 
@@ -859,22 +867,21 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # move the governing Article, and a filter built on the record would seed
     # another fund's law into the citable set -- the exact harm the coverage
     # layer exists to prevent. Those turns run the loop as they always did.
+    self_described = coverage_mod.classify_self_reference(state["question"]) is not None
     prefetched: set[str] = set()
-    if coverage_mod.classify_self_reference(state["question"]) is None:
+    if not self_described:
         prefetch_args = {
             "queries": _contextual_queries(state),
             "articles": _search_filter(working),
             "why": "searched before the first model call",
         }
         _progress("search_statute", prefetch_args)
-        result, update = await run_tool(
-            "search_statute",
-            {
-                "queries": _contextual_queries(state),
-                "articles": _search_filter(working),
-                "why": "searched before the first model call",
-            },
-            working,
+        # A section the question names is read alongside the search, not after
+        # the model asks for it: that request was a whole model round trip.
+        named = [str(s) for s in (state.get("explicit_sections") or []) if s]
+        (result, update), named_reads = await asyncio.gather(
+            run_tool("search_statute", prefetch_args, working),
+            _read_sections(named, working) if named else asyncio.sleep(0, result=[]),
         )
         spent["search_statute"] = spent.get("search_statute", 0) + 1
         if update.get("retrieved_sections"):
@@ -895,6 +902,26 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+        read_named: list[str] = []
+        for fetched in named_reads or []:
+            if fetched is None:
+                continue  # a section that doesn't exist must not end the turn
+            text, named_update = fetched
+            if named_update.get("retrieved_sections"):
+                sections = _merge_sections(sections, named_update["retrieved_sections"])
+                working["retrieved_sections"] = sections
+            read_named.append(text)
+        if read_named:
+            prefetched = {str(s["section"]) for s in sections if s.get("section")}
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "The sections the question names have been read for you:"
+                        + chr(10) + chr(10) + (chr(10) * 2).join(read_named)
+                    ),
+                }
+            )
 
         # Every section that text leans on, read before the model decides.
         # `_unread_references` is computed rather than judged -- "you relied on
@@ -957,10 +984,10 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             exhausted = True
             break
 
-        available = _available(spent)
+        available = _available(spent, self_described)
         # A tool that has just gone is explained rather than vanishing, so the
         # model stops trying it and knows what it has left.
-        for tool in LOOP_TOOLS:
+        for tool in _offered(self_described):
             name = tool["function"]["name"]
             if tool not in available and name not in withdrawn:
                 withdrawn.add(name)
