@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Mapping
 from decimal import Decimal
@@ -410,6 +411,67 @@ def _available(spent: dict[str, int], self_described: bool = True) -> list[dict[
         for tool in _offered(self_described)
         if spent.get(tool["function"]["name"], 0) < BUDGETS.get(tool["function"]["name"], 0)
     ]
+
+
+_SECTION_HEAD = re.compile(r"^### 40 ILCS 5/(\S+)[^\n]*\n", re.MULTILINE)
+
+
+def _dedupe_sections(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The prompt with each section's text once; a copy another one contains becomes a pointer.
+
+    A section reaches the prompt by several routes -- the first search, a read the
+    model asked for, the evidence closure, compose's settled provision -- and
+    measured on the L1 suite §8-138 was carried up to three times (~3,600 tokens).
+    Nothing is dropped (spec §5.5, D3): a copy is replaced only when another copy
+    *contains* it, so a search result cut short by the context budget never stands
+    in for the whole section. Of identical copies the last is kept, because the
+    block nearest the end is the one placed where the decision is made.
+    Returns a new list; the messages themselves are not changed.
+    """
+    # (message index, start, end, section, region text) for every section block.
+    blocks: list[tuple[int, int, int, str, str]] = []
+    for m, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        heads = list(_SECTION_HEAD.finditer(content))
+        for i, head in enumerate(heads):
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(content)
+            region = content[head.start():end]
+            blocks.append((m, head.start(), end, head.group(1), region.strip()))
+    if len(blocks) < 2:
+        return messages
+
+    # A block is redundant when another copy of the same section contains its
+    # text and is longer, or is identical and comes later. Containment is
+    # transitive, so every redundant block's text is inside one that is kept.
+    keeper: dict[int, int] = {}
+    for b, (_, _, _, section, region) in enumerate(blocks):
+        for o, (_, _, _, other_section, other) in enumerate(blocks):
+            if o == b or other_section != section or region not in other:
+                continue
+            if len(other) > len(region) or (other == region and o > b):
+                keeper[b] = o
+                break
+    if not keeper:
+        return messages
+    # Point at the copy that is actually kept, not at one that is itself a pointer.
+    for b in keeper:
+        while keeper[b] in keeper:
+            keeper[b] = keeper[keeper[b]]
+
+    # Replace from the end of each message so earlier offsets stay valid.
+    edited = [dict(message) for message in messages]
+    for b in sorted(keeper, key=lambda k: (blocks[k][0], -blocks[k][1])):
+        m, start, end, section, _ = blocks[b]
+        where = "below" if (blocks[keeper[b]][0], blocks[keeper[b]][1]) > (m, start) else "above"
+        content = edited[m]["content"]
+        tail = "\n\n" if content[start:end].endswith("\n\n") else "\n" if content[start:end].endswith("\n") else ""
+        edited[m]["content"] = (
+            content[:start] + f"(Section {section}: its text is given {where}.){tail}" + content[end:]
+        )
+    return edited
+
 
 
 def _merge_sections(existing: list[dict], incoming: list[dict]) -> list[dict]:
@@ -1004,7 +1066,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         rounds_taken += 1
         turn = await call_with_tools(
             node="investigate",
-            messages=messages,
+            messages=_dedupe_sections(messages),
             tools=available,
             reasoning_effort=settings.reasoning_effort_understand,
         )
@@ -2068,7 +2130,7 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
         for s in (state.get("retrieved_sections") or [])
     ]
     return {
-        "answer_messages": messages,
+        "answer_messages": _dedupe_sections(messages),
         # Rendered before generation, so they can be sent to the member while
         # the prose is still being written -- and so the calculation drawer has
         # something to show. `card.py` has been reading `answer_blocks` for
