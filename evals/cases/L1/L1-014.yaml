@@ -1,0 +1,14 @@
+id: L1-014
+family: L1
+areas:
+- clarification
+tiers:
+- full
+turns:
+- q: I am a park employee, how is my pension calculated?
+  goal: Checks the self-description against the Code's coverage before answering.
+  reference: Park employees are generally covered by Article 12, not Article 8 (§12-118); the assistant says so
+    or asks, rather than welding the description to an Article 8 formula.
+  checks:
+    model_calls_max: 3
+    ttft_class: heavy

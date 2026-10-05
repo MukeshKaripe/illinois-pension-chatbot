@@ -1,0 +1,19 @@
+id: L1-013
+family: L1
+areas:
+- people
+- calculation
+tiers:
+- full
+people:
+- people_a
+- people_b
+turns:
+- q: Compare what RO_BK TA_NE and LI_MO GA_RD would each get if they retired in two years.
+  goal: Both annuities two years on, each from that person's own record.
+  reference: Each person's own salary and service, two more years of service, and age-based reduction only where
+    under 67 (§8-138(g-1), §1-160).
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: heavy

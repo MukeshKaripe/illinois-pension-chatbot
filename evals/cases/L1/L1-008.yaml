@@ -1,0 +1,18 @@
+id: L1-008
+family: L1
+areas:
+- calculation
+- records
+tiers:
+- full
+employee: tier2_at_62
+turns:
+- q: What would this employee's annuity be if they retired now?
+  goal: A Tier 2 annuity at exactly 62, reduced for the months under 67.
+  reference: 'Tier 2 at 62 with 14 years: 2.4% per year of the best 8 of the last 10 years'' average salary (§8-138(g-1),
+    §1-160(b)) = $28,244.13, reduced 30% for 60 months under 67 (§1-160(d)), so $19,770.89 a year.'
+  checks:
+    expected_figure:
+      annual: 19770.89
+    model_calls_max: 2
+    ttft_class: simple

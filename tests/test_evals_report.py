@@ -84,3 +84,20 @@ def test_latency_is_reported_per_turn_type_with_p95():
     slot = report["latency_by_turn_type"]["statute"]
     assert slot["measured"]["n"] == 4 and slot["measured"]["p95"] == 6.0
     assert report["prompt_tokens"]["investigate"] == 10000
+
+
+def test_accepting_a_narrow_run_keeps_the_rest_of_the_baseline():
+    from pension_chat.evals.report import accepted
+
+    old = {"turns": {"S4-001#0": {"status": "pass"}, "L1-001#0": {"status": "fail"}},
+           "latency": {"heavy": {}}, "families": {"S4": {}},
+           "latency_by_turn_type": {"figure": {"estimated": {"p50": 4.0}}}}
+    report = {"turns": {"L1-001#0": {"status": "pass"}}, "latency": {"simple": {}},
+              "families": {"L1": {}}, "latency_by_turn_type": {"statute": {"estimated": {"p50": 2.0}}},
+              "prompt_tokens": {"investigate": 9000}, "probe": {}}
+    merged = accepted(report, old)
+    assert merged["turns"] == {"S4-001#0": {"status": "pass"}, "L1-001#0": {"status": "pass"}}
+    assert set(merged["families"]) == {"S4", "L1"}
+    assert merged["latency_by_turn_type"]["statute"]["estimated"]["p50"] == 2.0
+    assert merged["latency_by_turn_type"]["figure"]["estimated"]["p50"] == 4.0
+    assert merged["prompt_tokens"] == {"investigate": 9000}

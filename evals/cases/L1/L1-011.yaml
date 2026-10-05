@@ -1,0 +1,15 @@
+id: L1-011
+family: L1
+areas:
+- clarification
+tiers:
+- full
+turns:
+- q: How much pension would an employee get?
+  goal: Asks for what a figure needs.
+  reference: A figure needs age, service and salary (and the start date for the tier) (§8-138(g-1)); the assistant
+    asks for them rather than inventing any.
+  checks:
+    no_calculation: true
+    model_calls_max: 2
+    ttft_class: simple

@@ -1,0 +1,24 @@
+id: L1-007
+family: L1
+areas:
+- calculation
+tiers:
+- full
+turns:
+- q: An employee who joined in 2015 is 62, earns $80,000 and has 11 years of service. What is their annuity if they
+    retire now?
+  goal: A reduced Tier 2 annuity from the described values.
+  reference: 'Tier 2 at 62 is reduced ½% for each month under 67 (§1-160(d)); 2.4% per year of service (§8-138(g-1)):
+    $15,417.60 a year.'
+  checks:
+    expected_figure:
+      annual: 15417.6
+    model_calls_max: 2
+    ttft_class: simple
+- q: What if they wait until 67?
+  goal: The unreduced Tier 2 annuity at 67.
+  reference: At 67 there is no early-retirement reduction (§1-160); service grows by the years waited.
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: simple

@@ -92,7 +92,7 @@ async def main() -> int:
     from pension_chat.evals.cases import load_cases
     from pension_chat.evals.fixtures import load_fixtures
     from pension_chat.evals.judge import is_calibrated
-    from pension_chat.evals.report import diff, exit_code, render_markdown, summarise
+    from pension_chat.evals.report import accepted, diff, exit_code, render_markdown, summarise
     from pension_chat.evals.runner import RunOptions, run_suite
     from pension_chat.evals.select import changed_files, select
     from pension_chat.evals.timing import probe
@@ -131,8 +131,8 @@ async def main() -> int:
     print(render_markdown(report, changes))
     print(f"\nWall time {report['wall_seconds']} s. Saved to {run_dir}")
     if args.accept:
-        baseline_path.write_text(json.dumps({k: report[k] for k in ("turns", "latency", "families")},
-                                            indent=1, default=str), encoding="utf-8")
+        baseline_path.write_text(json.dumps(accepted(report, baseline), indent=1, default=str),
+                                 encoding="utf-8")
         print("Accepted as the new baseline.")
     return exit_code(report, changes)
 

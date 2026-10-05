@@ -17,7 +17,7 @@ import yaml
 from pension_chat.evals import capabilities
 
 FAMILIES = ("S1", "S2", "S3", "S4", "S4b", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "L1")
-FIRST_CLASS = ("S1", "S4", "S4b", "S11", "S13")
+FIRST_CLASS = ("S1", "S4", "S4b", "S11", "S13", "L1")
 AREAS = frozenset({
     "retrieval", "citations", "calculation", "clarification", "assumptions",
     "boundary", "continuity", "recommendation", "records", "voice", "people",

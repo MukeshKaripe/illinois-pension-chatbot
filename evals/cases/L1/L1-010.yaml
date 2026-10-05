@@ -1,0 +1,24 @@
+id: L1-010
+family: L1
+areas:
+- calculation
+- clarification
+tiers:
+- full
+turns:
+- q: What would someone aged 61 with 20 years of service get?
+  goal: Explains the formula and asks once for the salary it needs.
+  reference: The annuity needs a final average salary (§8-138(g-1)); the assistant asks for it in one question and
+    computes nothing yet.
+  checks:
+    max_questions: 1
+    no_calculation: true
+    model_calls_max: 2
+    ttft_class: simple
+- q: Their average salary is $70,000
+  goal: The figure, now that the salary is known.
+  reference: 2.4% × 20 years × $70,000, subject to the tier the start date sets (§8-138(g-1), §1-160).
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: simple

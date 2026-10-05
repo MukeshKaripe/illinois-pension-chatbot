@@ -130,6 +130,18 @@ def diff(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, A
             "no_baseline": False}
 
 
+#: Report keys a baseline keeps. Each is a mapping keyed by turn, family or
+#: class, so a run over a few families updates those keys and keeps the rest.
+BASELINE_KEYS = ("turns", "latency", "families", "latency_by_turn_type", "prompt_tokens")
+
+
+def accepted(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
+    """The baseline after accepting ``report``: this run's entries replace the
+    old ones they name; entries this run didn't touch are kept."""
+    old = baseline or {}
+    return {k: {**(old.get(k) or {}), **(report.get(k) or {})} for k in BASELINE_KEYS}
+
+
 def exit_code(report: dict[str, Any], changes: dict[str, Any]) -> int:
     flaky = set(report.get("flaky") or [])
     real_new = [k for k in changes["new_failures"] if k.split("#")[0] not in flaky]

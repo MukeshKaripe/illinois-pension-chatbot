@@ -1,0 +1,20 @@
+id: L1-002
+family: L1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: What is the difference between Tier 1 and Tier 2?
+  goal: How the two tiers differ for an Article 8 member.
+  reference: 'Tier 2 is anyone first participating on or after January 1, 2011 (§1-160): retirement at 67 (62 reduced
+    ½% per month under 67), final average salary over the best 8 consecutive of the last 10 years, a salary cap,
+    and smaller increases; Tier 1 is the §8-138 rules.'
+  checks:
+    cites_any:
+    - 1-160
+    must_state:
+    - '2011'
+    model_calls_max: 2
+    ttft_class: simple

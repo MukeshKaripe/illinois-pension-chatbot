@@ -1,0 +1,19 @@
+id: L1-005
+family: L1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: What does Section 8-137 say about automatic increases after retirement?
+  goal: The automatic annual increase.
+  reference: For retirements on or after 1987, a 3% increase, starting after the first anniversary of retirement
+    or at age 60, whichever is later; from January 1999 it is 3% of the current annuity, so it compounds (§8-137).
+  checks:
+    cites_any:
+    - 8-137
+    must_state:
+    - 3%
+    model_calls_max: 2
+    ttft_class: simple

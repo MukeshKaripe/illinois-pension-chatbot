@@ -1,0 +1,19 @@
+id: L1-012
+family: L1
+areas:
+- people
+- calculation
+tiers:
+- full
+people:
+- people_a
+- people_b
+turns:
+- q: Compare what RO_BK TA_NE and LI_MO GA_RD would each get if they retired now.
+  goal: Both annuities side by side, each from that person's own record.
+  reference: RO_BK TA_NE about $19,770.89 a year (reduced 30%); LI_MO GA_RD $25,200.00 a year (unreduced) (§8-138(g-1),
+    §1-160).
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: heavy
