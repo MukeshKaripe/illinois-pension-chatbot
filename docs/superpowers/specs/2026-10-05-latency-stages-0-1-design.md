@@ -72,15 +72,19 @@ A model call outside these needs an explicit budget exception, written down with
 | Figure for a named or described person, or a what-if | 2 *(1 if Stage 4's option B is adopted)* |
 | The assistant asks for missing details | 2 |
 | Comparison of up to 4 people | 2 (one `compute_benefit` per person, issued as parallel tool calls in one decision) |
-| Heavy, exception: a formula derived on the spot | 3, until Stage 3 makes it rare |
+| The member describes themselves (exception) | 3: the coverage decision is a model call by design (§5.3) |
+| A formula derived on the spot (exception) | 3, until Stage 3 makes it rare |
+
+The turn type is read from what the turn did (which tools ran, how many people, which model nodes were called), never declared by hand. The same classifier serves the production log, the fast tests and the live report.
 
 ### 4.2 Fast budget tests (no live model)
 
-The graph runs with a scripted fake model: it returns given tool calls or text, and records each call with its node and order. One test per turn type asserts:
-- the number of **sequential** model calls before the first answer token is within budget;
-- no model call is made by a node outside the allowed list for that turn type.
+Two guards, both part of `uv run pytest` and running in seconds:
 
-These run in `uv run pytest`, in under a few seconds. **This is what stops a feature from quietly adding 1.4 s.**
+1. **The node registry.** Every model call goes through `llm.complete`, `llm.call_with_tools` or `llm.stream` with a literal `node=` name. A test scans `src/` and fails when a call site names a node that isn't registered in `agent/budgets.py`, along with the turn types it may run in and its place in the budget. **A feature can't add a model call without adding it to the budget table in the same change, where review sees it.**
+2. **Node-level tests** for the calls Stage 1 removes, with the model entry point patched to fail if it's called. For example, `resolve_inputs` with `stated` values makes no model call, and a turn with no self-description is never offered the coverage tool.
+
+The live suite (§4.3) then checks the actual sequential count per turn type, end to end.
 
 ### 4.3 The live latency suite
 
@@ -129,7 +133,7 @@ Each item is its own commit, gated by §4.4 and revertible on its own.
 ```
 
 The model is already reading the conversation when it decides to compute, so the extraction costs no extra call. The schema accepts **any** name, not a fixed list, so new inputs need no code. Code then:
-1. **Maps names** to declared inputs through `facts.ALIAS_GROUPS`. An unknown name is kept in the ledger, unused by the formula, so nothing is lost.
+1. **Maps names** to declared inputs through `facts.ALIAS_GROUPS`; `salary` and `annual_salary` become the stated salary the missing-input policy may use for the averaging period. An unknown name is recorded on the turn (in the trace and the log) and not used by the formula, so it shows up as a gap to add rather than being lost silently.
 2. **Checks each value against the user's own words** with `_stated_in` (now including "$85k"). A value that isn't there is **rejected** and logged, never used as "stated". So the model can't invent a stated value (P3).
 3. **Records it with `source: stated`** in the fact ledger, so corrections persist across turns as they do now.
 
