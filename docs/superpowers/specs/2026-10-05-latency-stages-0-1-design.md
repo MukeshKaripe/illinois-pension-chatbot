@@ -1,174 +1,208 @@
-# Latency, Stages 0–1: measure honestly, then remove what the hot path doesn't need
+# Latency and accuracy that hold as the product grows: measurement, and a call-budget foundation
 
-**Status:** draft for review, 2026-10-05.
-**Scope:** the measurement harness (Stage 0) and the low-risk latency work (Stage 1). Stages 2–3 are summarised at the end so the order is clear; each gets its own spec.
+**Status:** draft for review, revised 2026-10-05 (the first draft optimised the current turns; this one is built to scale).
+**Scope in detail:** Stage 0 (measurement and the gate) and Stage 1 (the foundation). Stages 2–4 are outlined so the order and the direction are fixed; each gets its own spec.
 
-## 1. Goal and targets
+## 1. Goal
 
-Time to first answer word, as D3a defines it (progress lines don't stop the clock), **measured in-region** (estimated from this laptop until a deployment exists):
+Two things that have to **stay true as features are added**, not just reach a target once:
 
-| Turn type | Target p50 | Target p95 |
-|---|---|---|
-| Most turns: statute questions, follow-ups, single-person figures | **< 3 s** | < 4.5 s |
-| Heavy turns: a formula derived on the spot, several people | **< 7 s**, with honest progress lines | < 9 s |
+1. **Fast:** time to the first answer word (D3a: progress lines don't stop the clock), measured in-region, estimated from this laptop until a deployment exists:
 
-**The constraint (D3) still holds:** no degradation of any kind. Capping the investigation or dropping evidence is not a latency lever. Every change here is gated on the quality checks in §3.3 as well as on time.
+   | Turn type | p50 | p95 |
+   |---|---|---|
+   | Most turns: statute questions, follow-ups, single-person figures | **< 3 s** | < 4.5 s |
+   | Heavy turns: a formula derived on the spot, several people | **< 7 s**, with honest progress lines | < 9 s |
 
-**Fixed for now:** the model is `gpt-6-luna`, with no faster deployment. The token limit is 1M per minute, and semantic ranker billing is on (both as of 2026-10-05).
+2. **Accurate and helpful:** answers rest on the right provisions, every figure comes from the engine, and the assistant asks for what it needs. **No degradation** (D3): capping the investigation or dropping evidence is never a latency lever.
+
+**Fixed for now:** model `gpt-6-luna` (no faster deployment); token limit 1M per minute; semantic ranker billing on.
 
 ## 2. What was measured (2026-10-05, laptop, about 250 ms from Azure)
 
-### 2.1 The deployment
+**The deployment.** Medians of 3–5 runs, one call at a time:
+- **About 1.4 s server-side per model call,** even for a 31-token prompt (1.72 s from the laptop). Reasoning effort is already `none`.
+- Prompt size costs about **0.04 s per 1,000 tokens** (3k: 1.89 s, 10k: 2.17 s, 19k: 2.36 s).
+- Caching doesn't move first-token time (10k cached 2.18–2.26 s vs 2.21 s uncached).
+- A call that returns a tool call costs the same as one that answers (1.59 s).
+- Embedding: 0.50 s. Hybrid search: 0.34 s, or 0.42 s with the semantic ranker.
 
-Medians of 3–5 runs, one call at a time:
+**Turns** (one run each; in-region estimate = laptop time minus each call's network share):
 
-| Measurement | Laptop | Meaning |
+| Turn type | Laptop | Model calls in sequence (s) | Est. in-region |
+|---|---|---|---|
+| Statute, names a section | 14.4 s | investigate 2.6 → answer 1.6, plus a second search round (28k-token answer prompt) | ~4.5 s |
+| Statute, open | 6.7 s | 1.8 → 1.3 | ~3 s |
+| Described employee, figure | 8.3 s | 1.6 → **extract 1.6** → 1.2 | ~4 s |
+| Missing info → asks | 9.8 s | 2.0 → **extract 1.2** → 1.1 | ~4 s |
+| Named employee (PBMS), figure | 10.2 s | 2.1 → 2.1 | ~4–5 s |
+| Named what-if follow-up | 8.5 s | 2.0 → **extract 1.4** → 1.1 | ~4 s |
+| Missing info, with derivation (earlier run) | 24.1 s | 2.4 → coverage 2.0 → **derive 10.2** → 1.0 | ~16 s |
+
+**The finding that shapes this spec.** Latency is set by **the number of model calls in sequence**: about 1.4 s each, so two calls is ~3 s, three is ~4.5 s, and derivation is ~10 s. Every extra call on today's hot path arrived with a feature: input extraction, the coverage check, derivation. **Left alone, each new feature adds another.** Per-feature tuning can't keep up with that, so the fix has to be a rule the codebase enforces.
+
+## 3. Principles: what must hold for every feature, now and later
+
+**P1. A model-call budget per turn type, enforced by tests.** The number of sequential model calls before the first answer word is fixed per turn type (§4.1). A change that exceeds it fails the fast test suite, before it reaches a live run.
+
+**P2. A capability is placed in one of three ways, never as a new sequential call.**
+
+| Placement | Use it for | Examples |
 |---|---|---|
-| First token, 31-token prompt | 1.72 s | **About 1.4 s server-side per model call**, even for an empty prompt (reasoning effort is already `none`) |
-| First token, 3k / 10k / 19k-token prompt | 1.89 / 2.17 / 2.36 s | Prompt size costs about **0.04 s per 1,000 tokens** |
-| 10k prompt, fully cached | 2.18–2.26 s vs 2.21 s uncached | **Caching doesn't move first-token time** on this deployment |
-| 10k prompt with tools, one tool call returned (non-streamed) | 1.59 s | Choosing a tool costs the same as answering |
-| Embedding one query | 0.50 s | ~0.1–0.3 s in-region |
-| Hybrid search / with semantic ranker | 0.34 / 0.42 s | **The ranker adds ~0.08 s.** It now works; before billing it failed and retried on every query |
+| **Deterministic code** | anything a rule decides | who a turn is about; coverage from the record or deployment; tier from the year joined; a not-yet-eligible check |
+| **Arguments of a call that already happens** | anything the model has to *read* from the conversation | values the user stated (§5.2); which benefit; a what-if age |
+| **Prepared ahead of time** (ingestion or curation) | knowledge that doesn't change per question | the concept-to-section map; overriding-provision tags; curated formulas |
 
-### 2.2 Turns (one run each; in-region estimate = laptop time minus each call's network share)
+A model call outside these needs an explicit budget exception, written down with its turn type, measured cost, and why it can't be placed otherwise. Derivation is today's only candidate, and Stage 3 takes it off the hot path.
 
-| Turn type | Laptop | Model calls in sequence (s) | Answer prompt | Est. in-region |
-|---|---|---|---|---|
-| Statute, names a section | 14.4 s | investigate 2.6 → answer 1.6 *(plus a second search round)* | 28k | ~4.5 s |
-| Statute, open | 6.7 s | 1.8 → 1.3 | 14k | ~3 s |
-| Described employee, figure | 8.3 s | 1.6 → **extract 1.6** → 1.2 | 10k | ~4 s |
-| Missing info → asks | 9.8 s | 2.0 → **extract 1.2** → 1.1 | 11k | ~4 s |
-| Named employee (PBMS), figure | 10.2 s | 2.1 → 2.1 | 11k | ~4–5 s |
-| Named what-if follow-up | 8.5 s | 2.0 → **extract 1.4** → 1.1 | 11k | ~4 s |
-| *(earlier run)* Missing info, with derivation | 24.1 s | 2.4 → coverage 2.0 → **derive 10.2** → 1.0 | 10k | ~16 s |
+**P3. Anything the model must not get wrong is checked in code** (the existing project rule). A value the model passes as "stated" is verified against the user's words; a figure comes only from the engine; a citation must have been read.
 
-**Conclusions:**
-1. At about 1.4 s per call, **the number of model calls in sequence decides the latency.** Two calls is ~3 s, three is ~4.5 s, and derivation is ~10 s on its own.
-2. The **input-extraction call** (`resolve_inputs`, 1.2–1.6 s) runs on four of six turn types. It runs whenever the message has a digit, even when the digit already arrived as a tool argument ("65" → `retirement_age=65`).
-3. A **section the question names** is extracted at triage but not prefetched, so the turn spends a tool round finding it.
-4. Prompts reach **18–28k tokens.** At 0.04 s per 1k that costs less than a call, but they hit the token limit sooner and may repeat section text. Not yet measured.
-5. Shrinking the network (in-region) helps every turn, but it can't take a three-call turn under 3 s.
+**P4. Prompt size grows with the question, not with the conversation or the evidence count.** Each section's text appears once per prompt; history is bounded; prompt tokens are reported per call.
 
-## 3. Stage 0: measurement
+**P5. Every capability ships with latency-suite cases** (call count, p50 and p95, correctness checks), so the gate grows with the product. The fast budget tests run on every change, the live suite before a merge.
 
-### 3.1 A latency journey set
+## 4. Stage 0: measurement and the gate
 
-`evals/cases/L1/*.yaml`: a fixed set of 12–16 single and multi-turn cases, **at least two per turn type** in §2.2, plus the heavy types (a two-person comparison; a not-yet-eligible member, who triggers derivation today). The questions come from `demo-script.md` and from this week's failures. Each case uses the existing checks (figure, citations, must-state, asks), so a latency gain that breaks an answer fails the case.
+### 4.1 Budgets
 
-### 3.2 Report per turn type, not one median
+| Turn type | Sequential model calls before the first answer word |
+|---|---|
+| Statute question, no tool needed | **1** *(2 until Stage 2)* |
+| Statute question needing more reading | 2 |
+| Figure for a named or described person, or a what-if | 2 *(1 if Stage 4's option B is adopted)* |
+| The assistant asks for missing details | 2 |
+| Comparison of up to 4 people | 2 (one `compute_benefit` per person, issued as parallel tool calls in one decision) |
+| Heavy, exception: a formula derived on the spot | 3, until Stage 3 makes it rare |
 
-Extend `evals/timing.py` and `evals/report.py`:
-- **p50 and p95** of measured and estimated time to first word, **per turn type** (the case declares it).
-- **Critical-path breakdown** per turn: model calls (count, and each one's time), retrieval, Postgres, PBMS, and gaps, using the existing `stage_breakdown` and `_union`.
-- **Prompt tokens per model call,** and a **repeated-text measure:** how many tokens of the answer prompt are section text already present earlier in the same prompt.
-- **Add PBMS to `probe`** (one TCP round trip to the PBMS SQL Server), so a named turn's estimate subtracts its round trips too.
-- **Repetition:** `--repeat N` runs each case N times, so p95 means something. Default 3 for L1, run one at a time.
+### 4.2 Fast budget tests (no live model)
 
-### 3.3 The gate
+The graph runs with a scripted fake model: it returns given tool calls or text, and records each call with its node and order. One test per turn type asserts:
+- the number of **sequential** model calls before the first answer token is within budget;
+- no model call is made by a node outside the allowed list for that turn type.
 
-A Stage 1+ change is accepted when, on the L1 set against the baseline run:
-- **estimated p50 and p95 improve** (or hold) for every turn type;
-- **no case that passed now fails;**
-- **verification pass rate and the judge's goal/relevance scores don't drop;**
-- and S4, S4b, S11 and S13 pass at their baseline rates.
+These run in `uv run pytest`, in under a few seconds. **This is what stops a feature from quietly adding 1.4 s.**
 
-The baseline is recorded once (`--accept` on L1) before any Stage 1 change.
+### 4.3 The live latency suite
 
-### 3.4 Calibrating "in-region" (optional, when access allows)
+`evals/cases/L1/*.yaml`: 12–16 single and multi-turn cases, **at least two per turn type**, drawn from `demo-script.md` and this week's failures. Each uses the existing checks (figure, citations, must-state, asks), plus a new check, **`model_calls_max`**, read from the trace.
 
-Azure Monitor's `AzureOpenAITimeToResponse` metric gives the model's first-token time server-side. A small script (`scripts/model_ttft_metrics.py`, reading Azure Monitor for the run's time window) compares it with the estimator's per-call model figure. If they differ by more than 0.2 s, the estimator's per-call overhead is corrected. If metric access isn't available, the estimate stays labelled "estimated", as today.
+Extend `evals/timing.py` and `evals/report.py` to report:
+- **p50 and p95** of measured and estimated time to first word, **per turn type**;
+- **the critical-path breakdown** per turn (model calls with each one's time, retrieval, Postgres, PBMS, gaps), from the existing `stage_breakdown` and `_union`;
+- **prompt tokens per call, and repeated section text** (tokens of the answer prompt already present earlier in it), which tracks P4;
+- **PBMS** in the round-trip `probe`;
+- with `--repeat N`, each case run N times so p95 means something (default 3, one at a time).
 
-## 4. Stage 1: remove what the hot path doesn't need
+### 4.4 The gate
 
-Each item is its own commit, measured against the Stage 0 baseline, and revertible on its own.
+A change is accepted when, against the recorded L1 baseline:
+- **the fast budget tests pass;**
+- estimated p50 and p95 improve or hold **for every turn type;**
+- no case that passed now fails;
+- the verification pass rate and the judge's goal/relevance scores don't drop;
+- S4, S4b, S11 and S13 pass at their baseline rates.
 
-### 4.1 Input extraction: code first, model only when needed (est. −1.2 to −1.6 s on calculation turns)
+The baseline is recorded once (`--accept`) before any Stage 1 change.
 
-**Today:** `resolve_inputs` calls the model whenever the latest message contains a digit, or an input is outstanding (`nodes.py`, around line 1414).
+### 4.5 Calibrating "in-region" (when metric access allows)
 
-**Change:** before the call, the code readers run on the latest message:
-- age: `_stated_age`
-- salary: `_stated_annual_salary`, including "$80k"
-- year joined: `_JOINED_RE`
-- years of service: a new `_stated_service`, e.g. "10 years of service", "has 25 years"
-- dates already parsed
+Azure Monitor's `AzureOpenAITimeToResponse` metric gives the model's first-token time server-side. `scripts/model_ttft_metrics.py` compares it with the estimator's per-call model time for a run's window, and corrects the estimator's per-call overhead if they differ by more than 0.2 s. Without access, estimates stay labelled "estimated".
 
-The model call is skipped when **both** of these hold:
-1. no declared input is still outstanding after the record, the ledger and the readers; and
-2. **every number in the latest message is accounted for:** read by a reader, equal to a tool argument (`retirement_age`, `years_from_now`), or part of a section reference or a year.
+## 5. Stage 1: the foundation
 
-Otherwise the call runs exactly as today. It's the only way to hear a correction to the record phrased unusually.
+Each item is its own commit, gated by §4.4 and revertible on its own.
 
-**Why that's no degradation:** the call is skipped only when it has nothing left to hear. Corrections ("actually I have 23 years") are numbers the readers catch, so they still land. Unrecognised numbers still go to the model.
+### 5.1 The call-budget machinery
+
+- **Per-turn record:** a call ledger (node, start, end, and whether it was before the first answer token), kept on the turn's instrument. It's logged in production as one structured line per turn, so the budget is observable in production too.
+- **Budget table:** `agent/budgets.py` maps each turn type to its maximum calls and allowed nodes (§4.1), along with the exception list.
+- **Turn type:** read from what the turn actually did (tools called, people, derivation), not from a guess up front. The fast tests and the L1 check share that classifier.
+
+### 5.2 Stated values travel with the decision call (replaces the separate extraction call)
+
+**Today:** `resolve_inputs` makes its own model call (1.2–1.6 s) whenever the message contains a digit, to find values the user stated.
+
+**Change:** `compute_benefit` takes a new argument, `stated`: the values the user gave, in plain names. For example:
+
+```json
+{"benefit": "retirement_annuity", "stated": {"age": 61, "service_years": 10, "salary": 50000, "year_joined": 2005}}
+```
+
+The model is already reading the conversation when it decides to compute, so the extraction costs no extra call. The schema accepts **any** name, not a fixed list, so new inputs need no code. Code then:
+1. **Maps names** to declared inputs through `facts.ALIAS_GROUPS`. An unknown name is kept in the ledger, unused by the formula, so nothing is lost.
+2. **Checks each value against the user's own words** with `_stated_in` (now including "$85k"). A value that isn't there is **rejected** and logged, never used as "stated". So the model can't invent a stated value (P3).
+3. **Records it with `source: stated`** in the fact ledger, so corrections persist across turns as they do now.
+
+The separate `resolve_inputs` model call is **removed from the hot path.** For rollback, `settings.extract_with_separate_call` restores it (default off).
+
+**If the model leaves a value out:**
+- **an input still missing** → the engine reports it, and the answer asks for it (P2 and the ASKING rule), so no wrong figure results;
+- **a correction left out** → caught by the S11 continuity cases in the gate.
 
 **Tests:**
-- "And if they worked until 65?" makes **no extraction call;**
-- "Actually it's 23 years of service" still overrides the record;
-- a number no reader recognises still triggers the call;
-- the S4, S4b and S11 continuity cases are unchanged.
+- stated values reach the engine with origin `stated`;
+- a value not in the user's words is rejected;
+- "actually 23 years" overrides the record;
+- an unknown name lands in the ledger;
+- "And if they worked until 65?" makes **no** extraction call;
+- the budget test for "figure" turns passes at 2.
 
-### 4.2 Prefetch the section a question names (est. −1.5 to −2.5 s on those turns)
+### 5.3 Coverage decided by rule
 
-**Today:** `triage` extracts `explicit_sections` ("Section 8-138(g-1)"), but nothing reads them before the model; the model has to search or call `get_section`.
+**Today:** `check_coverage` (a model call, ~2 s) is offered on every turn.
 
-**Change:** the pre-search that always runs also fetches the named sections (`retrieve(..., must_include_sections=explicit_sections)`), concurrently with the search. The model starts with the text in front of it, so a turn that only needed that text answers after one decision call.
+**Change:** coverage is settled in code: the record's Article, else `deployment_article`, else unresolved, as `_record_coverage` already does. The coverage tool is offered **only on turns where `classify_self_reference` finds the member describing themselves** (asserted, stipulated or doubted). That's the existing rule that a question goes to the member only when the member spoke. The same rule works whether a deployment serves one Article or several.
 
-**Tests:** a named-section question reaches its answer with no `get_section` or second search in the trace. The section is in `rendered` evidence.
+**Tests:**
+- with no self-description, the tool isn't offered and no coverage call is made;
+- "I am a park employee" still offers it, and the existing coverage tests pass.
 
-### 4.3 No coverage check on a single-Article deployment (est. −2 s on the turns that hit it)
+### 5.4 Prefetch the sections a question names
 
-**Today:** `check_coverage` (one model call, ~2 s) is offered on every turn. Under D4 (MEABF only: everyone is Article 8, the coverage layer deferred) it can only confirm Article 8.
+The pre-search that always runs also fetches `triage`'s `explicit_sections`, concurrently with the search. The model starts with that text in front of it.
 
-**Change:** when `deployment_article` is set, `COVERAGE_TOOLS` aren't offered. `coverage` resolves to the deployment Article, as `_record_coverage` already does. The tool returns when a deployment serves several Articles.
+**Tests:** a named-section question has no `get_section` and no second search in its trace; the section is in the rendered evidence.
 
-**Tests:** with `deployment_article=8`, no `check_coverage` is offered or called. With it unset, behaviour is unchanged (existing coverage tests).
+### 5.5 Each section's text once per prompt
 
-### 4.4 Remove repeated section text from prompts (gain set by the §3.2 measurement)
+When a section's text is already in the conversation (from the pre-search, `get_section` or completion fetches), a later addition refers to it ("Section 8-138 is above") rather than repeating it. No evidence is removed.
 
-**Only if §3.2 shows repetition.** When the same section's text is already in the conversation (from the pre-search, `get_section` or completion fetches), later additions refer to it ("Section 8-138 is above") rather than repeating it. **No evidence is removed;** each section appears once.
+**Tests:** the answer prompt contains each section's text exactly once; the L1 citation and verification checks are unchanged; repeated section text in the report is 0.
 
-**Tests:** the answer prompt contains each section's text exactly once. The citation and verification checks on L1 are unchanged.
+### 5.6 Embedding inside the search service
 
-### 4.5 Embedding and search start together (est. −0.1 to −0.3 s in-region)
+Use Azure AI Search's **integrated vectorizer** (an Azure OpenAI vectorizer on the index, with `VectorizableTextQuery` at query time): one round trip instead of two, and no stored vectors change. If the vectorizer can't be added, start the keyword leg while the embedding is in flight.
 
-**Today:** `retrieve` embeds the queries, then searches.
+**Tests:** for 20 L1 queries, the top sections match today's (same set, rank within ±2).
 
-**Change:** use Azure AI Search's **integrated vectorizer** (an Azure OpenAI vectorizer on the index, with `VectorizableTextQuery` at query time), so the service embeds the query itself. That's one round trip instead of two, and no stored vectors change. If the vectorizer can't be added to the index, fall back to starting the keyword leg while the embedding is in flight.
+## 6. Later stages (outlined; each gets its own spec)
 
-**Tests:** results for 20 L1 queries match the current top sections (same set, rank within ±2). Retrieval time drops in the breakdown.
+**Stage 2: single-call answering.** Each model call may either **stream the answer** or **call tools**. The fact blocks (`_worked_from`, `_assumed`, `_tier_unasked`, …) are rendered before every call, not only at compose time. A turn that needs no tool answers in **one** call, so statute turns reach ~1.6–2.3 s. A turn that needs a tool makes two calls, the second of which streams the answer. `compose` becomes the instructions present on every call, rather than a separate step. Budget: "no tool needed" goes from 2 to 1.
 
-### 4.6 Not in Stage 1
-
-- **Prompt caching** for latency: measured no gain (§2.1). Kept for cost only.
-- **Trimming retrieved evidence:** ruled out by D3. §4.4 removes repetition, not evidence.
-
-## 5. Expected result after Stages 0–1 (estimated in-region)
-
-| Turn type | Now | After Stage 1 |
-|---|---|---|
-| Statute, names a section | ~4.5 s | **~2.5–3 s** (4.2, 4.4) |
-| Statute, open | ~3 s | ~2.8 s |
-| Described / named figure, what-if | ~4–5 s | **~3–3.5 s** (4.1) |
-| Turns that hit coverage or derivation | ~16 s | ~14 s (4.3). **Derivation is Stage 2.** |
-
-Stage 1 alone doesn't bring calculation turns under 3 s: they still make two calls. That's Stage 3.
-
-## 6. Later stages (separate specs)
-
-- **Stage 2, deterministic helpfulness** (also takes derivation off the hot path):
+**Stage 3: accuracy from prepared knowledge** (it also takes derivation off the hot path):
+- **A concept-to-section map** for the corpus, built at ingestion. "Who counts as an employee" leads to §8-113 without a search lottery, and every new Article brings its own map.
+- **Overriding-provision tags** at ingestion ("notwithstanding…", e.g. §1-160 over §8-138), pinned into evidence for the members they reach. This is the deferred derivation fix.
+- **Curated, approved formulas** for survivor, disability and refund benefits, alongside the core three. Derivation becomes the rare exception, with its own budget.
+- **Code-level helpfulness:**
   - compute at the earliest eligible age instead of deriving;
   - recompute when the user answers what was asked;
-  - keep §1-162 out unless asked;
-  - pin overriding provisions (§1-160 over §8-138);
-  - curated formulas for survivor, disability and refund.
-  - Target: heavy turns under 7 s, derivation rare.
-- **Stage 3, structural:**
-  - **A.** Answer in the same call when no tool is needed: each call either streams the answer or calls a tool, with the fact blocks rendered before every call. Saves one call on most statute turns, to ~1.6–2.3 s.
-  - **B.** *(Needs a decision; see §7.)* Compute before the model call on clear calculation turns, so they answer in one call (~2 s).
+  - keep provisions that turn on facts a member can't know (§1-162) out unless asked.
 
-## 7. Open decisions
+**Stage 4 (decision pending): compute before the model call.** On turns where code already knows the person and the question is an amount or a what-if, the engine computes first, and the model presents the result in one call. Budget: figure turns go from 2 to 1.
 
-1. **Option B:** may the engine compute *before* the model call on clear calculation turns (a known person or stated inputs, and an amount or what-if question)? The engine stays the only source of figures and the model still presents them, but it changes the stated rule that the model chooses when to compute. Needed before Stage 3, not before this spec.
-2. **Integrated vectorizer (4.5):** adding it to `pension-code-prod` is an index change. It needs the Search service to be allowed to call the embedding deployment (key or managed identity).
-3. **Azure Monitor access (3.4):** read access to the OpenAI resource's metrics, for calibration.
+## 7. Expected path (estimated in-region p50)
+
+| Turn type | Now | After Stage 1 | After Stage 2 | After Stage 4 |
+|---|---|---|---|---|
+| Statute, names a section | ~4.5 s | ~2.5–3 s | **~1.8–2.3 s** | same |
+| Statute, open | ~3 s | ~2.8 s | **~1.8–2.3 s** | same |
+| Figure / what-if | ~4–5 s | **~3–3.5 s** | ~3 s | **~1.8–2.5 s** |
+| With derivation | ~16 s | ~14 s | ~13 s | **< 7 s once Stage 3 makes it rare** |
+
+**What makes it hold as you build:** P1 and P2, enforced by the fast budget tests, keep new features from adding calls. P3 and the prepared knowledge of Stage 3 keep accuracy from depending on the model finding things. P5 grows the gate with every feature.
+
+## 8. Open decisions
+
+1. **Stage 4, option B:** may the engine compute *before* the model call on clear calculation turns? It changes the stated rule that the model chooses when to compute. Needed before Stage 4.
+2. **Integrated vectorizer (5.6):** an index change on `pension-code-prod`; the Search service must be allowed to call the embedding deployment.
+3. **Azure Monitor access (4.5):** read access to the OpenAI resource's metrics, for calibration.
