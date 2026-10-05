@@ -840,6 +840,10 @@ async def _complete_people(
     if len(people) < 2 or not last_compute:
         return []
     run = run or run_tool
+    # The question is copied, never the values: what the user stated, and an
+    # invitation to borrow a record, were about the person computed for, and
+    # "25" being in the user's words would let it override another's record.
+    question = {k: v for k, v in last_compute.items() if k not in ("stated", "stand_in_facts")}
     have = {
         (entry or {}).get("person_ref")
         for entry in (working.get("calculation_result") or {}).values()
@@ -850,8 +854,8 @@ async def _complete_people(
         bundle = people.get(ref)
         if not bundle or ref in have:
             continue
-        _progress("compute_benefit", {**last_compute, "person": bundle["label"]})
-        _, update = await run("compute_benefit", {**last_compute, "person": bundle["label"]}, working)
+        _progress("compute_benefit", {**question, "person": bundle["label"]})
+        _, update = await run("compute_benefit", {**question, "person": bundle["label"]}, working)
         working.update(update)
         done.append(bundle["label"])
     return done

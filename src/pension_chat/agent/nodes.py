@@ -1298,9 +1298,76 @@ def _latest_stated(reader: Any, state: Mapping[str, Any]) -> Any:
 
 
 
+#: Years of service the user wrote: "23 years of service", "11 years' service",
+#: "10 yrs of credited service". Never one they negated ("not 20 years of service").
+_SERVICE_RE = re.compile(
+    r"(?<!not )(?<![\d.])(\d{1,2}(?:\.\d+)?)\s*(?:years?|yrs?)['’]?\s+(?:of\s+)?"
+    r"(?:(?:creditable|credited|pensionable)\s+)?service",
+    re.IGNORECASE,
+)
+
+
+def _stated_service(said: str) -> float | int | None:
+    """The years of service the user last wrote in ``said`` -- the later one,
+    because a correction comes after what it corrects."""
+    found = list(_SERVICE_RE.finditer(said or ""))
+    if not found:
+        return None
+    number = Decimal(found[-1].group(1))
+    return int(number) if number == number.to_integral_value() else float(number)
+
+
+def _member_messages(state: Mapping[str, Any]) -> list[str]:
+    """The member's own messages, oldest first, ending with this turn's question."""
+    said = [
+        str(message.content)
+        for message in (state.get("messages") or [])
+        if getattr(message, "type", None) == "human"
+    ]
+    said.append(str(state.get("question") or ""))
+    return said
+
+
+def _latest_mention(value: Any, said: Sequence[str]) -> int:
+    """Index of the newest member message that contains ``value``; -1 if none."""
+    for index in range(len(said) - 1, -1, -1):
+        if _stated_in(value, said[index]):
+            return index
+    return -1
+
+
 #: Plain names the model may use for the stated salary the missing-input
 #: policy can take as the averaging-period salary.
 _SALARY_NAMES = frozenset({"salary", "annual_salary", "current_salary", "pay"})
+
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _as_stated_value(value: Any) -> Any:
+    """A stated value as the engine takes it: a number, an ISO date, or None.
+
+    The schema allows strings, and the model writes "$85k" or "85,000" as often
+    as 85000. Left as text it matches the user's words and then fails in the
+    interpreter, so the turn loses its figure. Anything that is neither a
+    number nor a date is not an input value at all.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value).strip()
+    if _ISO_DATE.match(text):
+        return text
+    cleaned = text.lower().replace("$", "").replace(",", "").replace(" ", "")
+    scale = 1
+    if cleaned.endswith("k"):
+        cleaned, scale = cleaned[:-1], 1000
+    try:
+        number = Decimal(cleaned) * scale
+    except (InvalidOperation, ValueError):
+        return None
+    return int(number) if number == number.to_integral_value() else float(number)
 
 
 def _stated_from_model(
@@ -1311,26 +1378,48 @@ def _stated_from_model(
     Returns (values for declared inputs, a stated salary for the averaging
     policy, values under names no declared input reads). A value the user did
     not write is dropped: the model may report what was said, never supply it.
+
+    A name a recipe declares is taken as given and wins over a plain alias:
+    `age` reaches `age_at_annuity_start` only when the model did not name that
+    input itself -- "I am 56, what if I start at 60" passes both, and the plain
+    age must not overwrite the 60. Two plain names that disagree about one input
+    fill nothing; which one the member meant is not something order can decide.
     """
-    for_inputs: dict[str, Any] = {}
     salary: int | None = None
     unused: dict[str, Any] = {}
-    for name, value in (stated or {}).items():
-        if value is None or not _stated_in(value, spoken):
-            logger.info("Dropping stated %s=%r: not in the user's words", name, value)
+    exact: dict[str, Any] = {}
+    plain: dict[str, list[Any]] = {}
+    for name, raw in (stated or {}).items():
+        value = _as_stated_value(raw)
+        if value is None:
+            if raw is not None:
+                unused[name] = raw
+            continue
+        if not (_stated_in(value, spoken) or _stated_in(raw, spoken)):
+            logger.info("Dropping stated %s=%r: not in the user's words", name, raw)
             continue
         if name in _SALARY_NAMES:
-            try:
-                salary = int(float(value))
-            except (TypeError, ValueError):
-                unused[name] = value
+            salary = int(value) if isinstance(value, (int, float)) else None
+            if salary is None:
+                unused[name] = raw
+            continue
+        if name in declared:
+            exact[name] = value
             continue
         targets = [d for d in declared if d in aliases_of(name)]
         if not targets:
             unused[name] = value
             continue
         for target in targets:
-            for_inputs[target] = value
+            plain.setdefault(target, []).append(value)
+    for_inputs = dict(exact)
+    for target, values in plain.items():
+        if target in exact:
+            continue
+        if len({str(v) for v in values}) > 1:
+            logger.info("Not filling %s: stated values disagree %r", target, values)
+            continue
+        for_inputs[target] = values[0]
     return for_inputs, salary, unused
 
 def _member_words(state: PensionAgentState) -> str:
@@ -1453,6 +1542,30 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     model_stated, model_salary, unused_stated = _stated_from_model(
         state.get("stated_by_model") or {}, declared, spoken
     )
+    # A correction the member made stands until they make another. The model
+    # may re-pass an older number that is still in their words ("not 20"); the
+    # ledger holds what was settled, so it wins unless the model's value was
+    # said more recently than the ledger's.
+    said = _member_messages(state)
+    held = ledger.stated_only(state.get("fact_ledger") or {}, _ledger_subject(state))
+    for name, value in list(model_stated.items()):
+        if name in held and str(held[name]) != str(value) and (
+            _latest_mention(held[name], said) >= _latest_mention(value, said)
+        ):
+            logger.info("Keeping stated %s=%r over the older %r", name, held[name], value)
+            model_stated[name] = held[name]
+    # Years of service read from the member's newest message that states them,
+    # so "actually it's 23 years" holds even when the model leaves it out of
+    # `stated`. One person only: in a comparison, whose service it was is a guess.
+    if len(state.get("people") or {}) <= 1:
+        service = _latest_stated(_stated_service, state)
+        if service is not None:
+            for name in declared:
+                if name in aliases_of("service_years") and (
+                    name not in model_stated
+                    or _latest_mention(model_stated[name], said) <= _latest_mention(service, said)
+                ):
+                    model_stated[name] = service
     extracted: dict[str, Any] = dict(model_stated)
     if settings.extract_with_separate_call and (outstanding or question_has_figures or unheard):
         # Rollback path: the separate model call, exactly as it was (spec §5.2).
