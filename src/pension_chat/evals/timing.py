@@ -11,13 +11,15 @@ until a run inside the client's region calibrates it.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from typing import Any
 
 from pension_chat.evals.trace import TurnTrace
 
 KIND_ENDPOINT = {"model": "openai", "embedding": "openai", "search": "search",
-                 "postgres": "postgres", "postgres_connect": "postgres"}
+                 "postgres": "postgres", "postgres_connect": "postgres", "pbms": "pbms"}
 Probe = dict[str, dict[str, float]]
 
 
@@ -52,6 +54,21 @@ async def probe(settings: Any) -> Probe:
         await conn.close()
     except Exception as exc:
         raise ProbeError(f"postgres unreachable at {settings.pghost}: {exc}") from exc
+    if getattr(settings, "pbms_sql_server", None):
+        # The eval agent reads fixtures, never PBMS, so an unreachable PBMS
+        # (off the office network) leaves its round trip unmeasured rather
+        # than stopping the run; an estimate with no pbms probe adds nothing for it.
+        host, _, port = str(settings.pbms_sql_server).partition(",")
+        try:
+            timings = []
+            for _ in range(2):
+                t = time.perf_counter()
+                _, writer = await asyncio.wait_for(asyncio.open_connection(host.strip(), int(port or 1433)), 10)
+                timings.append(time.perf_counter() - t)
+                writer.close()
+            out["pbms"] = {"cold": timings[0], "warm": timings[1]}
+        except Exception as exc:
+            logging.getLogger(__name__).warning("pbms unreachable at %s, not probed: %s", host, exc)
     return out
 
 

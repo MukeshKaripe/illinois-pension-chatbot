@@ -55,6 +55,7 @@ def _args() -> argparse.Namespace:
     p.add_argument("--base", default="main")
     p.add_argument("--concurrency", type=int, default=2,
                    help="default: 2 -- at 8 the model deployment returns 429s mid-run")
+    p.add_argument("--repeat", type=int, default=1, help="timing-only re-runs per case, for p95")
     p.add_argument("--no-judge", action="store_true")
     p.add_argument("--judge-all", action="store_true",
                    help="judge every turn, even ones the code checks failed (for calibration)")
@@ -103,7 +104,7 @@ async def main() -> int:
     measured = await probe(get_settings())
     calibrated = is_calibrated(EVALS, EVALS / "rubric.yaml")
     options = RunOptions(concurrency=args.concurrency, judge=not args.no_judge, judge_gates=calibrated,
-                         judge_all=args.judge_all, progress=True,
+                         judge_all=args.judge_all, progress=True, repeat=args.repeat,
                          latency_gate=args.latency_gate, rubric_path=EVALS / "rubric.yaml",
                          cache_dir=EVALS / ".judge_cache")
     started = time.perf_counter()

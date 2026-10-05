@@ -65,14 +65,6 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
                 slot["measured"].append(tr.trace.ttft)
                 if tr.estimate is not None:
                     slot["estimated"].append(tr.estimate)
-            if tr.trace.turn_type and tr.trace.ttft is not None:
-                slot = by_type.setdefault(tr.trace.turn_type, {"measured": [], "estimated": []})
-                slot["measured"].append(tr.trace.ttft)
-                if tr.estimate is not None:
-                    slot["estimated"].append(tr.estimate)
-            for node, used in ((tr.trace.usage or {}).get("by_node") or {}).items():
-                if used.get("prompt"):
-                    prompt.setdefault(node, []).append(int(used["prompt"]))
             fallbacks += sum(1 for n in tr.trace.notes if n.get("kind") == "semantic_fallback")
             for source in tr.trace.formula_sources.values():
                 if source in formulas:
@@ -83,6 +75,18 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
             if tr.verdict:
                 for k in soft:
                     soft[k].append(getattr(tr.verdict, k))
+    # Latency per turn type reads the timing-only repeats too; pass/fail and
+    # the per-class latency above read the judged run only.
+    for conv in results:
+        for tr in [*conv.turns, *(t for again in conv.repeats for t in again.turns)]:
+            if tr.trace.turn_type and tr.trace.ttft is not None:
+                tslot = by_type.setdefault(tr.trace.turn_type, {"measured": [], "estimated": []})
+                tslot["measured"].append(tr.trace.ttft)
+                if tr.estimate is not None:
+                    tslot["estimated"].append(tr.estimate)
+            for node, used in ((tr.trace.usage or {}).get("by_node") or {}).items():
+                if used.get("prompt"):
+                    prompt.setdefault(node, []).append(int(used["prompt"]))
     return {
         "families": {f: families[f] for f in FAMILIES if f in families},
         "critical_failures": critical,

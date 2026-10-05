@@ -49,3 +49,8 @@ def test_stage_breakdown_counts_overlap_once_and_names_the_gap() -> None:
     assert stages["model"] == pytest.approx(3.0)
     assert stages["search"] == pytest.approx(1.0)
     assert stages["unattributed"] == pytest.approx(6.0 - 4.5)   # union of [0,1.5] and [2,5] is 4.5 s
+
+
+def test_pbms_calls_count_as_pbms_round_trips():
+    from pension_chat.evals.timing import KIND_ENDPOINT
+    assert KIND_ENDPOINT["pbms"] == "pbms"
