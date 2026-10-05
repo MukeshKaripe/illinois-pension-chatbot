@@ -81,3 +81,27 @@ def test_the_turn_record_reads_state_and_calls() -> None:
     assert record == {"turn_type": "statute", "sequential_model_calls": 2,
                       "model_nodes": ["investigate", "generate_answer"], "over_budget": [],
                       "repeated_sections": {}}
+
+
+def test_a_failed_attempt_that_was_retried_is_not_a_call() -> None:
+    # A 429 on the first attempt, then success: one call, not two.
+    calls = [SimpleNamespace(kind="model", label="investigate", start=100.0, end=100.3, ok=False),
+             SimpleNamespace(kind="model", label="investigate", start=102.0, end=103.4),
+             SimpleNamespace(kind="model", label="generate_answer", start=103.5, end=105.0)]
+    state = {"tool_calls_spent": {"search_statute": 1}}
+    record = turn_budget_record(state, calls, started=100.0, first_token_at=6.0)
+    assert record["sequential_model_calls"] == 2
+
+
+async def test_an_attempt_that_raises_is_recorded_as_failed() -> None:
+    import pytest
+
+    from pension_chat.agent import instrument
+
+    inst = instrument.begin()
+    with pytest.raises(RuntimeError):
+        async with instrument.timed("model", "investigate"):
+            raise RuntimeError("429")
+    async with instrument.timed("model", "investigate"):
+        pass
+    assert [c.ok for c in inst.calls] == [False, True]

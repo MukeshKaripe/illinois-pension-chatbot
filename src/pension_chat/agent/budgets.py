@@ -131,7 +131,8 @@ def turn_budget_record(state: Mapping[str, Any], calls: Iterable[Any], started: 
     """
     first_abs = None if first_token_at is None else started + first_token_at
     model = [ModelCall(str(c.label), float(c.start), float(c.end)) for c in calls
-             if c.kind == "model" and (first_abs is None or c.start < first_abs)]
+             if c.kind == "model" and getattr(c, "ok", True)
+             and (first_abs is None or c.start < first_abs)]
     nodes = [m.node for m in sorted(model, key=lambda m: m.start)]
     turn_type = classify_turn(
         tools=list((state.get("tool_calls_spent") or {}).keys()),
