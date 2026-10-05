@@ -218,6 +218,18 @@ CALCULATION_TOOLS: list[dict[str, Any]] = [
                             "fund's formula."
                         ),
                     },
+                    "stated": {
+                        "type": "object",
+                        "additionalProperties": {"type": ["number", "string"]},
+                        "description": (
+                            "Every value the user has stated in this conversation that "
+                            "this figure could use, in plain names: age, service_years, "
+                            "salary, final_average_salary, year_joined, and any other. "
+                            "Only what they actually wrote, never a value you worked "
+                            "out; include a correction they made ('actually 23 years'). "
+                            "Each value is checked against their words."
+                        ),
+                    },
                 },
                 "required": ["benefit"],
             },
@@ -879,6 +891,8 @@ async def _compute(arguments: dict[str, Any], state: dict) -> tuple[str, dict]:
         # words before any of their record reaches another fund's formula.
         "stand_in_facts": bool(arguments.get("stand_in_facts"))
         and _invited_stand_ins(state),
+        # Checked against the user's own words in resolve_inputs; never trusted as given.
+        "stated_by_model": dict(arguments.get("stated") or {}),
     }
     if person_ref is not None:
         mine = people[person_ref]

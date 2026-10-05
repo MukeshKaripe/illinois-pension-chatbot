@@ -1297,6 +1297,42 @@ def _latest_stated(reader: Any, state: Mapping[str, Any]) -> Any:
     return None
 
 
+
+#: Plain names the model may use for the stated salary the missing-input
+#: policy can take as the averaging-period salary.
+_SALARY_NAMES = frozenset({"salary", "annual_salary", "current_salary", "pay"})
+
+
+def _stated_from_model(
+    stated: Mapping[str, Any], declared: Mapping[str, Any], spoken: str
+) -> tuple[dict[str, Any], int | None, dict[str, Any]]:
+    """The model's `stated` values, checked against the user's words and mapped to inputs.
+
+    Returns (values for declared inputs, a stated salary for the averaging
+    policy, values under names no declared input reads). A value the user did
+    not write is dropped: the model may report what was said, never supply it.
+    """
+    for_inputs: dict[str, Any] = {}
+    salary: int | None = None
+    unused: dict[str, Any] = {}
+    for name, value in (stated or {}).items():
+        if value is None or not _stated_in(value, spoken):
+            logger.info("Dropping stated %s=%r: not in the user's words", name, value)
+            continue
+        if name in _SALARY_NAMES:
+            try:
+                salary = int(float(value))
+            except (TypeError, ValueError):
+                unused[name] = value
+            continue
+        targets = [d for d in declared if d in aliases_of(name)]
+        if not targets:
+            unused[name] = value
+            continue
+        for target in targets:
+            for_inputs[target] = value
+    return for_inputs, salary, unused
+
 def _member_words(state: PensionAgentState) -> str:
     """Everything the member themselves has typed in this conversation.
 
@@ -1411,7 +1447,15 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     history_has_figures = bool(re.search(r"\d", spoken))
     unheard = history_has_figures and not (set(declared) & stated_already)
 
-    if outstanding or question_has_figures or unheard:
+    # What the user stated reaches the engine through compute_benefit's `stated`
+    # argument -- the decision call already read the conversation -- and every
+    # value is checked against their own words before it is used (spec §5.2).
+    model_stated, model_salary, unused_stated = _stated_from_model(
+        state.get("stated_by_model") or {}, declared, spoken
+    )
+    extracted: dict[str, Any] = dict(model_stated)
+    if settings.extract_with_separate_call and (outstanding or question_has_figures or unheard):
+        # Rollback path: the separate model call, exactly as it was (spec §5.2).
         catalogue = [
             {
                 "name": spec["name"],
@@ -1445,39 +1489,38 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
                     reasoning_effort=settings.reasoning_effort_extract,
                 json_mode=True,
             )
-            extracted = json.loads(raw or "{}").get("resolved") or {}
+            extracted = {**(json.loads(raw or "{}").get("resolved") or {}), **extracted}
         except Exception as exc:
             logger.warning("Input extraction failed: %s", exc)
-            extracted = {}
 
-        for name, value in extracted.items():
-            if name not in declared or value is None:
-                continue
-            # Written by the member *anywhere in the conversation*, not only in
-            # this message. The guard's purpose is that the model may fill a
-            # gap but may not quietly replace a value the record supplied
-            # unless the member actually typed it -- it read "I am 56" and
-            # supplied months_before_age_60 = 48 where the record gives 44.
-            #
-            # Scoped to the current message, it also threw away a correction
-            # made two turns earlier, which is a member being ignored rather
-            # than a model being caught.
-            if name in from_record and not _stated_in(value, spoken):
-                # The extraction step may fill a gap, but it may not quietly
-                # replace a value the facts layer computed from the record
-                # unless the member actually wrote that value down. Left
-                # unchecked the model "helpfully" derives things it should not:
-                # it read "I am 56" and supplied months_before_age_60 = 48
-                # (56 -> 60 is four years) where the record gives 44, because
-                # the member is 56 years and nearly four months old.
-                logger.info(
-                    "Ignoring extracted %s=%r: not stated by the user and the "
-                    "record gives %r",
-                    name, value, from_record[name],
-                )
-                continue
-            resolved[name] = value
-            taken[name] = value
+    for name, value in extracted.items():
+        if name not in declared or value is None:
+            continue
+        # Written by the member *anywhere in the conversation*, not only in
+        # this message. The guard's purpose is that the model may fill a
+        # gap but may not quietly replace a value the record supplied
+        # unless the member actually typed it -- it read "I am 56" and
+        # supplied months_before_age_60 = 48 where the record gives 44.
+        #
+        # Scoped to the current message, it also threw away a correction
+        # made two turns earlier, which is a member being ignored rather
+        # than a model being caught.
+        if name in from_record and not _stated_in(value, spoken):
+            # The extraction step may fill a gap, but it may not quietly
+            # replace a value the facts layer computed from the record
+            # unless the member actually wrote that value down. Left
+            # unchecked the model "helpfully" derives things it should not:
+            # it read "I am 56" and supplied months_before_age_60 = 48
+            # (56 -> 60 is four years) where the record gives 44, because
+            # the member is 56 years and nearly four months old.
+            logger.info(
+                "Ignoring extracted %s=%r: not stated by the user and the "
+                "record gives %r",
+                name, value, from_record[name],
+            )
+            continue
+        resolved[name] = value
+        taken[name] = value
 
     # An age the member named is not one fact among several: months before 60,
     # service and the salary window are all computed *from* it. Splicing the age
@@ -1593,7 +1636,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     if stated_age is not None:
         known.setdefault("age", stated_age)
     if _may_take_stated_salary(state):
-        stated_salary = _latest_stated(_stated_annual_salary, state)
+        stated_salary = _latest_stated(_stated_annual_salary, state) or model_salary
         if stated_salary is not None:
             known["stated_annual_salary"] = stated_salary
     assumed, assumed_origins, still_missing = apply_assumptions(
@@ -1618,6 +1661,7 @@ async def resolve_inputs(state: PensionAgentState) -> dict:
     return {
         "resolved_inputs": resolved,
         "input_sources": origins,
+        "unused_stated": unused_stated,
         "fact_ledger": _ledger_update(
             resolved=resolved,
             origins=origins,

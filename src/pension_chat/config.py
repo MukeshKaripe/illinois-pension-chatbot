@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     reasoning_effort_derive: str = "medium"
     reasoning_effort_answer: str = "none"      # answer is grounded, not derived
     reasoning_effort_extract: str = "none"
+    # The separate model call that read stated values out of the conversation.
+    # Off: stated values now travel as compute_benefit's `stated` argument and are
+    # verified in code (spec §5.2). On restores the old call, for rollback.
+    extract_with_separate_call: bool = False
 
     # Retrieval
     retrieval_vector_k: int = 40               # HNSW candidates before reranking
