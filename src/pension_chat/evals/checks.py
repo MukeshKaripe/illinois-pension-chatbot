@@ -183,6 +183,10 @@ def _check(name: str, value: Any, trace: TurnTrace, latency_gate: bool) -> Check
         ttft = None if trace.ttft is None else trace.ttft - trace.ttft_rate_limit_wait
         return CheckResult(name, ttft is not None and ttft <= limit,
                            f"ttft {ttft if ttft is None else round(ttft, 2)}s vs {limit}s", gating=latency_gate)
+    if name == "model_calls_max":
+        calls = trace.model_calls
+        return CheckResult(name, calls is not None and calls <= value,
+                           f"{calls} sequential model calls before the first word vs {value}")
     raise KeyError(name)
 
 

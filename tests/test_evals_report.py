@@ -65,3 +65,22 @@ def test_the_report_counts_formulas_derived_and_reused() -> None:
     r = summarise([conv], judge_calibrated=False, probe={})
     assert r["formulas"] == {"derived": 1, "registry": 1}
     assert "Formulas: 1 derived, 1 reused" in render_markdown(r, diff(r, None))
+
+
+def test_latency_is_reported_per_turn_type_with_p95():
+    from pension_chat.evals.cases import Case, Turn
+    from pension_chat.evals.report import summarise
+    from pension_chat.evals.runner import ConversationResult, TurnResult
+    from pension_chat.evals.trace import TurnTrace
+
+    case = Case(id="L1-001", family="L1", areas=["retrieval"],
+                turns=[Turn(q="q", goal="g", reference="r", checks={})], path=None)
+    turns = []
+    for i, t in enumerate((2.0, 2.5, 3.0, 6.0)):
+        trace = TurnTrace(case_id="L1-001", turn_index=0, question="q", employee=None,
+                          ttft=t, turn_type="statute", usage={"by_node": {"investigate": {"prompt": 10000}}})
+        turns.append(TurnResult("L1-001", 0, trace, [], None, "pass", t - 1.0, {}))
+    report = summarise([ConversationResult(case, [tr]) for tr in turns], judge_calibrated=False, probe={})
+    slot = report["latency_by_turn_type"]["statute"]
+    assert slot["measured"]["n"] == 4 and slot["measured"]["p95"] == 6.0
+    assert report["prompt_tokens"]["investigate"] == 10000
