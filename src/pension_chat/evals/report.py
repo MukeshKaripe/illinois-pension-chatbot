@@ -106,6 +106,12 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
     }
 
 
+def suite_of(report: dict[str, Any]) -> str:
+    """The families a run covered, as one key: latency is only comparable
+    between runs over the same cases."""
+    return "+".join(sorted(report.get("families") or {}))
+
+
 def diff(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
     if not baseline:
         return {"new_failures": [], "fixed": [], "latency_moves": {}, "type_moves": {}, "no_baseline": True}
@@ -113,15 +119,16 @@ def diff(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, A
     bad = ("fail", "error", "unjudged")
     new = [k for k, t in now.items() if t["status"] in bad and before.get(k, {}).get("status") == "pass"]
     fixed = [k for k, t in now.items() if t["status"] == "pass" and before.get(k, {}).get("status") in bad]
+    same_suite = (baseline.get("suites") or {}).get(suite_of(report)) or {}
     moves = {}
     for cls, slot in report["latency"].items():
-        old = baseline.get("latency", {}).get(cls, {}).get("measured", {}).get("median")
+        old = same_suite.get("latency", {}).get(cls, {}).get("measured", {}).get("median")
         new_median = slot.get("measured", {}).get("median")
         if old is not None and new_median is not None:
             moves[cls] = round(new_median - old, 2)
     type_moves = {}
     for t, tslot in report.get("latency_by_turn_type", {}).items():
-        was = baseline.get("latency_by_turn_type", {}).get(t, {}).get("estimated", {})
+        was = same_suite.get("latency_by_turn_type", {}).get(t, {}).get("estimated", {})
         now_est = tslot.get("estimated", {})
         if was.get("p50") is not None and now_est.get("p50") is not None:
             type_moves[t] = {"p50": round(now_est["p50"] - was["p50"], 2),
@@ -130,16 +137,23 @@ def diff(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, A
             "no_baseline": False}
 
 
-#: Report keys a baseline keeps. Each is a mapping keyed by turn, family or
-#: class, so a run over a few families updates those keys and keeps the rest.
-BASELINE_KEYS = ("turns", "latency", "families", "latency_by_turn_type", "prompt_tokens")
+#: Pass/fail is kept per turn and per family, so a run over a few families
+#: updates those and keeps the rest.
+BASELINE_KEYS = ("turns", "families")
+#: Latency is kept per suite (the families a run covered): an L1 run's figure
+#: turns and the S families' figure turns are different questions, and
+#: comparing one with the other reports a move that isn't one.
+SUITE_KEYS = ("latency", "latency_by_turn_type", "prompt_tokens")
 
 
 def accepted(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
     """The baseline after accepting ``report``: this run's entries replace the
     old ones they name; entries this run didn't touch are kept."""
     old = baseline or {}
-    return {k: {**(old.get(k) or {}), **(report.get(k) or {})} for k in BASELINE_KEYS}
+    merged: dict[str, Any] = {k: {**(old.get(k) or {}), **(report.get(k) or {})} for k in BASELINE_KEYS}
+    merged["suites"] = {**(old.get("suites") or {}),
+                        suite_of(report): {k: report.get(k) or {} for k in SUITE_KEYS}}
+    return merged
 
 
 def exit_code(report: dict[str, Any], changes: dict[str, Any]) -> int:

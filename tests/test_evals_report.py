@@ -90,14 +90,33 @@ def test_accepting_a_narrow_run_keeps_the_rest_of_the_baseline():
     from pension_chat.evals.report import accepted
 
     old = {"turns": {"S4-001#0": {"status": "pass"}, "L1-001#0": {"status": "fail"}},
-           "latency": {"heavy": {}}, "families": {"S4": {}},
-           "latency_by_turn_type": {"figure": {"estimated": {"p50": 4.0}}}}
+           "families": {"S4": {}},
+           "suites": {"S4": {"latency": {"heavy": {}},
+                             "latency_by_turn_type": {"figure": {"estimated": {"p50": 4.0}}}}}}
     report = {"turns": {"L1-001#0": {"status": "pass"}}, "latency": {"simple": {}},
               "families": {"L1": {}}, "latency_by_turn_type": {"statute": {"estimated": {"p50": 2.0}}},
               "prompt_tokens": {"investigate": 9000}, "probe": {}}
     merged = accepted(report, old)
     assert merged["turns"] == {"S4-001#0": {"status": "pass"}, "L1-001#0": {"status": "pass"}}
     assert set(merged["families"]) == {"S4", "L1"}
-    assert merged["latency_by_turn_type"]["statute"]["estimated"]["p50"] == 2.0
-    assert merged["latency_by_turn_type"]["figure"]["estimated"]["p50"] == 4.0
-    assert merged["prompt_tokens"] == {"investigate": 9000}
+    assert merged["suites"]["L1"]["latency_by_turn_type"]["statute"]["estimated"]["p50"] == 2.0
+    assert merged["suites"]["S4"]["latency_by_turn_type"]["figure"]["estimated"]["p50"] == 4.0
+    assert merged["suites"]["L1"]["prompt_tokens"] == {"investigate": 9000}
+
+
+def test_latency_is_compared_only_with_the_same_suite():
+    # An L1 run must not be compared with the S families' figure latency.
+    from pension_chat.evals.report import diff
+
+    baseline = {"turns": {}, "suites": {
+        "S11+S4": {"latency": {"heavy": {"measured": {"median": 9.0}}},
+                   "latency_by_turn_type": {"figure": {"estimated": {"p50": 6.0, "p95": 8.0}}}},
+        "L1": {"latency": {"simple": {"measured": {"median": 7.0}}},
+               "latency_by_turn_type": {"figure": {"estimated": {"p50": 5.5, "p95": 6.7}}}}}}
+    report = {"turns": {}, "families": {"L1": {}},
+              "latency": {"simple": {"measured": {"median": 6.0}}},
+              "latency_by_turn_type": {"figure": {"estimated": {"p50": 4.5, "p95": 5.5}}}}
+    changes = diff(report, baseline)
+    assert changes["type_moves"] == {"figure": {"p50": -1.0, "p95": -1.2}}
+    assert changes["latency_moves"] == {"simple": -1.0}
+    assert diff({**report, "families": {"S13": {}}}, baseline)["type_moves"] == {}
