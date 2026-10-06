@@ -252,6 +252,56 @@ Assistant messages carry the same `tool_calls` as `done`, so cards, choice cards
 1. **The origin(s) the UI is served from,** e.g. `https://pensions.client.internal`. The backend allows browser calls only from listed origins (CORS). With Blazor WebAssembly, or any browser-side call, the browser's origin must be on the list. With Blazor Server calling from the server, CORS doesn't apply.
 2. **Whether the UI calls from the browser (WebAssembly) or the server (Blazor Server).** WebAssembly streams fastest. In Server mode each token is relayed through your server and the SignalR circuit, which adds latency.
 
+## 10a. Who is asking: `X-User-Id`
+
+Send your signed-in user's id (login name or UPN) on every request about a session:
+
+```http
+X-User-Id: jdoe@meabf.org
+```
+
+- It's stored in each message's audit trail (`{"type": "asked_by", "user_id": "…"}` in `tool_calls`), so every question and answer records who asked.
+- It isn't used for access control and is never shown to the model.
+- At most 256 printable characters; anything else is ignored.
+- Without the header, messages are stored without a user, so please always send it.
+
+## 10b. .NET integration notes (read before building)
+
+These are the problems most likely to bite a .NET client of this API.
+
+1. **`HttpClient` times out after 100 s by default.** A first-time calculation can take 30–60 s, occasionally longer. For the chat call only, use a client with `Timeout = TimeSpan.FromSeconds(180)` (or `Timeout.InfiniteTimeSpan` with a `CancellationToken` for Stop).
+2. **Stream; don't buffer.**
+   ```csharp
+   var req = new HttpRequestMessage(HttpMethod.Post, $"sessions/{id}/messages")
+       { Content = JsonContent.Create(new { content = question }) };
+   req.Headers.Add("X-Session-Token", token);
+   req.Headers.Add("X-User-Id", userId);
+   req.Headers.Accept.ParseAdd("text/event-stream");
+   // Blazor WebAssembly only:
+   req.SetBrowserResponseStreamingEnabled(true);
+   using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+   res.EnsureSuccessStatusCode();
+   using var reader = new StreamReader(await res.Content.ReadAsStreamAsync(ct));
+   // read lines; a blank line ends a frame (see §3)
+   ```
+   - **In Blazor Server,** push each chunk to the component as it arrives (`InvokeAsync(StateHasChanged)`, batched about every 50 ms).
+   - **No response compression or buffering middleware** on any server or proxy that relays this route.
+3. **No automatic retries on `POST /sessions/{id}/messages`.** A Polly or `HttpClientFactory` retry policy re-asks the question and doubles the cost. Retries are fine on GET calls.
+4. **JSON names are `snake_case`.** C# defaults to `PascalCase` and silently leaves unmatched properties null. Use:
+   ```csharp
+   var json = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+   ```
+   - **Read `tool_calls` as `JsonElement[]`** and switch on each element's `"type"` (`card`, `subject_suggestion`, `stopped`). Ignore types you don't know; the audit trail carries others.
+   - **Amounts** (`annual_amount`…) are **strings**: parse with `decimal.Parse(value, CultureInfo.InvariantCulture)`, never `double`.
+   - **Timestamps** are ISO 8601 in UTC.
+5. **Keep the session across reconnects.** In Blazor Server the session id and token in circuit state die with the circuit. Also keep them in browser storage (`ProtectedLocalStorage`, or JS interop wrapped in try/catch) and restore with `GET /messages` (§7).
+6. **Render markdown with Markdig with HTML off:**
+   ```csharp
+   var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
+   var html = Markdown.ToHtml(markdown, pipeline);   // then (MarkupString)html
+   ```
+   Apply the streaming rules in §4 (half-written tables, orphan headers) before Markdig.
+
 ## 11. Errors and timeouts
 
 | Situation | What you get | Do |
@@ -303,6 +353,8 @@ data: {"message_id": 1290, "verified_citations": ["8-138", "1-160"], "guardrail_
 ## 13. Acceptance checklist for the Blazor UI
 
 - [ ] A session is created, and `X-Session-Token` is sent on every session call; no `Authorization` header.
+- [ ] `X-User-Id` is sent on every session call.
+- [ ] The chat call's `HttpClient` timeout is at least 180 s; no retry policy on `POST /messages`; JSON uses snake_case.
 - [ ] Answers stream token by token, and the first words appear as they arrive (no buffering of the whole response).
 - [ ] Markdown renders with raw HTML disabled; tables render; a half-written table shows as plain text until complete.
 - [ ] `view` previews show while waiting and disappear on the first token (no duplicated tables).

@@ -53,6 +53,24 @@ def _sections_of(citations: Sequence[Mapping[str, Any]]) -> list[str]:
     return [str(section) for entry in citations if (section := entry.get("section"))]
 
 
+#: Longest user id `X-User-Id` may carry; login names and UPNs fit easily.
+_MAX_USER_ID = 256
+
+
+def asked_by(headers: Mapping[str, str]) -> dict[str, str] | None:
+    """The host app's user, as an audit entry: who asked, or None.
+
+    v1 has no sign-in of its own; the client's Blazor app knows its user and
+    sends `X-User-Id`. Recorded in the message's audit trail (no schema change),
+    never used for access and never shown to the model -- an audit field, not an
+    identity. A value that cannot be a user id is dropped, not stored.
+    """
+    raw = (headers.get("x-user-id") or "").strip()
+    if not raw or len(raw) > _MAX_USER_ID or not raw.isprintable():
+        return None
+    return {"type": "asked_by", "user_id": raw}
+
+
 def _verified_citations(state: dict[str, Any]) -> list[dict[str, Any]]:
     """The provisions the answer relied on and that verification confirmed.
 
@@ -319,6 +337,10 @@ async def send_message(
         )
 
 
+    who = asked_by(request.headers)
+    if who:
+        logger.info("Session %s: question from %s", session_id, who["user_id"])
+
     async def save_user_turn() -> None:
         """Record the member's message and touch the session.
 
@@ -341,7 +363,8 @@ async def send_message(
             )
             db.add(
                 SessionMessage(
-                    session_id=session_uuid, role="user", content=body.content
+                    session_id=session_uuid, role="user", content=body.content,
+                    tool_calls=[who] if who else None,
                 )
             )
             await db.commit()
@@ -390,7 +413,7 @@ async def send_message(
                             session_id=session_uuid,
                             role="assistant",
                             content=text,
-                            tool_calls=[{"type": "stopped"}],
+                            tool_calls=[{"type": "stopped"}, *([who] if who else [])],
                             guardrail_passed=None,
                         )
                     )
@@ -502,7 +525,8 @@ async def send_message(
 
         # The calculation card rides in the audit trail: it is provenance too,
         # and there it needs no column of its own.
-        tool_calls = _audit_trail(final_state) + cards + _subject_trail(final_state)
+        tool_calls = (_audit_trail(final_state) + cards + _subject_trail(final_state)
+                      + ([who] if who else []))
 
         # Persist the assistant turn, including the audit metadata the
         # architecture requires (§7.1): citations, and whether the answer passed
