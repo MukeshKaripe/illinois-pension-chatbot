@@ -60,3 +60,6 @@ alembic/__pycache__/
 # Eval runs and the judge's cache (evals/baseline.json is committed)
 evals/runs/
 evals/.judge_cache/
+
+# Failure captures the live system writes (config.capture_dir); real conversations, never committed
+evals/_captured/
