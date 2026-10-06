@@ -1404,10 +1404,24 @@ def _branched(state: dict[str, Any]) -> str:
 #: figures swapped between two branches both trace to engine output, so the
 #: guardrail passes them -- so the model names the table and never writes it.
 #:
-#: ASSUMPTIONS is deliberately absent. `guardrails._check_assumptions_disclosed`
-#: requires the *answer* to disclose an assumption in its own words, and a block
-#: substituted into the stream is not the answer saying anything.
-MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS", "PEOPLE")
+#: ASSUMPTIONS is marked too, and for the same reason. It was once deliberately
+#: left to the model ("the answer must disclose in its own words"), and the
+#: model was the weak link: a forgotten sentence sent a correct answer to the
+#: fallback. The member reads the same words either way; written by code they
+#: are always there, beside the figure, and `_check_assumptions_disclosed` reads
+#: the answer with its blocks in it (test_every_assumption_rule_is_disclosed_by_its_own_block).
+MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS", "PEOPLE", "ASSUMPTIONS")
+
+#: Blocks that are never one person's, so a comparison keeps them.
+_SHARED_VIEWS = frozenset({"PEOPLE", "ASSUMPTIONS"})
+
+
+def _keep_for_people(rendered: dict[str, str]) -> dict[str, str]:
+    """With several people the comparison is the table: one person's worked
+    steps or options beside it were being dropped into its cells. A disclosure
+    belongs to every figure in the answer, so it stays."""
+    return {slot: text for slot, text in rendered.items()
+            if slot in _SHARED_VIEWS or slot not in MARKED_VIEWS}
 
 
 #: How a tool call reads as a step, in the member's terms rather than the
@@ -1568,10 +1582,7 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
         "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
     }
     if rendered.get("PEOPLE", "").strip():
-        # Several people: the comparison is the table. One person's worked
-        # steps or options beside it were being dropped into its cells.
-        rendered = {slot: text for slot, text in rendered.items()
-                    if slot == "PEOPLE" or slot not in MARKED_VIEWS}
+        rendered = _keep_for_people(rendered)
     return {slot: text for slot, text in rendered.items() if text.strip()}
 
 
@@ -2096,24 +2107,19 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "role": "system",
                 "content": (
-                    (
-                        "The figure you are about to quote rests on values "
-                        "nobody supplied. You must say so, in your own words, "
-                        "beside the figure:"
-                        if _must_disclose(state)
-                        else "Account for how the figure's inputs were arrived "
-                        "at, in your own words. Values the Code sets are "
-                        "citable -- name the section rather than hedging about "
-                        "them, and do not call them assumptions:"
-                    )
-                    + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
+                    "How the figure's inputs were arrived at is written for you "
+                    "and inserted at <<<ASSUMPTIONS>>>. Put that marker on its "
+                    "own line right after the figure, and do not restate the "
+                    "block. Your sentences must agree with it"
                     + (
-                        "An estimate whose assumptions are not stated will be "
-                        "withdrawn before the member sees it."
+                        " -- the figure rests on values nobody supplied, so "
+                        "never present it as exact."
                         if _must_disclose(state)
-                        else "Nothing here was invented, so nothing here needs "
-                        "an apology."
+                        else ". Values the Code sets are citable: name the "
+                        "section rather than hedging about them, and do not "
+                        "call them assumptions."
                     )
+                    + chr(10) + chr(10) + "The block reads:" + chr(10) + chr(10) + disclosure
                 ),
             }
         )

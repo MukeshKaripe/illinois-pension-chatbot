@@ -128,8 +128,8 @@ async def test_a_cited_fill_is_not_presented_as_something_to_apologise_for():
 
 
 async def test_an_invented_fill_still_must_be_disclosed():
-    """The guardrail throws the answer away when it is not, so the instruction
-    has to stay absolute for the rank that earns it."""
+    """Code inserts the disclosure; the model is told the figure is not exact,
+    so its own sentences cannot contradict the block."""
     system = await _composed(
         {
             "calculation_result": _FIGURE,
@@ -143,4 +143,47 @@ async def test_an_invented_fill_still_must_be_disclosed():
         }
     )
     assert any("rests on values nobody supplied" in t for t in system)
-    assert any("will be withdrawn before the member sees it" in t for t in system)
+    assert any("<<<ASSUMPTIONS>>>" in t for t in system)
+
+
+# ── The block is the disclosure ───────────────────────────────────
+#
+# A figure resting on a value nobody supplied must say so, and the model writing
+# that sentence was the weak link: when it forgot, verification replaced a
+# correct answer (2 of 48 on the S families after a stated salary became an
+# assumed flat average). Code now inserts the block beside the figure, and the
+# block alone must satisfy the same check.
+
+
+def test_every_assumption_rule_is_disclosed_by_its_own_block():
+    import pytest
+
+    from pension_chat.agent.guardrails import GuardrailReport, _check_assumptions_disclosed
+    from pension_chat.calculation.assumption_policy import POLICY
+
+    checked = 0
+    for name, rule in POLICY.items():
+        if not rule.basis:
+            continue
+        block = render_assumptions(_sheet_with(**{name: ("x", SOURCE_ASSUMED, rule.basis)}))
+        report = GuardrailReport()
+        _check_assumptions_disclosed(report, f"Your annuity is $12,000.00 a year.\n\n{block}",
+                                     {"retirement_annuity": {"base": {"ok": True}}}, {name: rule.basis})
+        assert report.passed, pytest.fail(f"{name}: its block does not disclose it -- {block!r}")
+        checked += 1
+    assert checked >= 4
+
+
+def test_the_assumptions_block_is_inserted_by_code():
+    from pension_chat.agent.loop import MARKED_VIEWS
+    assert "ASSUMPTIONS" in MARKED_VIEWS
+
+
+def test_a_comparison_keeps_its_assumptions_block():
+    # Several people: one person's working steps are dropped beside the PEOPLE
+    # table, but a disclosure is never one person's -- it stays.
+    from pension_chat.agent import loop
+
+    rendered = {"PEOPLE": "| a |", "WORKED_STEPS": "steps", "ASSUMPTIONS": "**What I assumed**"}
+    kept = loop._keep_for_people(rendered)
+    assert set(kept) == {"PEOPLE", "ASSUMPTIONS"}
