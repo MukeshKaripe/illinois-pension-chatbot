@@ -55,7 +55,7 @@ class BlobSource:
             )
         return cls(
             ContainerClient.from_connection_string(
-                settings.azure_storage_connection_string, settings.azure_storage_container
+                settings.azure_storage_connection_string.get_secret_value(), settings.azure_storage_container
             )
         )
 

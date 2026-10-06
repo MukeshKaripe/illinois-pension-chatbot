@@ -48,7 +48,7 @@ def query_vectorizer() -> AzureOpenAIVectorizer:
             resource_url=settings.azure_openai_endpoint,
             deployment_name=settings.azure_openai_embedding_deployment,
             model_name="text-embedding-3-large",
-            api_key=settings.azure_openai_api_key,
+            api_key=settings.azure_openai_api_key.get_secret_value(),
         ),
     )
 
@@ -77,7 +77,7 @@ def get_index_client() -> SearchIndexClient:
     settings = get_settings()
     return SearchIndexClient(
         endpoint=settings.azure_search_endpoint,
-        credential=AzureKeyCredential(settings.azure_search_api_key),
+        credential=AzureKeyCredential(settings.azure_search_api_key.get_secret_value()),
     )
 
 
@@ -87,7 +87,7 @@ def get_search_client() -> SearchClient:
     return SearchClient(
         endpoint=settings.azure_search_endpoint,
         index_name=settings.azure_search_index_name,
-        credential=AzureKeyCredential(settings.azure_search_api_key),
+        credential=AzureKeyCredential(settings.azure_search_api_key.get_secret_value()),
     )
 
 

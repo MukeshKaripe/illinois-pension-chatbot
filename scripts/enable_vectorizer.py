@@ -30,7 +30,7 @@ def main() -> int:
 
     settings = get_settings()
     client = SearchIndexClient(settings.azure_search_endpoint,
-                               AzureKeyCredential(settings.azure_search_api_key))
+                               AzureKeyCredential(settings.azure_search_api_key.get_secret_value()))
     index = client.get_index(settings.azure_search_index_name)
     search = index.vector_search
     before = [v.vectorizer_name for v in (search.vectorizers or [])] if search else []

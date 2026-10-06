@@ -46,7 +46,8 @@ async def probe(settings: Any) -> Probe:
     try:
         t = time.perf_counter()
         conn = await asyncpg.connect(host=settings.pghost, port=settings.pgport, user=settings.pguser,
-                                     password=settings.pgpassword, database=settings.pgdatabase, ssl="require")
+                                     password=settings.pgpassword.get_secret_value(),
+                                     database=settings.pgdatabase, ssl="require")
         cold = time.perf_counter() - t
         t = time.perf_counter()
         await conn.fetchval("select 1")

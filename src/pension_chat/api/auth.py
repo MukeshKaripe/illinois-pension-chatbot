@@ -237,7 +237,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     # `typ` names what `sub` is. Tokens issued before accounts (005) carried an
     # employee id there, and `get_current_user` refuses anything without this.
     to_encode.update({"exp": expire, "typ": "account"})
-    return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(to_encode, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm)
 
 
 async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> TokenData | None:
@@ -248,7 +248,7 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> TokenD
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret_key,
+            settings.jwt_secret_key.get_secret_value(),
             algorithms=[settings.jwt_algorithm],
         )
         account_id = payload.get("sub")
