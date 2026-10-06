@@ -187,3 +187,60 @@ def test_a_comparison_keeps_its_assumptions_block():
     rendered = {"PEOPLE": "| a |", "WORKED_STEPS": "steps", "ASSUMPTIONS": "**What I assumed**"}
     kept = loop._keep_for_people(rendered)
     assert set(kept) == {"PEOPLE", "ASSUMPTIONS"}
+
+
+# ── One answer to "was a figure worked this turn?" ────────────────
+#
+# Found live (S4-002, S11-002): the block rendered only beside a "retire now"
+# figure, so a turn whose figure was a scenario ("at age 67") had no block while
+# the guardrail demanded one. And S4b-001: the guardrail demanded a disclosure
+# from an answer that worked no figure at all ("not payable now"). One predicate
+# now decides both.
+
+_ASSUMED_DATE = {"withdrawal_date": {"value": "2026-10-06", "source": "assumed",
+                                     "basis": "the date you stop working, taken as today"}}
+
+
+def test_a_scenario_figure_gets_its_disclosure():
+    from pension_chat.agent.loop import _views
+
+    state = {"calculation_result": {"retirement_annuity": {
+                 "base": {"ok": False},
+                 "scenarios": [{"label": "at age 67", "annual_amount": "39172.43"}]}},
+             "assumptions": _ASSUMED_DATE}
+    assert "What I assumed" in _views(state).get("ASSUMPTIONS", "")
+
+
+def test_an_answer_with_no_figure_has_nothing_to_disclose():
+    from pension_chat.agent.guardrails import GuardrailReport, _check_assumptions_disclosed
+
+    report = GuardrailReport()
+    _check_assumptions_disclosed(
+        report, "Your pension cannot begin before age 60. You are 56, so it is not payable now.",
+        {"retirement_annuity": {"base": {"ok": False}, "scenarios": []}},
+        {"withdrawal_date": "the date you stop working, taken as today"})
+    assert report.passed
+
+
+def test_a_scenario_figure_still_must_be_disclosed():
+    from pension_chat.agent.guardrails import GuardrailReport, _check_assumptions_disclosed
+
+    report = GuardrailReport()
+    _check_assumptions_disclosed(
+        report, "At 67 your annuity is $39,172.43 a year.",
+        {"retirement_annuity": {"base": {"ok": False},
+                                "scenarios": [{"label": "at age 67", "annual_amount": "39172.43"}]}},
+        {"withdrawal_date": "the date you stop working, taken as today"})
+    assert not report.passed
+
+
+def test_an_assumed_salary_says_which_salary():
+    # Found live (S11-001): "Sorry, the salary is $86,000" -- the block said only
+    # "the salary you gave", and the answer never named the figure it now used.
+    from pension_chat.calculation.assumption_policy import POLICY
+
+    basis = POLICY["final_average_salary"].basis
+    text = render_assumptions(_sheet_with(final_average_salary=(86000, SOURCE_ASSUMED, basis)))
+    assert "$86,000" in text and "$86,000.00" not in text
+    text = render_assumptions(_sheet_with(final_average_salary=(72500.5, SOURCE_ASSUMED, basis)))
+    assert "$72,500.50" in text

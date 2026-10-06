@@ -28,7 +28,7 @@ from typing import Any
 from langgraph.config import get_stream_writer
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent import objectives
+from pension_chat.agent import guardrails, objectives
 from pension_chat.agent.blocks import (
     render_assumptions,
     render_branches,
@@ -1356,10 +1356,9 @@ having searched, and no account of how you went about it."""
 
 
 def _has_figure(state: dict[str, Any]) -> bool:
-    return any(
-        (entry or {}).get("base", {}).get("ok")
-        for entry in (state.get("calculation_result") or {}).values()
-    )
+    # The guardrail's own predicate: the block and the check must agree on when
+    # a disclosure is due, or a correct answer is withdrawn for lacking one.
+    return guardrails.figure_worked(state.get("calculation_result"))
 
 
 def _assumed(state: dict[str, Any]) -> str:

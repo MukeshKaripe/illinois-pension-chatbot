@@ -779,6 +779,27 @@ def _verify_coverage(report: GuardrailReport, answer: str, coverage: dict | None
         )
 
 
+def figure_worked(calculation_result: Mapping[str, Any] | None) -> bool:
+    """Whether this turn worked a figure: a base result, or a scenario priced.
+
+    The one answer to that question, read by the guardrail that demands a
+    disclosure and by `loop._assumed`, which renders it. Answered twice, the two
+    disagreed both ways: a figure that was only a scenario ("at age 67") got no
+    block while the guardrail demanded one, and an answer that worked no figure
+    ("not payable now") was rejected for not disclosing one. Earlier turns'
+    figures (`_carried_*`) were disclosed on their own turn.
+    """
+    for name, entry in (calculation_result or {}).items():
+        if str(name).startswith("_carried_"):
+            continue
+        entry = entry or {}
+        if (entry.get("base") or {}).get("ok") or any(
+            (s or {}).get("annual_amount") for s in entry.get("scenarios") or []
+        ):
+            return True
+    return False
+
+
 def _check_assumptions_disclosed(
     report: GuardrailReport,
     answer: str,
@@ -808,12 +829,7 @@ def _check_assumptions_disclosed(
     # nothing and quoted nothing -- was rejected twice for failing to disclose
     # the retirement date assumed on turn one, and the member saw the fallback
     # instead of an answer about survivor benefits.
-    this_turn = {
-        name: entry
-        for name, entry in (calculation_result or {}).items()
-        if not str(name).startswith("_carried_")
-    }
-    if not assumed_facts or not this_turn:
+    if not assumed_facts or not figure_worked(calculation_result):
         return
 
     lowered = answer.lower()
