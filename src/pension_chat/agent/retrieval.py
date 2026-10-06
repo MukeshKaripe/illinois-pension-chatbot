@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from azure.search.documents.models import VectorizedQuery
+from azure.search.documents.models import VectorizableTextQuery, VectorizedQuery
 
 from pension_chat.agent import corpus, instrument
 from pension_chat.agent.llm import get_async_search_client, get_llm
@@ -224,6 +224,14 @@ async def _embed(queries: list[str]) -> list[list[float] | None]:
     return [_EMBED_CACHE.get(q) for q in queries]
 
 
+async def _query_vectors(queries: list[str]) -> list[list[float] | None]:
+    """Vectors for the queries, or ``None`` each when the search service embeds
+    them itself (``retrieval_integrated_vectorizer``)."""
+    if get_settings().retrieval_integrated_vectorizer:
+        return [None for _ in queries]
+    return await _embed(queries)
+
+
 # Reciprocal rank fusion constant. 60 is the value from the original paper and
 # the usual default; it damps the difference between the top few ranks, so a
 # section ranked second by one query still beats one ranked fifth by two.
@@ -272,7 +280,14 @@ async def _search_one(
     filter_expr: str | None,
     top: int,
 ) -> list[dict]:
-    """Run one hybrid query, degrading gracefully if a leg is unavailable."""
+    """Run one hybrid query, degrading gracefully if a leg is unavailable.
+
+    With no vector and ``retrieval_integrated_vectorizer`` on, the search service
+    embeds the query itself -- one round trip instead of two. The legs degrade in
+    the order they are likely to fail: the semantic ranker first (its own quota),
+    then the service's vectorizer (a rotated key), falling back to embedding the
+    query here; an empty search is lost evidence, so it is the last resort.
+    """
     settings = get_settings()
     client = get_async_search_client()
     kwargs: dict[str, Any] = {
@@ -284,20 +299,33 @@ async def _search_one(
     }
     if filter_expr:
         kwargs["filter"] = filter_expr
-    if vector:
+    vectorized_here = vector is not None or not settings.retrieval_integrated_vectorizer
+
+    def with_vector(v: list[float] | None) -> None:
+        if v:
+            kwargs["vector_queries"] = [
+                VectorizedQuery(vector=v, k_nearest_neighbors=settings.retrieval_vector_k,
+                                fields="content_vector")
+            ]
+        else:
+            kwargs.pop("vector_queries", None)
+
+    if vectorized_here:
+        with_vector(vector)
+    else:
         kwargs["vector_queries"] = [
-            VectorizedQuery(
-                vector=vector,
-                k_nearest_neighbors=settings.retrieval_vector_k,
-                fields="content_vector",
-            )
+            VectorizableTextQuery(text=query, k_nearest_neighbors=settings.retrieval_vector_k,
+                                  fields="content_vector")
         ]
 
-    try:
+    async def attempt() -> list[dict]:
         # Timed with the iteration: results are fetched lazily as they are read.
         async with instrument.timed("search", query):
             results = await client.search(**kwargs)
             return [dict(doc) async for doc in results]
+
+    try:
+        return await attempt()
     except Exception as exc:
         instrument.note("semantic_fallback", query)
         logger.warning("Semantic hybrid search failed for %r: %s", query, exc)
@@ -307,13 +335,28 @@ async def _search_one(
     kwargs.pop("query_type", None)
     kwargs.pop("semantic_configuration_name", None)
     try:
-        # Timed with the iteration: results are fetched lazily as they are read.
-        async with instrument.timed("search", query):
-            results = await client.search(**kwargs)
-            return [dict(doc) async for doc in results]
+        return await attempt()
     except Exception as exc:
-        logger.error("Search failed entirely for %r: %s", query, exc)
-        return []
+        if vectorized_here:
+            logger.error("Search failed entirely for %r: %s", query, exc)
+            return []
+        instrument.note("vectorizer_fallback", query)
+        logger.warning("Integrated vectorizer search failed for %r: %s", query, exc)
+
+    # The service could not embed the query: embed it here, as before the vectorizer.
+    with_vector((await _embed([query]) or [None])[0])
+    kwargs["query_type"] = "semantic"
+    kwargs["semantic_configuration_name"] = "pension-semantic-config"
+    for semantic in (True, False):
+        if not semantic:
+            kwargs.pop("query_type", None)
+            kwargs.pop("semantic_configuration_name", None)
+        try:
+            return await attempt()
+        except Exception as exc:
+            logger.warning("Search with a query embedded here failed for %r: %s", query, exc)
+    logger.error("Search failed entirely for %r", query)
+    return []
 
 
 def _chunk_score(doc: dict) -> float:
@@ -577,7 +620,7 @@ async def retrieve(
     fused: dict[str, float] = {}
 
     if queries:
-        vectors = await _embed(queries)
+        vectors = await _query_vectors(queries)
         filter_expr = _article_filter(articles)
         hits = await asyncio.gather(
             *(
@@ -787,7 +830,7 @@ async def retrieve_coverage(
         return []
 
     settings = get_settings()
-    vectors = await _embed([description])
+    vectors = await _query_vectors([description])
     docs = await _search_one(
         description,
         vectors[0] if vectors else None,

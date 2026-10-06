@@ -100,6 +100,10 @@ class Settings(BaseSettings):
 
     # Retrieval
     retrieval_vector_k: int = 40               # HNSW candidates before reranking
+    # Let Azure AI Search embed the query itself (its integrated vectorizer): one
+    # round trip instead of two. Needs scripts/enable_vectorizer.py run once on the
+    # index; a failing vectorizer falls back to embedding here (retrieval._search_one).
+    retrieval_integrated_vectorizer: bool = False
     retrieval_top_sections: int = 6            # distinct sections handed to the model
     retrieval_context_token_budget: int = 7000
     retrieval_per_query_top: int = 8
