@@ -1,0 +1,30 @@
+# Internal ingress: an EXAMPLE for an NGINX ingress controller on a private
+# load balancer. Adapt the class, host and TLS secret to the client's cluster.
+#
+# Streaming answers (SSE) need the proxy NOT to buffer responses and to allow
+# long reads; otherwise the user sees nothing until the whole answer is done,
+# or the connection is cut mid-answer.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pension-chat
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+spec:
+  ingressClassName: CONFIRM-internal-nginx
+  tls:
+    - hosts: [CONFIRM-pension-chat.internal.example]
+      secretName: CONFIRM-tls-secret
+  rules:
+    - host: CONFIRM-pension-chat.internal.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pension-chat
+                port: { name: http }

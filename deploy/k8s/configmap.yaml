@@ -1,0 +1,52 @@
+# Non-secret configuration for the pension-chat backend.
+# Values match the configuration the 2026-10-05 demo ran with; the items marked
+# CONFIRM need the client's production values before `kubectl apply`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pension-chat-config
+  labels: { app: pension-chat }
+data:
+  APP_ENV: "production"            # refuses to start on the placeholder JWT secret
+  LOG_LEVEL: "INFO"
+
+  # The browser origin(s) of the client's Blazor app. CONFIRM.
+  # Not needed if the Blazor app calls the API from its server (Blazor Server).
+  CORS_ORIGINS: "https://CONFIRM-blazor-app-origin"
+
+  # Azure OpenAI (client resource novitas-ai)
+  AZURE_OPENAI_ENDPOINT: "https://novitas-ai.openai.azure.com/"
+  AZURE_OPENAI_API_VERSION: "2024-12-01-preview"
+  AZURE_OPENAI_CHAT_DEPLOYMENT: "gpt-6-luna"
+  AZURE_OPENAI_EMBEDDING_DEPLOYMENT: "text-embedding-3-large"
+
+  # Azure AI Search (client resource novitasaisearch); the index has the
+  # integrated vectorizer applied (scripts/enable_vectorizer.py, 2026-10-06).
+  AZURE_SEARCH_ENDPOINT: "https://novitasaisearch.search.windows.net"
+  AZURE_SEARCH_INDEX_NAME: "pension-code-prod"
+  RETRIEVAL_INTEGRATED_VECTORIZER: "true"
+
+  # Postgres (client resource novitasaidb); the app role is pension_app (RLS enforced).
+  PGHOST: "novitasaidb.postgres.database.azure.com"
+  PGPORT: "5432"
+  PGDATABASE: "pension_chat_db"
+
+  # PBMS, the fund's employee records (read-only). CONFIRM the database:
+  # the demo used PbsMeabDev, a development database.
+  RECORD_SOURCE: "pbms"
+  PBMS_SQL_SERVER: "newncgsql.centralus.cloudapp.azure.com,2022"
+  PBMS_SQL_DATABASE: "PbsMeabDev"
+
+  # The MEABF deployment: Article 8.
+  DEPLOYMENT_ARTICLE: "8"
+
+  # Conversation state is held in the process (single-session chats, v1 scope).
+  # This is why the Deployment runs exactly one replica with the Recreate strategy.
+  CHECKPOINTER: "memory"
+
+  # Failure captures contain real conversations (PBMS employee data): never on
+  # a container disk in production.
+  CAPTURE_FAILURES: "false"
+
+  # Full scope, as demoed: derived formulas execute and are labelled estimates.
+  DERIVED_RECIPE_EXECUTION_POLICY: "estimate"
