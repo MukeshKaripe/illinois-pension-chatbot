@@ -280,6 +280,25 @@ _FILL_HEADINGS = (
 )
 
 
+def _with_amount(line: str, name: str, value: Any) -> str:
+    """A salary line names the salary: "the salary you gave, $86,000, taken as flat".
+
+    Found live: after "Sorry, the salary is $86,000" the block said only "the
+    salary you gave", and the answer never named the figure it now used. Only
+    salaries -- every digit added here must trace to the member or the record,
+    and a salary always does; a placed birth date would not.
+    """
+    if not (aliases_of(name) & aliases_of("final_average_salary")) or value is None:
+        return line
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return line
+    shown = f"${amount:,.0f}" if amount == amount.to_integral_value() else _money(amount)
+    head, sep, tail = line.partition(", ")
+    return f"{head}, {shown}{sep}{tail}" if sep else f"{line} ({shown})"
+
+
 def render_assumptions(sheet: WorkSheet) -> str:
     """How each filled value was arrived at. Empty when nothing was filled.
 
@@ -299,7 +318,7 @@ def render_assumptions(sheet: WorkSheet) -> str:
             if name in covered:
                 continue
             covered |= aliases_of(name)
-            lines.append(f"- {fact.basis or fact.name}")
+            lines.append(f"- {_with_amount(fact.basis or fact.name, name, fact.value)}")
         sections.append(f"**{heading}**\n\n" + "\n".join(lines))
     return "\n\n".join(sections)
 

@@ -20,6 +20,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from pension_chat.agent import instrument
 from pension_chat.pbms.queries import REGISTRY, Query
 from pension_chat.records import RecordUnavailable
 
@@ -112,9 +113,10 @@ class PbmsClient:
         args = tuple(params[p] for p in query.params)
         timeout = max(1, int(query.timeout_s or self._timeout))
         try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(self._run, name, query, args, timeout), timeout=timeout * 2 + 1
-            )
+            async with instrument.timed("pbms", name):
+                return await asyncio.wait_for(
+                    asyncio.to_thread(self._run, name, query, args, timeout), timeout=timeout * 2 + 1
+                )
         except TimeoutError:
             raise PbmsUnavailable(f"PBMS query {name} timed out") from None
 

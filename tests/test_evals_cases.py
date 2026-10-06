@@ -77,3 +77,14 @@ def test_an_unacceptable_behaviour_name_is_refused(tmp_path: Path) -> None:
     text = GOOD.replace("    checks:", "    acceptable: [shrug]\n    checks:")
     with pytest.raises(CaseError, match="behaviour 'shrug'"):
         load_cases(_write(tmp_path, text), fixture_keys=set())
+
+
+def test_the_latency_suite_covers_every_turn_type_twice():
+    from pathlib import Path
+
+    from pension_chat.evals.cases import load_cases
+    fixtures_dir = Path("evals/fixtures/employees")
+    cases = [c for c in load_cases(Path("evals/cases"), {p.stem for p in fixtures_dir.glob("*.yaml")})
+             if c.family == "L1"]
+    assert len(cases) >= 12
+    assert all("model_calls_max" in t.checks for c in cases for t in c.turns)

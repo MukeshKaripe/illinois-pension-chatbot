@@ -54,6 +54,14 @@ class TurnTrace:
     notes: list[dict[str, Any]] = field(default_factory=list)
     stages: dict[str, float] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
+    #: The turn's budget record (agent/budgets.py): what kind of turn it was,
+    #: and how many model calls ran one after another before the first word.
+    turn_type: str | None = None
+    model_calls: int | None = None
+    #: Sections whose text the answer prompt carried more than once -> repeated tokens.
+    repeated_sections: dict[str, int] = field(default_factory=dict)
+    #: Stated values the model passed under names no formula reads.
+    unused_stated: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = json.loads(json.dumps(asdict(self), default=str))
@@ -159,6 +167,11 @@ def build_trace(
             trace.subject = (state.get("employee_record") or {}).get("id")
             trace.stages = dict(state.get("timings") or {})
             trace.usage = dict(state.get("token_usage") or {})
+            budget = state.get("turn_budget") or {}
+            trace.turn_type = budget.get("turn_type")
+            trace.model_calls = budget.get("sequential_model_calls")
+            trace.repeated_sections = dict(budget.get("repeated_sections") or {})
+            trace.unused_stated = dict(state.get("unused_stated") or {})
             trace.total = at
     trace.streamed_answer = "".join(streamed)
     trace.final_answer = final if final is not None else trace.streamed_answer

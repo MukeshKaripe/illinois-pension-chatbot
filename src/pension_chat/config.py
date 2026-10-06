@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     )
 
     # ── Azure OpenAI ──────────────────────────────────────────────
-    azure_openai_api_key: str
+    azure_openai_api_key: SecretStr
     azure_openai_endpoint: str
     azure_openai_api_version: str = "2024-02-15-preview"
     azure_openai_chat_deployment: str = "gpt-5.6-luna-1"
@@ -36,13 +36,13 @@ class Settings(BaseSettings):
     azure_openai_sol_deployment: str | None = None
 
     # ── Azure AI Search ───────────────────────────────────────────
-    azure_search_api_key: str
+    azure_search_api_key: SecretStr
     azure_search_endpoint: str
     azure_search_index_name: str = "pension-code-dev"
 
     # ── Azure Blob (statute documents supplied by the client) ─────
     # Optional: only ingestion with `--source blob` reads them.
-    azure_storage_connection_string: str | None = None
+    azure_storage_connection_string: SecretStr | None = None
     azure_storage_container: str | None = None
 
     # ── Database (Postgres) ───────────────────────────────────────
@@ -50,13 +50,13 @@ class Settings(BaseSettings):
     pguser: str
     pgport: int = 5432
     pgdatabase: str = "pension_chat_db"
-    pgpassword: str
+    pgpassword: SecretStr
 
     @property
     def database_url(self) -> str:
         """Async Postgres connection string for SQLAlchemy."""
         from urllib.parse import quote_plus
-        pwd = self.pgpassword.strip('"').strip("'")
+        pwd = self.pgpassword.get_secret_value().strip('"').strip("'")
         pwd = quote_plus(pwd)
         return (
             f"postgresql+asyncpg://{self.pguser}:{pwd}"
@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     def sync_database_url(self) -> str:
         """Sync Postgres connection string for Alembic."""
         from urllib.parse import quote_plus
-        pwd = self.pgpassword.strip('"').strip("'")
+        pwd = self.pgpassword.get_secret_value().strip('"').strip("'")
         pwd = quote_plus(pwd)
         return (
             f"postgresql://{self.pguser}:{pwd}"
@@ -93,9 +93,17 @@ class Settings(BaseSettings):
     reasoning_effort_derive: str = "medium"
     reasoning_effort_answer: str = "none"      # answer is grounded, not derived
     reasoning_effort_extract: str = "none"
+    # The separate model call that read stated values out of the conversation.
+    # Off: stated values now travel as compute_benefit's `stated` argument and are
+    # verified in code (spec §5.2). On restores the old call, for rollback.
+    extract_with_separate_call: bool = False
 
     # Retrieval
     retrieval_vector_k: int = 40               # HNSW candidates before reranking
+    # Let Azure AI Search embed the query itself (its integrated vectorizer): one
+    # round trip instead of two. Needs scripts/enable_vectorizer.py run once on the
+    # index; a failing vectorizer falls back to embedding here (retrieval._search_one).
+    retrieval_integrated_vectorizer: bool = False
     retrieval_top_sections: int = 6            # distinct sections handed to the model
     retrieval_context_token_budget: int = 7000
     retrieval_per_query_top: int = 8
@@ -203,7 +211,7 @@ class Settings(BaseSettings):
     # The default is kept so that tests and local development can construct
     # Settings() without ceremony. What must not happen is shipping it: see
     # `_refuse_a_guessable_secret` below, which is the half that has teeth.
-    jwt_secret_key: str = PLACEHOLDER_JWT_SECRET
+    jwt_secret_key: SecretStr = SecretStr(PLACEHOLDER_JWT_SECRET)
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 1440  # 24 hours
 
@@ -228,16 +236,16 @@ class Settings(BaseSettings):
         """
         if self.app_env in {"development", "test"}:
             return self
-        if self.jwt_secret_key == PLACEHOLDER_JWT_SECRET:
+        if self.jwt_secret_key.get_secret_value() == PLACEHOLDER_JWT_SECRET:
             raise ValueError(
                 "JWT_SECRET_KEY is still the placeholder from config.py. "
                 "Set it to a random value of at least "
                 f"{MIN_JWT_SECRET_LENGTH} characters before running outside "
                 "development."
             )
-        if len(self.jwt_secret_key) < MIN_JWT_SECRET_LENGTH:
+        if len(self.jwt_secret_key.get_secret_value()) < MIN_JWT_SECRET_LENGTH:
             raise ValueError(
-                f"JWT_SECRET_KEY is {len(self.jwt_secret_key)} characters; "
+                f"JWT_SECRET_KEY is {len(self.jwt_secret_key.get_secret_value())} characters; "
                 f"the minimum is {MIN_JWT_SECRET_LENGTH}."
             )
         return self

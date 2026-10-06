@@ -178,3 +178,14 @@ def test_expected_figure_is_checked_to_the_cent() -> None:
     wrong = _one(_turn(expected_figure={"annual": 28244.13}), t)
     assert not wrong.passed and "19770.89" in wrong.detail
     assert not _one(_turn(expected_figure={"annual": 19770.89}), _trace()).passed   # no figure at all
+
+
+def test_model_calls_max_reads_the_trace():
+    from pension_chat.evals.cases import Turn
+    from pension_chat.evals.checks import run_checks
+    from pension_chat.evals.trace import TurnTrace
+
+    turn = Turn(q="q", goal="g", reference="r", checks={"model_calls_max": 2})
+    ok = run_checks(turn, TurnTrace(case_id="c", turn_index=0, question="q", employee=None, model_calls=2))
+    over = run_checks(turn, TurnTrace(case_id="c", turn_index=0, question="q", employee=None, model_calls=3))
+    assert ok[0].passed and not over[0].passed and "3" in over[0].detail

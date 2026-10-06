@@ -1,0 +1,17 @@
+id: L1-003
+family: L1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: Who counts as an employee under Section 8-113?
+  goal: Who §8-113 defines as an employee.
+  reference: City classified or career service employees, Retirement Board staff, certain temporary, exempt and
+    elected people under conditions, and since 1984 most people employed by the employer, with exceptions (§8-113).
+  checks:
+    cites_any:
+    - 8-113
+    model_calls_max: 2
+    ttft_class: simple

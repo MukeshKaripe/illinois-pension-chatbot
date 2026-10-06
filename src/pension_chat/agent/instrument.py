@@ -30,6 +30,9 @@ class Call:
     label: str
     start: float
     end: float
+    #: False for an attempt that raised (a 429 later retried): its time is real,
+    #: but it is not a call the turn's budget counts.
+    ok: bool = True
 
 
 @dataclass
@@ -62,8 +65,10 @@ async def timed(kind: str, label: str = "") -> AsyncIterator[None]:
     start = time.perf_counter()
     try:
         yield
-    finally:
-        inst.calls.append(Call(kind, label, start, time.perf_counter()))
+    except BaseException:
+        inst.calls.append(Call(kind, label, start, time.perf_counter(), ok=False))
+        raise
+    inst.calls.append(Call(kind, label, start, time.perf_counter()))
 
 
 def note(kind: str, detail: str = "") -> None:

@@ -72,3 +72,24 @@ def test_the_wire_format_carries_the_slot_and_the_markdown():
     assert frame.startswith("event: view\n")
     assert '"slot": "WORKED_STEPS"' in frame
     assert "Step | Amount" in frame
+
+
+async def test_the_done_state_carries_the_turn_budget(monkeypatch):
+    events = await _events({}, monkeypatch)
+    done = next(e for e in events if e["type"] == "done")
+    budget = done["state"]["turn_budget"]
+    assert budget["turn_type"] == "statute"
+    assert set(budget) == {"turn_type", "sequential_model_calls", "model_nodes", "over_budget",
+                           "repeated_sections"}
+
+
+async def test_an_earlier_turns_calls_do_not_count(monkeypatch):
+    # One task serving two turns reuses the instrument; the first turn's model
+    # calls must not land in the second turn's budget.
+    from pension_chat.agent import instrument
+
+    inst = instrument.begin()
+    inst.calls.append(instrument.Call("model", "investigate", 0.0, 1.0))
+    events = await _events({}, monkeypatch)
+    done = next(e for e in events if e["type"] == "done")
+    assert done["state"]["turn_budget"]["sequential_model_calls"] == 0

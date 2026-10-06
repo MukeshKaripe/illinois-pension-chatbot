@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Mapping
 from decimal import Decimal
@@ -27,7 +28,7 @@ from typing import Any
 from langgraph.config import get_stream_writer
 
 from pension_chat.agent import coverage as coverage_mod
-from pension_chat.agent import objectives
+from pension_chat.agent import guardrails, objectives
 from pension_chat.agent.blocks import (
     render_assumptions,
     render_branches,
@@ -396,12 +397,81 @@ def _standing_figures(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return standing
 
 
-def _available(spent: dict[str, int]) -> list[dict[str, Any]]:
+def _offered(self_described: bool) -> list[dict[str, Any]]:
+    """The tools this turn may use. Coverage is decided by rule (spec §5.3): the
+    record or the deployment settles it, and the model is asked only when the
+    member described themselves -- the rule that a question goes to the member
+    only when the member spoke."""
+    return [t for t in LOOP_TOOLS if self_described or t not in COVERAGE_TOOLS]
+
+
+def _available(spent: dict[str, int], self_described: bool = True) -> list[dict[str, Any]]:
     return [
         tool
-        for tool in LOOP_TOOLS
+        for tool in _offered(self_described)
         if spent.get(tool["function"]["name"], 0) < BUDGETS.get(tool["function"]["name"], 0)
     ]
+
+
+_SECTION_HEAD = re.compile(r"^### 40 ILCS 5/(\S+)[^\n]*\n", re.MULTILINE)
+
+
+def _dedupe_sections(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The prompt with each section's text once; a copy another one contains becomes a pointer.
+
+    A section reaches the prompt by several routes -- the first search, a read the
+    model asked for, the evidence closure, compose's settled provision -- and
+    measured on the L1 suite §8-138 was carried up to three times (~3,600 tokens).
+    Nothing is dropped (spec §5.5, D3): a copy is replaced only when another copy
+    *contains* it, so a search result cut short by the context budget never stands
+    in for the whole section. Of identical copies the last is kept, because the
+    block nearest the end is the one placed where the decision is made.
+    Returns a new list; the messages themselves are not changed.
+    """
+    # (message index, start, end, section, region text) for every section block.
+    blocks: list[tuple[int, int, int, str, str]] = []
+    for m, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        heads = list(_SECTION_HEAD.finditer(content))
+        for i, head in enumerate(heads):
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(content)
+            region = content[head.start():end]
+            blocks.append((m, head.start(), end, head.group(1), region.strip()))
+    if len(blocks) < 2:
+        return messages
+
+    # A block is redundant when another copy of the same section contains its
+    # text and is longer, or is identical and comes later. Containment is
+    # transitive, so every redundant block's text is inside one that is kept.
+    keeper: dict[int, int] = {}
+    for b, (_, _, _, section, region) in enumerate(blocks):
+        for o, (_, _, _, other_section, other) in enumerate(blocks):
+            if o == b or other_section != section or region not in other:
+                continue
+            if len(other) > len(region) or (other == region and o > b):
+                keeper[b] = o
+                break
+    if not keeper:
+        return messages
+    # Point at the copy that is actually kept, not at one that is itself a pointer.
+    for b in keeper:
+        while keeper[b] in keeper:
+            keeper[b] = keeper[keeper[b]]
+
+    # Replace from the end of each message so earlier offsets stay valid.
+    edited = [dict(message) for message in messages]
+    for b in sorted(keeper, key=lambda k: (blocks[k][0], -blocks[k][1])):
+        m, start, end, section, _ = blocks[b]
+        where = "below" if (blocks[keeper[b]][0], blocks[keeper[b]][1]) > (m, start) else "above"
+        content = edited[m]["content"]
+        tail = "\n\n" if content[start:end].endswith("\n\n") else "\n" if content[start:end].endswith("\n") else ""
+        edited[m]["content"] = (
+            content[:start] + f"(Section {section}: its text is given {where}.){tail}" + content[end:]
+        )
+    return edited
+
 
 
 def _merge_sections(existing: list[dict], incoming: list[dict]) -> list[dict]:
@@ -770,6 +840,10 @@ async def _complete_people(
     if len(people) < 2 or not last_compute:
         return []
     run = run or run_tool
+    # The question is copied, never the values: what the user stated, and an
+    # invitation to borrow a record, were about the person computed for, and
+    # "25" being in the user's words would let it override another's record.
+    question = {k: v for k, v in last_compute.items() if k not in ("stated", "stand_in_facts")}
     have = {
         (entry or {}).get("person_ref")
         for entry in (working.get("calculation_result") or {}).values()
@@ -780,8 +854,8 @@ async def _complete_people(
         bundle = people.get(ref)
         if not bundle or ref in have:
             continue
-        _progress("compute_benefit", {**last_compute, "person": bundle["label"]})
-        _, update = await run("compute_benefit", {**last_compute, "person": bundle["label"]}, working)
+        _progress("compute_benefit", {**question, "person": bundle["label"]})
+        _, update = await run("compute_benefit", {**question, "person": bundle["label"]}, working)
         working.update(update)
         done.append(bundle["label"])
     return done
@@ -859,22 +933,21 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
     # move the governing Article, and a filter built on the record would seed
     # another fund's law into the citable set -- the exact harm the coverage
     # layer exists to prevent. Those turns run the loop as they always did.
+    self_described = coverage_mod.classify_self_reference(state["question"]) is not None
     prefetched: set[str] = set()
-    if coverage_mod.classify_self_reference(state["question"]) is None:
+    if not self_described:
         prefetch_args = {
             "queries": _contextual_queries(state),
             "articles": _search_filter(working),
             "why": "searched before the first model call",
         }
         _progress("search_statute", prefetch_args)
-        result, update = await run_tool(
-            "search_statute",
-            {
-                "queries": _contextual_queries(state),
-                "articles": _search_filter(working),
-                "why": "searched before the first model call",
-            },
-            working,
+        # A section the question names is read alongside the search, not after
+        # the model asks for it: that request was a whole model round trip.
+        named = [str(s) for s in (state.get("explicit_sections") or []) if s]
+        (result, update), named_reads = await asyncio.gather(
+            run_tool("search_statute", prefetch_args, working),
+            _read_sections(named, working) if named else asyncio.sleep(0, result=[]),
         )
         spent["search_statute"] = spent.get("search_statute", 0) + 1
         if update.get("retrieved_sections"):
@@ -895,6 +968,26 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
+        read_named: list[str] = []
+        for fetched in named_reads or []:
+            if fetched is None:
+                continue  # a section that doesn't exist must not end the turn
+            text, named_update = fetched
+            if named_update.get("retrieved_sections"):
+                sections = _merge_sections(sections, named_update["retrieved_sections"])
+                working["retrieved_sections"] = sections
+            read_named.append(text)
+        if read_named:
+            prefetched = {str(s["section"]) for s in sections if s.get("section")}
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "The sections the question names have been read for you:"
+                        + chr(10) + chr(10) + (chr(10) * 2).join(read_named)
+                    ),
+                }
+            )
 
         # Every section that text leans on, read before the model decides.
         # `_unread_references` is computed rather than judged -- "you relied on
@@ -957,10 +1050,10 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
             exhausted = True
             break
 
-        available = _available(spent)
+        available = _available(spent, self_described)
         # A tool that has just gone is explained rather than vanishing, so the
         # model stops trying it and knows what it has left.
-        for tool in LOOP_TOOLS:
+        for tool in _offered(self_described):
             name = tool["function"]["name"]
             if tool not in available and name not in withdrawn:
                 withdrawn.add(name)
@@ -977,7 +1070,7 @@ async def investigate(state: dict[str, Any]) -> dict[str, Any]:
         rounds_taken += 1
         turn = await call_with_tools(
             node="investigate",
-            messages=messages,
+            messages=_dedupe_sections(messages),
             tools=available,
             reasoning_effort=settings.reasoning_effort_understand,
         )
@@ -1263,10 +1356,9 @@ having searched, and no account of how you went about it."""
 
 
 def _has_figure(state: dict[str, Any]) -> bool:
-    return any(
-        (entry or {}).get("base", {}).get("ok")
-        for entry in (state.get("calculation_result") or {}).values()
-    )
+    # The guardrail's own predicate: the block and the check must agree on when
+    # a disclosure is due, or a correct answer is withdrawn for lacking one.
+    return guardrails.figure_worked(state.get("calculation_result"))
 
 
 def _assumed(state: dict[str, Any]) -> str:
@@ -1311,10 +1403,24 @@ def _branched(state: dict[str, Any]) -> str:
 #: figures swapped between two branches both trace to engine output, so the
 #: guardrail passes them -- so the model names the table and never writes it.
 #:
-#: ASSUMPTIONS is deliberately absent. `guardrails._check_assumptions_disclosed`
-#: requires the *answer* to disclose an assumption in its own words, and a block
-#: substituted into the stream is not the answer saying anything.
-MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS", "PEOPLE")
+#: ASSUMPTIONS is marked too, and for the same reason. It was once deliberately
+#: left to the model ("the answer must disclose in its own words"), and the
+#: model was the weak link: a forgotten sentence sent a correct answer to the
+#: fallback. The member reads the same words either way; written by code they
+#: are always there, beside the figure, and `_check_assumptions_disclosed` reads
+#: the answer with its blocks in it (test_every_assumption_rule_is_disclosed_by_its_own_block).
+MARKED_VIEWS = ("WORKED_STEPS", "COMPARISON", "THRESHOLDS", "PEOPLE", "ASSUMPTIONS")
+
+#: Blocks that are never one person's, so a comparison keeps them.
+_SHARED_VIEWS = frozenset({"PEOPLE", "ASSUMPTIONS"})
+
+
+def _keep_for_people(rendered: dict[str, str]) -> dict[str, str]:
+    """With several people the comparison is the table: one person's worked
+    steps or options beside it were being dropped into its cells. A disclosure
+    belongs to every figure in the answer, so it stays."""
+    return {slot: text for slot, text in rendered.items()
+            if slot in _SHARED_VIEWS or slot not in MARKED_VIEWS}
 
 
 #: How a tool call reads as a step, in the member's terms rather than the
@@ -1475,10 +1581,7 @@ def _views(state: dict[str, Any]) -> dict[str, str]:
         "THRESHOLDS": render_thresholds((first or {}).get("thresholds")),
     }
     if rendered.get("PEOPLE", "").strip():
-        # Several people: the comparison is the table. One person's worked
-        # steps or options beside it were being dropped into its cells.
-        rendered = {slot: text for slot, text in rendered.items()
-                    if slot == "PEOPLE" or slot not in MARKED_VIEWS}
+        rendered = _keep_for_people(rendered)
     return {slot: text for slot, text in rendered.items() if text.strip()}
 
 
@@ -2003,24 +2106,19 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "role": "system",
                 "content": (
-                    (
-                        "The figure you are about to quote rests on values "
-                        "nobody supplied. You must say so, in your own words, "
-                        "beside the figure:"
-                        if _must_disclose(state)
-                        else "Account for how the figure's inputs were arrived "
-                        "at, in your own words. Values the Code sets are "
-                        "citable -- name the section rather than hedging about "
-                        "them, and do not call them assumptions:"
-                    )
-                    + chr(10) + chr(10) + disclosure + chr(10) + chr(10)
+                    "How the figure's inputs were arrived at is written for you "
+                    "and inserted at <<<ASSUMPTIONS>>>. Put that marker on its "
+                    "own line right after the figure, and do not restate the "
+                    "block. Your sentences must agree with it"
                     + (
-                        "An estimate whose assumptions are not stated will be "
-                        "withdrawn before the member sees it."
+                        " -- the figure rests on values nobody supplied, so "
+                        "never present it as exact."
                         if _must_disclose(state)
-                        else "Nothing here was invented, so nothing here needs "
-                        "an apology."
+                        else ". Values the Code sets are citable: name the "
+                        "section rather than hedging about them, and do not "
+                        "call them assumptions."
                     )
+                    + chr(10) + chr(10) + "The block reads:" + chr(10) + chr(10) + disclosure
                 ),
             }
         )
@@ -2041,7 +2139,7 @@ async def compose(state: dict[str, Any]) -> dict[str, Any]:
         for s in (state.get("retrieved_sections") or [])
     ]
     return {
-        "answer_messages": messages,
+        "answer_messages": _dedupe_sections(messages),
         # Rendered before generation, so they can be sent to the member while
         # the prose is still being written -- and so the calculation drawer has
         # something to show. `card.py` has been reading `answer_blocks` for

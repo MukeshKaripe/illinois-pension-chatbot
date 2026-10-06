@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -30,6 +32,8 @@ from pension_chat.evals.judge import Verdict, judge_turn
 from pension_chat.evals.timing import Probe, estimate_in_region, stage_breakdown
 from pension_chat.evals.trace import TurnTrace, build_trace
 from pension_chat.records import use_provider
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,6 +52,9 @@ class RunOptions:
     judge_all: bool = False
     #: Print one flushed line per finished conversation (the CLI turns it on).
     progress: bool = False
+    #: Timing-only re-runs of every case, so p95 means something; not judged,
+    #: not checked for pass/fail.
+    repeat: int = 1
 
 
 @dataclass
@@ -67,6 +74,8 @@ class ConversationResult:
     case: Case
     turns: list[TurnResult] = field(default_factory=list)
     flaky: bool = False
+    #: Timing-only re-runs (RunOptions.repeat); read for latency, never for pass/fail.
+    repeats: list[ConversationResult] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -222,4 +231,14 @@ async def run_suite(cases: list[Case], *, fixtures: dict[str, Any], probe: Probe
             if second.passed:
                 second.flaky = True
                 results[i] = second
+    if options.repeat > 1:
+        quiet = dataclasses.replace(options, judge=False, judge_all=False, progress=False)
+        for result in results:
+            for _ in range(options.repeat - 1):
+                async with gate:
+                    try:
+                        result.repeats.append(await run_conversation(
+                            result.case, fixtures=fixtures, probe=probe, options=quiet, agent=agent))
+                    except Exception:
+                        logger.exception("Timing repeat failed for %s", result.case.id)
     return results

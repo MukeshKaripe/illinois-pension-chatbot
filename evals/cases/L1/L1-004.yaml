@@ -1,0 +1,18 @@
+id: L1-004
+family: L1
+areas:
+- retrieval
+- citations
+tiers:
+- full
+turns:
+- q: What is the maximum pension under Section 8-138(g-1)?
+  goal: The cap on the (g-1) annuity.
+  reference: 80% of final average salary (75% if withdrawn before 2002) (§8-138).
+  checks:
+    cites_any:
+    - 8-138
+    must_state:
+    - 80%
+    model_calls_max: 2
+    ttft_class: simple

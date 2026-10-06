@@ -65,3 +65,58 @@ def test_the_report_counts_formulas_derived_and_reused() -> None:
     r = summarise([conv], judge_calibrated=False, probe={})
     assert r["formulas"] == {"derived": 1, "registry": 1}
     assert "Formulas: 1 derived, 1 reused" in render_markdown(r, diff(r, None))
+
+
+def test_latency_is_reported_per_turn_type_with_p95():
+    from pension_chat.evals.cases import Case, Turn
+    from pension_chat.evals.report import summarise
+    from pension_chat.evals.runner import ConversationResult, TurnResult
+    from pension_chat.evals.trace import TurnTrace
+
+    case = Case(id="L1-001", family="L1", areas=["retrieval"],
+                turns=[Turn(q="q", goal="g", reference="r", checks={})], path=None)
+    turns = []
+    for i, t in enumerate((2.0, 2.5, 3.0, 6.0)):
+        trace = TurnTrace(case_id="L1-001", turn_index=0, question="q", employee=None,
+                          ttft=t, turn_type="statute", usage={"by_node": {"investigate": {"prompt": 10000}}})
+        turns.append(TurnResult("L1-001", 0, trace, [], None, "pass", t - 1.0, {}))
+    report = summarise([ConversationResult(case, [tr]) for tr in turns], judge_calibrated=False, probe={})
+    slot = report["latency_by_turn_type"]["statute"]
+    assert slot["measured"]["n"] == 4 and slot["measured"]["p95"] == 6.0
+    assert report["prompt_tokens"]["investigate"] == 10000
+
+
+def test_accepting_a_narrow_run_keeps_the_rest_of_the_baseline():
+    from pension_chat.evals.report import accepted
+
+    old = {"turns": {"S4-001#0": {"status": "pass"}, "L1-001#0": {"status": "fail"}},
+           "families": {"S4": {}},
+           "suites": {"S4": {"latency": {"heavy": {}},
+                             "latency_by_turn_type": {"figure": {"estimated": {"p50": 4.0}}}}}}
+    report = {"turns": {"L1-001#0": {"status": "pass"}}, "latency": {"simple": {}},
+              "families": {"L1": {}}, "latency_by_turn_type": {"statute": {"estimated": {"p50": 2.0}}},
+              "prompt_tokens": {"investigate": 9000}, "probe": {}}
+    merged = accepted(report, old)
+    assert merged["turns"] == {"S4-001#0": {"status": "pass"}, "L1-001#0": {"status": "pass"}}
+    assert set(merged["families"]) == {"S4", "L1"}
+    assert merged["suites"]["L1"]["latency_by_turn_type"]["statute"]["estimated"]["p50"] == 2.0
+    assert merged["suites"]["S4"]["latency_by_turn_type"]["figure"]["estimated"]["p50"] == 4.0
+    assert merged["suites"]["L1"]["prompt_tokens"] == {"investigate": 9000}
+
+
+def test_latency_is_compared_only_with_the_same_suite():
+    # An L1 run must not be compared with the S families' figure latency.
+    from pension_chat.evals.report import diff
+
+    baseline = {"turns": {}, "suites": {
+        "S11+S4": {"latency": {"heavy": {"measured": {"median": 9.0}}},
+                   "latency_by_turn_type": {"figure": {"estimated": {"p50": 6.0, "p95": 8.0}}}},
+        "L1": {"latency": {"simple": {"measured": {"median": 7.0}}},
+               "latency_by_turn_type": {"figure": {"estimated": {"p50": 5.5, "p95": 6.7}}}}}}
+    report = {"turns": {}, "families": {"L1": {}},
+              "latency": {"simple": {"measured": {"median": 6.0}}},
+              "latency_by_turn_type": {"figure": {"estimated": {"p50": 4.5, "p95": 5.5}}}}
+    changes = diff(report, baseline)
+    assert changes["type_moves"] == {"figure": {"p50": -1.0, "p95": -1.2}}
+    assert changes["latency_moves"] == {"simple": -1.0}
+    assert diff({**report, "families": {"S13": {}}}, baseline)["type_moves"] == {}

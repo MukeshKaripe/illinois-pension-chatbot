@@ -160,7 +160,7 @@ def _settings(**overrides) -> Settings:
 def test_development_may_use_the_shipped_secret():
     """Otherwise every test and every checkout needs ceremony to start."""
     for env in ("development", "test"):
-        assert _settings(app_env=env).jwt_secret_key == PLACEHOLDER_JWT_SECRET
+        assert _settings(app_env=env).jwt_secret_key.get_secret_value() == PLACEHOLDER_JWT_SECRET
 
 
 def test_production_refuses_the_shipped_secret():
@@ -180,7 +180,7 @@ def test_production_refuses_a_short_secret():
 
 def test_production_accepts_a_real_secret():
     secret = "a" * MIN_JWT_SECRET_LENGTH
-    assert _settings(app_env="production", jwt_secret_key=secret).jwt_secret_key == secret
+    assert _settings(app_env="production", jwt_secret_key=secret).jwt_secret_key.get_secret_value() == secret
 
 
 # ── Signup validation ─────────────────────────────────────────────

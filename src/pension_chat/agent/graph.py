@@ -28,6 +28,7 @@ from the planning node and every one of those dependencies was violated.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
@@ -40,9 +41,10 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, StateGraph
 
-from pension_chat.agent import guardrails
+from pension_chat.agent import guardrails, instrument
 from pension_chat.agent import pending as pending_writes
 from pension_chat.agent.blocks import MarkerSubstituter
+from pension_chat.agent.budgets import turn_budget_record
 from pension_chat.agent.capture import record_failure
 from pension_chat.agent.card import calculation_cards
 from pension_chat.agent.checkpointer import (
@@ -286,6 +288,9 @@ async def run_agent_stream(
     settings = get_settings()
     usage = begin_usage()
     started = time.perf_counter()
+    # A record of this turn's remote calls, so its budget can be logged in
+    # production too. The eval harness starts its own; reuse it when present.
+    turn_instrument = instrument.current() or instrument.begin()
 
     # Two identities that look alike and are not the same. `employee_id` is
     # whose record to read; `thread_owner` is who owns this conversation's
@@ -377,6 +382,7 @@ async def run_agent_stream(
         _defer_record(session_id, config, state)
         state["token_usage"] = usage.to_dict()
         state["timings"] = {**state.get("timings", {}), "total": time.perf_counter() - started}
+        _record_budget(state, turn_instrument.calls, started, 0.0)
         yield {"type": "done", "state": state}
         return
 
@@ -574,6 +580,7 @@ async def run_agent_stream(
         "time_to_first_token": first_token_at or 0.0,
         "total": time.perf_counter() - started,
     }
+    _record_budget(state, turn_instrument.calls, started, first_token_at)
     # The card's figures come from the interpreter, but it sits beside an answer;
     # when verification replaced that answer its figures are unverified too, and
     # the card goes with them.
@@ -813,6 +820,21 @@ def turn_record(state: dict) -> dict[str, Any] | None:
             update["assumptions"] = provenance
 
     return update
+
+
+def _record_budget(state: Any, calls: Any, started: float,
+                   first_token_at: float | None) -> None:
+    """Attach and log the turn's budget record (spec §5.1). Never raises.
+
+    Only calls made since ``started`` count: an instrument reused across turns
+    (one task serving several) still holds the earlier turns' calls.
+    """
+    try:
+        this_turn = [c for c in calls if c.start >= started]
+        state["turn_budget"] = turn_budget_record(state, this_turn, started, first_token_at)
+        logger.info("turn_budget %s", json.dumps(state["turn_budget"]))
+    except Exception:
+        logger.exception("Could not record the turn budget")
 
 
 def _defer_record(

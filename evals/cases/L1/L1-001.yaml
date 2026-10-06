@@ -1,0 +1,21 @@
+id: L1-001
+family: L1
+areas:
+- retrieval
+- citations
+tiers:
+- smoke
+- full
+turns:
+- q: How is the retirement annuity calculated under Section 8-138(g-1)?
+  goal: The (g-1) formula from the statute.
+  reference: 2.4% of final average salary per year of service (2.2% before 2002), at least 10 years, from age 60;
+    final average salary is the best 4 consecutive years in the last 10 (§8-138(g-1)).
+  checks:
+    cites_any:
+    - 8-138
+    must_state:
+    - 2.4%
+    - '60'
+    model_calls_max: 2
+    ttft_class: simple

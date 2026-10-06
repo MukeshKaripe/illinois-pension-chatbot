@@ -55,6 +55,7 @@ def _args() -> argparse.Namespace:
     p.add_argument("--base", default="main")
     p.add_argument("--concurrency", type=int, default=2,
                    help="default: 2 -- at 8 the model deployment returns 429s mid-run")
+    p.add_argument("--repeat", type=int, default=1, help="timing-only re-runs per case, for p95")
     p.add_argument("--no-judge", action="store_true")
     p.add_argument("--judge-all", action="store_true",
                    help="judge every turn, even ones the code checks failed (for calibration)")
@@ -91,7 +92,7 @@ async def main() -> int:
     from pension_chat.evals.cases import load_cases
     from pension_chat.evals.fixtures import load_fixtures
     from pension_chat.evals.judge import is_calibrated
-    from pension_chat.evals.report import diff, exit_code, render_markdown, summarise
+    from pension_chat.evals.report import accepted, diff, exit_code, render_markdown, summarise
     from pension_chat.evals.runner import RunOptions, run_suite
     from pension_chat.evals.select import changed_files, select
     from pension_chat.evals.timing import probe
@@ -103,7 +104,7 @@ async def main() -> int:
     measured = await probe(get_settings())
     calibrated = is_calibrated(EVALS, EVALS / "rubric.yaml")
     options = RunOptions(concurrency=args.concurrency, judge=not args.no_judge, judge_gates=calibrated,
-                         judge_all=args.judge_all, progress=True,
+                         judge_all=args.judge_all, progress=True, repeat=args.repeat,
                          latency_gate=args.latency_gate, rubric_path=EVALS / "rubric.yaml",
                          cache_dir=EVALS / ".judge_cache")
     started = time.perf_counter()
@@ -130,8 +131,8 @@ async def main() -> int:
     print(render_markdown(report, changes))
     print(f"\nWall time {report['wall_seconds']} s. Saved to {run_dir}")
     if args.accept:
-        baseline_path.write_text(json.dumps({k: report[k] for k in ("turns", "latency", "families")},
-                                            indent=1, default=str), encoding="utf-8")
+        baseline_path.write_text(json.dumps(accepted(report, baseline), indent=1, default=str),
+                                 encoding="utf-8")
         print("Accepted as the new baseline.")
     return exit_code(report, changes)
 

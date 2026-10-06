@@ -62,7 +62,7 @@ def test_a_record_input_keeps_the_sheets_own_label() -> None:
     assert origins == {"service_years": "stated"}
 
 
-async def test_an_extracted_age_moves_the_facts_derived_from_it(monkeypatch):
+async def test_an_extracted_age_moves_the_facts_derived_from_it():
     """L03's base paired age 58 with months_before_age_60 44.
 
     44 months before 60 is a member of 56. Splicing one fact out of the message
@@ -104,12 +104,9 @@ async def test_an_extracted_age_moves_the_facts_derived_from_it(monkeypatch):
             "months_before_age_60": 44,
             "service_years": 21.5,
         },
+        # The decision call reports the age the member named (spec §5.2).
+        "stated_by_model": {"age_at_annuity_start": 58},
     }
-
-    async def fake_complete(**kwargs):
-        return '{"resolved": {"age_at_annuity_start": 58}, "unresolved": []}'
-
-    monkeypatch.setattr("pension_chat.agent.nodes.complete", fake_complete)
 
     out = await resolve_inputs(state)
     resolved = out["resolved_inputs"]

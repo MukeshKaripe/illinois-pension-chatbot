@@ -39,6 +39,8 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
     families: dict[str, dict[str, Any]] = {}
     turns: dict[str, dict[str, Any]] = {}
     latency: dict[str, dict[str, list[float]]] = {}
+    by_type: dict[str, dict[str, list[float]]] = {}
+    prompt: dict[str, list[int]] = {}
     critical: list[str] = []
     soft: dict[str, list[int]] = {"voice": [], "hedging": [], "clarity": []}
     fallbacks = verified = replaced = total = 0
@@ -73,12 +75,27 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
             if tr.verdict:
                 for k in soft:
                     soft[k].append(getattr(tr.verdict, k))
+    # Latency per turn type reads the timing-only repeats too; pass/fail and
+    # the per-class latency above read the judged run only.
+    for conv in results:
+        for tr in [*conv.turns, *(t for again in conv.repeats for t in again.turns)]:
+            if tr.trace.turn_type and tr.trace.ttft is not None:
+                tslot = by_type.setdefault(tr.trace.turn_type, {"measured": [], "estimated": []})
+                tslot["measured"].append(tr.trace.ttft)
+                if tr.estimate is not None:
+                    tslot["estimated"].append(tr.estimate)
+            for node, used in ((tr.trace.usage or {}).get("by_node") or {}).items():
+                if used.get("prompt"):
+                    prompt.setdefault(node, []).append(int(used["prompt"]))
     return {
         "families": {f: families[f] for f in FAMILIES if f in families},
         "critical_failures": critical,
         "turns": turns,
         "latency": {cls: {kind: {"median": _pct(v, 0.5), "p90": _pct(v, 0.9), "n": len(v)}
                           for kind, v in slot.items()} for cls, slot in latency.items()},
+        "latency_by_turn_type": {t: {kind: {"p50": _pct(v, 0.5), "p95": _pct(v, 0.95), "n": len(v)}
+                                     for kind, v in slot.items()} for t, slot in by_type.items()},
+        "prompt_tokens": {node: int(statistics.median(v)) for node, v in prompt.items()},
         "soft_scores": {k: (statistics.mean(v) if v else None) for k, v in soft.items()},
         "verification": {"passed": verified, "replaced": replaced, "turns": total},
         "semantic_fallbacks": fallbacks,
@@ -89,20 +106,54 @@ def summarise(results: list[ConversationResult], *, judge_calibrated: bool,
     }
 
 
+def suite_of(report: dict[str, Any]) -> str:
+    """The families a run covered, as one key: latency is only comparable
+    between runs over the same cases."""
+    return "+".join(sorted(report.get("families") or {}))
+
+
 def diff(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
     if not baseline:
-        return {"new_failures": [], "fixed": [], "latency_moves": {}, "no_baseline": True}
+        return {"new_failures": [], "fixed": [], "latency_moves": {}, "type_moves": {}, "no_baseline": True}
     before, now = baseline.get("turns", {}), report["turns"]
     bad = ("fail", "error", "unjudged")
     new = [k for k, t in now.items() if t["status"] in bad and before.get(k, {}).get("status") == "pass"]
     fixed = [k for k, t in now.items() if t["status"] == "pass" and before.get(k, {}).get("status") in bad]
+    same_suite = (baseline.get("suites") or {}).get(suite_of(report)) or {}
     moves = {}
     for cls, slot in report["latency"].items():
-        old = baseline.get("latency", {}).get(cls, {}).get("measured", {}).get("median")
+        old = same_suite.get("latency", {}).get(cls, {}).get("measured", {}).get("median")
         new_median = slot.get("measured", {}).get("median")
         if old is not None and new_median is not None:
             moves[cls] = round(new_median - old, 2)
-    return {"new_failures": new, "fixed": fixed, "latency_moves": moves, "no_baseline": False}
+    type_moves = {}
+    for t, tslot in report.get("latency_by_turn_type", {}).items():
+        was = same_suite.get("latency_by_turn_type", {}).get(t, {}).get("estimated", {})
+        now_est = tslot.get("estimated", {})
+        if was.get("p50") is not None and now_est.get("p50") is not None:
+            type_moves[t] = {"p50": round(now_est["p50"] - was["p50"], 2),
+                             "p95": round((now_est.get("p95") or 0) - (was.get("p95") or 0), 2)}
+    return {"new_failures": new, "fixed": fixed, "latency_moves": moves, "type_moves": type_moves,
+            "no_baseline": False}
+
+
+#: Pass/fail is kept per turn and per family, so a run over a few families
+#: updates those and keeps the rest.
+BASELINE_KEYS = ("turns", "families")
+#: Latency is kept per suite (the families a run covered): an L1 run's figure
+#: turns and the S families' figure turns are different questions, and
+#: comparing one with the other reports a move that isn't one.
+SUITE_KEYS = ("latency", "latency_by_turn_type", "prompt_tokens")
+
+
+def accepted(report: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str, Any]:
+    """The baseline after accepting ``report``: this run's entries replace the
+    old ones they name; entries this run didn't touch are kept."""
+    old = baseline or {}
+    merged: dict[str, Any] = {k: {**(old.get(k) or {}), **(report.get(k) or {})} for k in BASELINE_KEYS}
+    merged["suites"] = {**(old.get("suites") or {}),
+                        suite_of(report): {k: report.get(k) or {} for k in SUITE_KEYS}}
+    return merged
 
 
 def exit_code(report: dict[str, Any], changes: dict[str, Any]) -> int:
@@ -130,6 +181,14 @@ def render_markdown(report: dict[str, Any], changes: dict[str, Any]) -> str:
         m, e = slot.get("measured", {}), slot.get("estimated", {})
         lines.append(f"- {cls}: measured median {m.get('median')} s, p90 {m.get('p90')} s; "
                      f"estimated median {e.get('median')} s, p90 {e.get('p90')} s")
+    lines += ["", "## Latency by turn type (estimated in-region p50 / p95, s)"]
+    for t, tslot in report.get("latency_by_turn_type", {}).items():
+        e, m = tslot.get("estimated", {}), tslot.get("measured", {})
+        lines.append(f"- {t}: estimated {e.get('p50')} / {e.get('p95')}; "
+                     f"measured {m.get('p50')} / {m.get('p95')} (n={m.get('n')})")
+    lines.append(f"Prompt tokens per call (median): {report.get('prompt_tokens') or {}}")
+    if not changes.get("no_baseline"):
+        lines.append(f"Turn-type moves vs baseline (s): {changes.get('type_moves') or 'none'}")
     v = report["verification"]
     lines += ["", f"Verification: {v['passed']}/{v['turns']} passed, {v['replaced']} replaced; "
                   f"semantic-ranker fallbacks: {report['semantic_fallbacks']}",

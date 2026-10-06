@@ -16,6 +16,8 @@ from azure.core.exceptions import ResourceNotFoundError
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
+    AzureOpenAIVectorizer,
+    AzureOpenAIVectorizerParameters,
     HnswAlgorithmConfiguration,
     SearchableField,
     SearchField,
@@ -33,6 +35,40 @@ from azure.search.documents.indexes.models import (
 from pension_chat.config import get_settings
 from pension_chat.ingestion.chunker import IndexRecord
 
+#: The search service's own query embedder (integrated vectorizer). It must use
+#: the same model and dimensions as the stored vectors: text-embedding-3-large, 3072.
+VECTORIZER_NAME = "pension-openai"
+
+
+def query_vectorizer() -> AzureOpenAIVectorizer:
+    settings = get_settings()
+    return AzureOpenAIVectorizer(
+        vectorizer_name=VECTORIZER_NAME,
+        parameters=AzureOpenAIVectorizerParameters(
+            resource_url=settings.azure_openai_endpoint,
+            deployment_name=settings.azure_openai_embedding_deployment,
+            model_name="text-embedding-3-large",
+            api_key=settings.azure_openai_api_key.get_secret_value(),
+        ),
+    )
+
+
+def with_vectorizer(index: SearchIndex) -> SearchIndex:
+    """``index`` with the query vectorizer added and every vector profile using it.
+
+    Applied to the live index as it is, so nothing else about it changes: the
+    stored vectors, fields, analyzers and semantic configuration stay exactly as
+    they are. Running it twice is the same as running it once.
+    """
+    search = index.vector_search
+    if search is None:
+        raise ValueError(f"index {index.name} has no vector search configuration")
+    others = [v for v in (search.vectorizers or []) if v.vectorizer_name != VECTORIZER_NAME]
+    search.vectorizers = [*others, query_vectorizer()]
+    for profile in search.profiles or []:
+        profile.vectorizer_name = VECTORIZER_NAME
+    return index
+
 logger = logging.getLogger("pension_chat.ingestion.indexer")
 
 
@@ -41,7 +77,7 @@ def get_index_client() -> SearchIndexClient:
     settings = get_settings()
     return SearchIndexClient(
         endpoint=settings.azure_search_endpoint,
-        credential=AzureKeyCredential(settings.azure_search_api_key),
+        credential=AzureKeyCredential(settings.azure_search_api_key.get_secret_value()),
     )
 
 
@@ -51,7 +87,7 @@ def get_search_client() -> SearchClient:
     return SearchClient(
         endpoint=settings.azure_search_endpoint,
         index_name=settings.azure_search_index_name,
-        credential=AzureKeyCredential(settings.azure_search_api_key),
+        credential=AzureKeyCredential(settings.azure_search_api_key.get_secret_value()),
     )
 
 
@@ -173,8 +209,10 @@ def create_search_index() -> None:
             VectorSearchProfile(
                 name="pension-vector-profile",
                 algorithm_configuration_name="pension-hnsw",
+                vectorizer_name=VECTORIZER_NAME,
             ),
         ],
+        vectorizers=[query_vectorizer()],
     )
 
     # Semantic search configuration

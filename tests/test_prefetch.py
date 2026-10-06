@@ -98,3 +98,51 @@ async def test_the_model_can_still_search_for_itself(monkeypatch):
     await loop_mod.investigate({"question": "q", "messages": []})
 
     assert [name for name, _ in ran].count("search_statute") == 2
+
+
+async def test_a_named_section_is_read_before_the_first_model_call(monkeypatch):
+    from pension_chat.agent import loop as loop_mod
+    seen: list = []
+    read: list = []
+
+    async def fake_call(**kwargs):
+        seen.append([m["content"] for m in kwargs["messages"] if m.get("role") == "system"])
+        from pension_chat.agent.llm import ToolTurn
+        return ToolTurn(calls=(), content="Here.", raw_message={"role": "assistant", "content": "Here."})
+
+    async def fake_run(name, arguments, state):
+        return "searched text", {"retrieved_sections": [{"section": "1-160", "content": "t"}]}
+
+    async def fake_read(targets, working):
+        read.append(list(targets))
+        return [(f"### 40 ILCS 5/{t} — title\ntext", {"retrieved_sections": [{"section": t, "content": "x"}]})
+                for t in targets]
+
+    monkeypatch.setattr(loop_mod, "call_with_tools", fake_call)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+    monkeypatch.setattr(loop_mod, "_read_sections", fake_read)
+    await loop_mod.investigate({"question": "How is the annuity calculated under Section 8-138(g-1)?",
+                                "explicit_sections": ["8-138"], "messages": []})
+    assert ["8-138"] in read
+    assert any("8-138" in content for content in seen[0])
+
+
+async def test_a_named_section_that_does_not_exist_does_not_fail_the_turn(monkeypatch):
+    from pension_chat.agent import loop as loop_mod
+
+    async def fake_call(**kwargs):
+        from pension_chat.agent.llm import ToolTurn
+        return ToolTurn(calls=(), content="Here.", raw_message={"role": "assistant", "content": "Here."})
+
+    async def fake_run(name, arguments, state):
+        return "searched text", {}
+
+    async def fake_read(targets, working):
+        return [None for _ in targets]
+
+    monkeypatch.setattr(loop_mod, "call_with_tools", fake_call)
+    monkeypatch.setattr(loop_mod, "run_tool", fake_run)
+    monkeypatch.setattr(loop_mod, "_read_sections", fake_read)
+    out = await loop_mod.investigate({"question": "What does Section 8-999 say?",
+                                      "explicit_sections": ["8-999"], "messages": []})
+    assert out is not None

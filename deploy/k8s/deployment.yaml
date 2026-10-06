@@ -1,0 +1,69 @@
+# The pension-chat backend: one pod, internal network only.
+#
+# ONE replica, Recreate strategy: conversation state lives in the process
+# (CHECKPOINTER=memory, v1's single-session scope). Two pods would split one
+# conversation between them, and a rolling update briefly runs two. Recreate
+# costs a few seconds of downtime per deploy, and in-flight conversations are
+# lost on a restart, which v1's scope accepts. Scaling out needs CHECKPOINTER=postgres.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pension-chat
+  labels: { app: pension-chat }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: pension-chat }
+  template:
+    metadata:
+      labels: { app: pension-chat }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: api
+          image: CONFIRM-registry/pension-chat:2026-10-07    # set by the release step
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef: { name: pension-chat-config }
+            - secretRef: { name: pension-chat-secrets }
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { memory: "2Gi" }
+          # Start-up loads the corpus graph, warms connection pools and
+          # prepares PBMS statements; allow up to ~2 minutes before liveness applies.
+          startupProbe:
+            httpGet: { path: /api/v1/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet: { path: /api/v1/health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/v1/health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+      # Answers stream for up to a minute; give a stopping pod time to finish them.
+      terminationGracePeriodSeconds: 90
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pension-chat
+  labels: { app: pension-chat }
+spec:
+  type: ClusterIP
+  selector: { app: pension-chat }
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

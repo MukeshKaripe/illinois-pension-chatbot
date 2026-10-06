@@ -77,6 +77,13 @@ class PensionAgentState(TypedDict, total=False):
     subject_suggestion: dict[str, Any] | None
     # People whose record could not be read this turn -- distinct from "no record".
     unavailable_people: list[str]
+    # This turn's model-call budget record (agent/budgets.py): its type, its
+    # sequential model calls, and any breach. Logged; read by the eval trace.
+    turn_budget: dict[str, Any] | None
+    # What the model passed as compute_benefit's `stated`, for this computation only.
+    stated_by_model: dict[str, Any]
+    # Stated values under names no formula reads, recorded rather than lost.
+    unused_stated: dict[str, Any]
     # The record source finds people by name but its directory has never loaded,
     # so a name in this question could not be looked up (spec §6, §7).
     names_unavailable: bool
@@ -379,6 +386,9 @@ def initial_state(
         "pinned_people": {},
         "subject_suggestion": None,
         "unavailable_people": [],
+        "turn_budget": None,
+        "stated_by_model": {},
+        "unused_stated": {},
         "names_unavailable": False,
         "question": question,
         "messages": list(history or []) + [HumanMessage(content=question)],

@@ -188,3 +188,22 @@ async def test_each_finished_conversation_prints_a_flushed_progress_line(capsys)
     out = capsys.readouterr().out.splitlines()
     assert any(line.startswith("[1/2]") and "A" in line and "pass" in line for line in out)
     assert any(line.startswith("[2/2]") and "B" in line and "fail" in line for line in out)
+
+
+async def test_repeat_runs_add_timing_only_runs(monkeypatch):
+    from pension_chat.evals import runner
+    from pension_chat.evals.cases import Case, Turn
+
+    runs = []
+
+    async def fake_conversation(case, **kwargs):
+        runs.append(kwargs["options"].judge)
+        return runner.ConversationResult(case, [])
+
+    monkeypatch.setattr(runner, "run_conversation", fake_conversation)
+    case = Case(id="L1-001", family="L1", areas=["retrieval"],
+                turns=[Turn(q="q", goal="g", reference="r", checks={})], path=None)
+    results = await runner.run_suite([case], fixtures={}, probe={},
+                                     options=runner.RunOptions(repeat=3, concurrency=1))
+    assert len(runs) == 3 and runs[1:] == [False, False]   # repeats are not judged
+    assert len(results[0].repeats) == 2

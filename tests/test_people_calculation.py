@@ -188,3 +188,21 @@ def test_the_people_table_shows_the_figure_the_question_asked_for() -> None:
     assert "When" in rows[0]
     assert "at age 62" in rows[1] and "$31,000.00" in rows[1] and "$27,000.00" not in rows[1]
     assert "if they retire now" in rows[2] and "$18,000.00" in rows[2]
+
+
+async def test_one_persons_stated_values_are_not_copied_onto_another() -> None:
+    # "Compare them if RO_BK had 25 years": the 25 is RO_BK's, and "25" being in
+    # the user's words must not let it override the other person's record.
+    from pension_chat.agent.loop import _complete_people
+
+    calls = []
+
+    async def run(name, arguments, working):
+        calls.append(arguments)
+        return "ok", {}
+
+    only_b = {k: v for k, v in _results().items() if v["person_ref"] == "M-2"}
+    working = {"people": PEOPLE, "turn_people": ["M-1", "M-2"], "calculation_result": only_b}
+    await _complete_people(working, {"benefit": "retirement_annuity", "stated": {"service_years": 25},
+                                     "stand_in_facts": True}, run)
+    assert calls == [{"benefit": "retirement_annuity", "person": "KA_LS MA_LP"}]

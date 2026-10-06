@@ -1,0 +1,23 @@
+id: L1-009
+family: L1
+areas:
+- calculation
+- records
+tiers:
+- full
+employee: tier2_at_62
+turns:
+- q: What would this employee's annuity be if they retired now?
+  goal: A Tier 2 annuity at exactly 62, reduced.
+  reference: $19,770.89 a year, reduced 30% for 60 months under 67 (§8-138(g-1), §1-160(d)).
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: simple
+- q: And at 67?
+  goal: The same employee's unreduced annuity at 67.
+  reference: At 67 no reduction applies (§1-160) and service grows by five years.
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: simple

@@ -172,10 +172,10 @@ async def test_the_branch_instruction_survives():
     assert "do not pick one" in system
 
 
-async def test_assumptions_stay_prose():
-    """`guardrails._check_assumptions_disclosed` requires the *answer* to
-    disclose an assumption in its own words, and a block substituted into the
-    stream is not the answer saying anything."""
+async def test_assumptions_are_inserted_by_code():
+    """The disclosure was once left to the model, and a forgotten sentence sent
+    a correct answer to the fallback. Code inserts it now; the guardrail reads
+    the answer with the block in it."""
     out = await _composed(
         {
             "calculation_result": _RESULT,
@@ -188,7 +188,7 @@ async def test_assumptions_stay_prose():
             },
         }
     )
-    assert "ASSUMPTIONS" not in out["answer_blocks"]
+    assert "What I assumed" in out["answer_blocks"]["ASSUMPTIONS"]
     assert out["views"].get("ASSUMPTIONS"), "the drawer still needs its copy"
 
 

@@ -32,6 +32,22 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.12-slim-bookworm AS runtime
 
+# Microsoft's ODBC Driver 18 for SQL Server: PBMS (employee records) is read
+# through pyodbc, which loads this driver by name (pbms/connection.py). Without
+# it every employee lookup fails in the container while working on a laptop
+# that happens to have the driver installed. The download tools are removed in
+# the same layer so they never reach the final image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl gnupg ca-certificates unixodbc \
+ && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+ && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list \
+      -o /etc/apt/sources.list.d/mssql-release.list \
+ && apt-get update \
+ && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
+ && apt-get purge -y --auto-remove curl gnupg \
+ && rm -rf /var/lib/apt/lists/*
+
 # Not root. The process needs no privilege it cannot get as an ordinary user,
 # and a container that runs as root is one escape away from being root.
 RUN useradd --create-home --uid 10001 app

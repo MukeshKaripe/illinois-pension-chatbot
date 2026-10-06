@@ -46,7 +46,7 @@ def get_llm() -> AsyncAzureOpenAI:
     if _llm_client is None:
         settings = get_settings()
         _llm_client = AsyncAzureOpenAI(
-            api_key=settings.azure_openai_api_key,
+            api_key=settings.azure_openai_api_key.get_secret_value(),
             api_version=settings.azure_openai_api_version,
             azure_endpoint=settings.azure_openai_endpoint,
             timeout=settings.llm_timeout_seconds,
@@ -67,7 +67,7 @@ def get_async_search_client() -> AsyncSearchClient:
         _search_client = AsyncSearchClient(
             endpoint=settings.azure_search_endpoint,
             index_name=settings.azure_search_index_name,
-            credential=AzureKeyCredential(settings.azure_search_api_key),
+            credential=AzureKeyCredential(settings.azure_search_api_key.get_secret_value()),
         )
     return _search_client
 

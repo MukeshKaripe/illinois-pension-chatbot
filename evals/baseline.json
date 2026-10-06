@@ -1,0 +1,977 @@
+{
+ "turns": {
+  "L1-001#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 20.07s vs 3.0s"
+   ],
+   "ttft": 20.07282049999776,
+   "estimate": 13.343014300026784,
+   "why_no_figure": ""
+  },
+  "L1-002#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.26s vs 3.0s"
+   ],
+   "ttft": 8.262175100000604,
+   "estimate": 5.982718700022786,
+   "why_no_figure": ""
+  },
+  "L1-003#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 7.02s vs 3.0s"
+   ],
+   "ttft": 7.015602999999828,
+   "estimate": 4.941174700019852,
+   "why_no_figure": ""
+  },
+  "L1-004#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 5.9s vs 3.0s"
+   ],
+   "ttft": 5.897187599999597,
+   "estimate": 4.0661842000162,
+   "why_no_figure": ""
+  },
+  "L1-005#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 6.68s vs 3.0s"
+   ],
+   "ttft": 6.67983169999934,
+   "estimate": 4.605403400019364,
+   "why_no_figure": ""
+  },
+  "L1-006#0": {
+   "status": "fail",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 8.51s vs 3.0s"
+   ],
+   "ttft": 8.508801300002233,
+   "estimate": 5.948728600022121,
+   "why_no_figure": ""
+  },
+  "L1-006#1": {
+   "status": "after_failure",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 9.02s vs 3.0s"
+   ],
+   "ttft": 9.02211179999722,
+   "estimate": 6.705464000013686,
+   "why_no_figure": ""
+  },
+  "L1-007#0": {
+   "status": "fail",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 8.23s vs 3.0s"
+   ],
+   "ttft": 8.22703890000048,
+   "estimate": 5.9103911000169465,
+   "why_no_figure": ""
+  },
+  "L1-007#1": {
+   "status": "after_failure",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 8.61s vs 3.0s"
+   ],
+   "ttft": 8.605461899998772,
+   "estimate": 6.04538920001866,
+   "why_no_figure": ""
+  },
+  "L1-008#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 6.87s vs 3.0s"
+   ],
+   "ttft": 6.866844299998775,
+   "estimate": 4.9986495000096625,
+   "why_no_figure": ""
+  },
+  "L1-009#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 4.54s vs 3.0s"
+   ],
+   "ttft": 4.537189599999692,
+   "estimate": 3.1174478000050003,
+   "why_no_figure": ""
+  },
+  "L1-009#1": {
+   "status": "fail",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 9.54s vs 3.0s"
+   ],
+   "ttft": 9.543404299998656,
+   "estimate": 7.226756500015123,
+   "why_no_figure": ""
+  },
+  "L1-010#0": {
+   "status": "fail",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 11.22s vs 3.0s"
+   ],
+   "ttft": 11.222041199998785,
+   "estimate": 6.746349000015115,
+   "why_no_figure": "missing final_average_salary"
+  },
+  "L1-010#1": {
+   "status": "after_failure",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 9.0s vs 3.0s"
+   ],
+   "ttft": 9.000358699999197,
+   "estimate": 6.440286000019085,
+   "why_no_figure": ""
+  },
+  "L1-011#0": {
+   "status": "fail",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 3 sequential model calls before the first word vs 2",
+    "ttft_class: ttft 8.61s vs 3.0s"
+   ],
+   "ttft": 8.605329599999095,
+   "estimate": 5.803037400015426,
+   "why_no_figure": "missing final_average_salary, service_years, birth_date"
+  },
+  "L1-012#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 7.19s vs 7.0s"
+   ],
+   "ttft": 7.189953299999615,
+   "estimate": 5.079539000006946,
+   "why_no_figure": ""
+  },
+  "L1-013#0": {
+   "status": "pass",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.11s vs 7.0s"
+   ],
+   "ttft": 8.109172699998453,
+   "estimate": 5.755333500009205,
+   "why_no_figure": ""
+  },
+  "L1-014#0": {
+   "status": "fail",
+   "family": "L1",
+   "flaky": false,
+   "failed_checks": [
+    "model_calls_max: 15 sequential model calls before the first word vs 3",
+    "ttft_class: ttft 39.39s vs 7.0s"
+   ],
+   "ttft": 39.38784740000119,
+   "estimate": 31.075884700084103,
+   "why_no_figure": "missing final_average_salary, service_years, birth_date"
+  },
+  "S11-001#0": {
+   "status": "pass",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 26.24s vs 7.0s"
+   ],
+   "ttft": 26.240355699999782,
+   "estimate": 19.072976400017133,
+   "why_no_figure": ""
+  },
+  "S11-001#1": {
+   "status": "pass",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 9.46s vs 7.0s"
+   ],
+   "ttft": 9.462823599998956,
+   "estimate": 6.316924500009481,
+   "why_no_figure": ""
+  },
+  "S11-001#2": {
+   "status": "pass",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 6.718386000000464,
+   "estimate": 4.537806000008335,
+   "why_no_figure": ""
+  },
+  "S11-002#0": {
+   "status": "fail",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "ttft_class: ttft 10.36s vs 7.0s"
+   ],
+   "ttft": 10.36303880000196,
+   "estimate": 7.467081500009924,
+   "why_no_figure": ""
+  },
+  "S11-002#1": {
+   "status": "after_failure",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "ttft_class: ttft 8.79s vs 7.0s"
+   ],
+   "ttft": 8.794007399999828,
+   "estimate": 5.898050100007793,
+   "why_no_figure": ""
+  },
+  "S11-002#2": {
+   "status": "after_failure",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 29.28s vs 7.0s"
+   ],
+   "ttft": 29.279906200001278,
+   "estimate": 25.635879100022226,
+   "why_no_figure": "retirement_annuity: Section 8-138(g-1) does not allow this annuity to begin before age 60, so it cannot support the stated annuity start date. The other computable annuity provisions in Section 8-138 require at least 20 years of service."
+  },
+  "S11-003#0": {
+   "status": "pass",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 11.93s vs 7.0s"
+   ],
+   "ttft": 11.925363300000754,
+   "estimate": 8.758839600023405,
+   "why_no_figure": ""
+  },
+  "S11-003#1": {
+   "status": "pass",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 48.72s vs 7.0s"
+   ],
+   "ttft": 48.72169229999781,
+   "estimate": 45.57754880001364,
+   "why_no_figure": "refused: PARAMETER_NOT_IN_SOURCE, QUOTE_NOT_IN_SOURCE, UNDECLARED_VARIABLE"
+  },
+  "S11-003#2": {
+   "status": "fail",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']",
+    "ttft_class: ttft 9.62s vs 7.0s"
+   ],
+   "ttft": 9.617844100001093,
+   "estimate": 6.721886800009059,
+   "why_no_figure": ""
+  },
+  "S11-004#0": {
+   "status": "fail",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']",
+    "ttft_class: ttft 9.45s vs 3.0s"
+   ],
+   "ttft": 9.453874500002712,
+   "estimate": 6.525224700023565,
+   "why_no_figure": ""
+  },
+  "S11-004#1": {
+   "status": "after_failure",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 6.72s vs 3.0s"
+   ],
+   "ttft": 6.720159999997122,
+   "estimate": 4.779209500008496,
+   "why_no_figure": ""
+  },
+  "S11-004#2": {
+   "status": "after_failure",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 9.37s vs 3.0s"
+   ],
+   "ttft": 9.368304400002671,
+   "estimate": 6.439654600023524,
+   "why_no_figure": ""
+  },
+  "S11-005#0": {
+   "status": "pending",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "about_employee: subject None"
+   ],
+   "ttft": 5.961820600001374,
+   "estimate": 3.770928300015308,
+   "why_no_figure": ""
+  },
+  "S11-005#1": {
+   "status": "pending",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "about_employee: subject None"
+   ],
+   "ttft": 8.290598099996714,
+   "estimate": 6.349647600008088,
+   "why_no_figure": ""
+  },
+  "S11-005#2": {
+   "status": "pending",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "about_employee: subject None"
+   ],
+   "ttft": 11.721518399997876,
+   "estimate": 7.266361100005841,
+   "why_no_figure": "missing final_average_salary, service_years, birth_date"
+  },
+  "S11-005#3": {
+   "status": "pending",
+   "family": "S11",
+   "flaky": false,
+   "failed_checks": [
+    "cites_all: missing ['1-160']"
+   ],
+   "ttft": 10.37841020000269,
+   "estimate": 7.461828300022781,
+   "why_no_figure": ""
+  },
+  "S13-001#0": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 6.078050799998891,
+   "estimate": 4.397354400001641,
+   "why_no_figure": ""
+  },
+  "S13-001#1": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 6.591044500000862,
+   "estimate": 4.660406300006173,
+   "why_no_figure": ""
+  },
+  "S13-001#2": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 7.47s vs 3.0s"
+   ],
+   "ttft": 7.47106299999723,
+   "estimate": 5.290483000005101,
+   "why_no_figure": ""
+  },
+  "S13-002#0": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 6.402618699998129,
+   "estimate": 3.9944771000017356,
+   "why_no_figure": ""
+  },
+  "S13-003#0": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.47s vs 7.0s"
+   ],
+   "ttft": 8.469794100001309,
+   "estimate": 5.584149100003211,
+   "why_no_figure": ""
+  },
+  "S13-003#1": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 13.08s vs 7.0s"
+   ],
+   "ttft": 13.075984700000845,
+   "estimate": 8.747517200003697,
+   "why_no_figure": ""
+  },
+  "S13-004#0": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 7.788841900000989,
+   "estimate": 5.868516000000236,
+   "why_no_figure": ""
+  },
+  "S13-004#1": {
+   "status": "pass",
+   "family": "S13",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 0.00799650000044494,
+   "estimate": 0.00799650000044494,
+   "why_no_figure": ""
+  },
+  "S4-001#0": {
+   "status": "fail",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "worked_from_article: worked from nothing",
+    "ttft_class: ttft 49.58s vs 7.0s",
+    "expected_figure: expected 72566.51 (now); computed no figure"
+   ],
+   "ttft": 49.57506790000116,
+   "estimate": 46.91874010001263,
+   "why_no_figure": "refused: UNDECLARED_VARIABLE"
+  },
+  "S4-001#1": {
+   "status": "after_failure",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 66.81055360000028,
+   "estimate": 63.9042840000143,
+   "why_no_figure": "refused: UNDECLARED_VARIABLE"
+  },
+  "S4-002#0": {
+   "status": "fail",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "ttft_class: ttft 9.65s vs 7.0s",
+    "cites_any: verified ['8-138']"
+   ],
+   "ttft": 9.650102000003244,
+   "estimate": 7.004086500008649,
+   "why_no_figure": ""
+  },
+  "S4-002#1": {
+   "status": "after_failure",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "ttft_class: ttft 9.19s vs 7.0s",
+    "cites_any: verified ['8-138']"
+   ],
+   "ttft": 9.186424200001056,
+   "estimate": 6.540408700006461,
+   "why_no_figure": ""
+  },
+  "S4-003#0": {
+   "status": "fail",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']",
+    "ttft_class: ttft 8.18s vs 7.0s"
+   ],
+   "ttft": 8.179264099999273,
+   "estimate": 5.533248600004677,
+   "why_no_figure": "missing final_average_salary"
+  },
+  "S4-004#0": {
+   "status": "fail",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "must_state: not stated: ['10 years']",
+    "ttft_class: ttft 22.62s vs 7.0s"
+   ],
+   "ttft": 22.62122740000268,
+   "estimate": 19.71495780001671,
+   "why_no_figure": "retirement_annuity: The Pension Code sections listed here do not state the ordinary Article 8 retirement-annuity formula. The minimum-annuity formulas shown have eligibility thresholds that are not met, so none provides a computable retirement annuity under these facts."
+  },
+  "S4-004#1": {
+   "status": "after_failure",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']",
+    "ttft_class: ttft 9.92s vs 7.0s"
+   ],
+   "ttft": 9.923731299997598,
+   "estimate": 7.755219200004707,
+   "why_no_figure": ""
+  },
+  "S4-005#0": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 9.12s vs 7.0s"
+   ],
+   "ttft": 9.118683199998486,
+   "estimate": 6.472667700003891,
+   "why_no_figure": "missing final_average_salary, service_years"
+  },
+  "S4-005#1": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.23s vs 7.0s"
+   ],
+   "ttft": 8.233720899999753,
+   "estimate": 6.054896500012925,
+   "why_no_figure": ""
+  },
+  "S4-006#0": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 28.21s vs 7.0s"
+   ],
+   "ttft": 28.20670330000212,
+   "estimate": 25.550375500013587,
+   "why_no_figure": "retirement_annuity: The member's credited service is not stated. The hire date alone does not establish credited service, so eligibility under the 20-year provisions and the applicable reduction waiver cannot be determined."
+  },
+  "S4-006#1": {
+   "status": "fail",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "worked_from_article: worked from nothing",
+    "ttft_class: ttft 52.75s vs 7.0s"
+   ],
+   "ttft": 52.75435589999688,
+   "estimate": 49.610212400012706,
+   "why_no_figure": "missing reduction_months"
+  },
+  "S4-007#0": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 6.605008800001087,
+   "estimate": 4.924312400003837,
+   "why_no_figure": ""
+  },
+  "S4-008#0": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 5.165568500000518,
+   "estimate": 3.722746000001469,
+   "why_no_figure": ""
+  },
+  "S4-009#0": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 5.0885148999986995,
+   "estimate": 3.6456923999996507,
+   "why_no_figure": ""
+  },
+  "S4-010#0": {
+   "status": "pass",
+   "family": "S4",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 17.39s vs 7.0s"
+   ],
+   "ttft": 17.385356700000557,
+   "estimate": 14.966902800010226,
+   "why_no_figure": "retirement_annuity: The ordinary Article 8 retirement-annuity formula is not included here, and the computable annuity formulas in Section 8-138 require service thresholds that are not met. The Pension Code provisions included here therefore do not establish a computable retirement annuity for these"
+  },
+  "S4b-001#0": {
+   "status": "pass",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.53s vs 7.0s"
+   ],
+   "ttft": 8.534811000001355,
+   "estimate": 5.8887955000067596,
+   "why_no_figure": ""
+  },
+  "S4b-001#1": {
+   "status": "fail",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "worked_from_article: worked from nothing",
+    "ttft_class: ttft 7.61s vs 7.0s"
+   ],
+   "ttft": 7.611511399998562,
+   "estimate": 5.422374700017797,
+   "why_no_figure": ""
+  },
+  "S4b-002#0": {
+   "status": "fail",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']",
+    "must_state: not stated: ['62']",
+    "ttft_class: ttft 7.39s vs 7.0s"
+   ],
+   "ttft": 7.393662300000869,
+   "estimate": 5.2130823000087405,
+   "why_no_figure": ""
+  },
+  "S4b-002#1": {
+   "status": "after_failure",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']",
+    "ttft_class: ttft 9.93s vs 7.0s"
+   ],
+   "ttft": 9.92864660000123,
+   "estimate": 7.510192700010899,
+   "why_no_figure": ""
+  },
+  "S4b-003#0": {
+   "status": "pass",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [],
+   "ttft": 14.092177300000913,
+   "estimate": 11.446161800006317,
+   "why_no_figure": "missing final_average_salary"
+  },
+  "S4b-003#1": {
+   "status": "pass",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.41s vs 7.0s"
+   ],
+   "ttft": 8.411935899999662,
+   "estimate": 5.993482000009331,
+   "why_no_figure": ""
+  },
+  "S4b-004#0": {
+   "status": "fail",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "cites_any: verified ['8-138']"
+   ],
+   "ttft": 6.590212700000848,
+   "estimate": 4.671642400005396,
+   "why_no_figure": ""
+  },
+  "S4b-005#0": {
+   "status": "pass",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "ttft_class: ttft 8.96s vs 7.0s"
+   ],
+   "ttft": 8.964445599998726,
+   "estimate": 6.3184301000041305,
+   "why_no_figure": "missing final_average_salary; refused: APPLICABILITY_NOT_SATISFIED"
+  },
+  "S4b-006#0": {
+   "status": "fail",
+   "family": "S4b",
+   "flaky": false,
+   "failed_checks": [
+    "calculation: calculation=False",
+    "ttft_class: ttft 76.74s vs 7.0s"
+   ],
+   "ttft": 76.7433048999992,
+   "estimate": 73.84910320001246,
+   "why_no_figure": "missing withdrawal_year"
+  }
+ },
+ "families": {
+  "L1": {
+   "passed": 9,
+   "scored": 15,
+   "first_class": true
+  },
+  "S4": {
+   "passed": 7,
+   "scored": 12,
+   "first_class": true
+  },
+  "S4b": {
+   "passed": 4,
+   "scored": 8,
+   "first_class": true
+  },
+  "S11": {
+   "passed": 5,
+   "scored": 8,
+   "first_class": true
+  },
+  "S13": {
+   "passed": 8,
+   "scored": 8,
+   "first_class": true
+  }
+ },
+ "suites": {
+  "L1": {
+   "latency": {
+    "simple": {
+     "measured": {
+      "median": 8.508801300002233,
+      "p90": 11.222041199998785,
+      "n": 15
+     },
+     "estimated": {
+      "median": 5.948728600022121,
+      "p90": 7.226756500015123,
+      "n": 15
+     }
+    },
+    "heavy": {
+     "measured": {
+      "median": 8.109172699998453,
+      "p90": 39.38784740000119,
+      "n": 3
+     },
+     "estimated": {
+      "median": 5.755333500009205,
+      "p90": 31.075884700084103,
+      "n": 3
+     }
+    }
+   },
+   "latency_by_turn_type": {
+    "statute": {
+     "measured": {
+      "p50": 7.015602999999828,
+      "p95": 20.07282049999776,
+      "n": 15
+     },
+     "estimated": {
+      "p50": 5.619315100009553,
+      "p95": 13.343014300026784,
+      "n": 15
+     }
+    },
+    "figure": {
+     "measured": {
+      "p50": 7.647639899998467,
+      "p95": 9.02211179999722,
+      "n": 24
+     },
+     "estimated": {
+      "p50": 5.536020200012776,
+      "p95": 6.705464000013686,
+      "n": 24
+     }
+    },
+    "asks": {
+     "measured": {
+      "p50": 8.386454100000265,
+      "p95": 11.222041199998785,
+      "n": 6
+     },
+     "estimated": {
+      "p50": 5.984757200007938,
+      "p95": 6.746349000015115,
+      "n": 6
+     }
+    },
+    "comparison": {
+     "measured": {
+      "p50": 7.189953299999615,
+      "p95": 8.109172699998453,
+      "n": 6
+     },
+     "estimated": {
+      "p50": 5.079539000006946,
+      "p95": 5.755333500009205,
+      "n": 6
+     }
+    },
+    "self_described": {
+     "measured": {
+      "p50": 33.36526470000172,
+      "p95": 39.38784740000119,
+      "n": 3
+     },
+     "estimated": {
+      "p50": 26.885510800061045,
+      "p95": 31.075884700084103,
+      "n": 3
+     }
+    }
+   },
+   "prompt_tokens": {
+    "investigate": 9632,
+    "generate_answer": 12237,
+    "eval_judge": 1014,
+    "resolve_inputs": 314,
+    "repair_answer": 11079,
+    "assess_coverage": 1327
+   }
+  },
+  "S11+S13+S4+S4b": {
+   "latency": {
+    "simple": {
+     "measured": {
+      "median": 9.368304400002671,
+      "p90": 9.453874500002712,
+      "n": 4
+     },
+     "estimated": {
+      "median": 6.439654600023524,
+      "p90": 6.525224700023565,
+      "n": 4
+     }
+    },
+    "heavy": {
+     "measured": {
+      "median": 9.186424200001056,
+      "p90": 48.72169229999781,
+      "n": 36
+     },
+     "estimated": {
+      "median": 6.472667700003891,
+      "p90": 45.57754880001364,
+      "n": 36
+     }
+    }
+   },
+   "latency_by_turn_type": {
+    "statute": {
+     "measured": {
+      "p50": 8.233720899999753,
+      "p95": 9.453874500002712,
+      "n": 7
+     },
+     "estimated": {
+      "p50": 6.054896500012925,
+      "p95": 6.525224700023565,
+      "n": 7
+     }
+    },
+    "figure": {
+     "measured": {
+      "p50": 8.534811000001355,
+      "p95": 10.36303880000196,
+      "n": 20
+     },
+     "estimated": {
+      "p50": 5.898050100007793,
+      "p95": 7.755219200004707,
+      "n": 20
+     }
+    },
+    "asks": {
+     "measured": {
+      "p50": 9.118683199998486,
+      "p95": 14.092177300000913,
+      "n": 5
+     },
+     "estimated": {
+      "p50": 6.472667700003891,
+      "p95": 11.446161800006317,
+      "n": 5
+     }
+    },
+    "comparison": {
+     "measured": {
+      "p50": 8.469794100001309,
+      "p95": 13.075984700000845,
+      "n": 4
+     },
+     "estimated": {
+      "p50": 5.868516000000236,
+      "p95": 8.747517200003697,
+      "n": 4
+     }
+    },
+    "self_described": {
+     "measured": {
+      "p50": 10.37841020000269,
+      "p95": 11.925363300000754,
+      "n": 3
+     },
+     "estimated": {
+      "p50": 7.461828300022781,
+      "p95": 8.758839600023405,
+      "n": 3
+     }
+    },
+    "derivation": {
+     "measured": {
+      "p50": 48.72169229999781,
+      "p95": 76.7433048999992,
+      "n": 9
+     },
+     "estimated": {
+      "p50": 45.57754880001364,
+      "p95": 73.84910320001246,
+      "n": 9
+     }
+    }
+   },
+   "prompt_tokens": {
+    "investigate": 9708,
+    "generate_answer": 11972,
+    "eval_judge": 1062,
+    "resolve_inputs": 344,
+    "repair_answer": 11184,
+    "assess_coverage": 1938,
+    "derive_recipe": 18570
+   }
+  }
+ }
+}

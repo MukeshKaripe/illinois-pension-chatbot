@@ -16,8 +16,8 @@ import yaml
 
 from pension_chat.evals import capabilities
 
-FAMILIES = ("S1", "S2", "S3", "S4", "S4b", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13")
-FIRST_CLASS = ("S1", "S4", "S4b", "S11", "S13")
+FAMILIES = ("S1", "S2", "S3", "S4", "S4b", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "L1")
+FIRST_CLASS = ("S1", "S4", "S4b", "S11", "S13", "L1")
 AREAS = frozenset({
     "retrieval", "citations", "calculation", "clarification", "assumptions",
     "boundary", "continuity", "recommendation", "records", "voice", "people",
@@ -27,6 +27,7 @@ TTFT_CLASSES = {"simple": 3.0, "heavy": 7.0}
 
 #: check name -> the type its value must have
 CHECKS: dict[str, type | tuple[type, ...]] = {
+    "model_calls_max": int,
     "cites_any": list, "cites_all": list, "cites_none_outside": list, "evidence_has": list,
     "must_state": list, "must_not_state": list,
     "calculation": bool, "no_calculation": bool, "figures_from": list, "worked_from_article": str,

@@ -1,0 +1,24 @@
+id: L1-006
+family: L1
+areas:
+- calculation
+tiers:
+- smoke
+- full
+turns:
+- q: A member who joined in 2005 is 61, has 10 years of service and an average salary of $50,000. What would they
+    get if they retired today?
+  goal: A Tier 1 annuity from the described values.
+  reference: 'Tier 1 (joined before 2011): 2.4% × 10 years × $50,000 = $12,000.00 a year (§8-138(g-1)).'
+  checks:
+    expected_figure:
+      annual: 12000.0
+    model_calls_max: 2
+    ttft_class: simple
+- q: What if they retire 5 years later?
+  goal: The same member five years on.
+  reference: Same formula with 15 years of service at 66 (§8-138(g-1)).
+  checks:
+    calculation: true
+    model_calls_max: 2
+    ttft_class: simple

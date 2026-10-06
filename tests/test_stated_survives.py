@@ -48,43 +48,44 @@ def _state(question: str, messages: list, ledger: dict | None = None) -> dict:
 
 
 async def test_a_correction_two_turns_back_is_read_before_computing(monkeypatch):
-    """The turn that computes must consult the conversation, not only the file."""
+    """The turn that computes must consult the conversation, not only the file.
+
+    The decision call reads it and passes the correction as `stated`; no
+    separate extraction call runs (spec §5.2).
+    """
     asked: list = []
 
     async def fake_complete(**kwargs):
         asked.append(kwargs)
-        return '{"resolved": {"service_years": 25}}'
+        return "{}"
 
     monkeypatch.setattr(nodes, "complete", fake_complete)
 
-    out = await nodes.resolve_inputs(
-        _state(
+    out = await nodes.resolve_inputs({
+        **_state(
             "So what would my pension be?",
             [
                 HumanMessage(content="I actually have 25 years of service, not 21.5"),
                 AIMessage(content="Noted."),
                 HumanMessage(content="So what would my pension be?"),
             ],
-        )
-    )
+        ),
+        "stated_by_model": {"service_years": 25},
+    })
 
-    assert asked, "the conversation was never read"
+    assert not asked, "a separate extraction call ran"
     assert str(out["resolved_inputs"]["service_years"]) == "25"
     assert out["input_sources"]["service_years"] == "stated"
 
 
-async def test_what_was_read_is_written_down_for_the_next_turn(monkeypatch):
-    async def fake_complete(**kwargs):
-        return '{"resolved": {"service_years": 25}}'
-
-    monkeypatch.setattr(nodes, "complete", fake_complete)
-
-    out = await nodes.resolve_inputs(
-        _state(
+async def test_what_was_read_is_written_down_for_the_next_turn():
+    out = await nodes.resolve_inputs({
+        **_state(
             "So what would my pension be?",
             [HumanMessage(content="I actually have 25 years of service")],
-        )
-    )
+        ),
+        "stated_by_model": {"service_years": 25},
+    })
     held = out["fact_ledger"]["me"]
     assert held["service_years"]["value"] == 25
     assert held["service_years"]["source"] == "stated"

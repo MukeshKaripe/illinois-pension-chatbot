@@ -1161,3 +1161,69 @@ async def test_the_engine_provision_lookup_does_not_wait_for_the_completion_fetc
     # 0.2s prefetch closure, then provisions and completion overlapping in
     # 0.2s rather than queueing for 0.4s.
     assert elapsed < 0.55, f"the registry lookup waited for the fetches ({elapsed:.2f}s)"
+
+
+async def test_coverage_is_not_offered_when_nobody_described_themselves(monkeypatch):
+    seen: list = []
+    _script(monkeypatch, [_turn(content="Here.")], calls_seen=seen)
+    _tools(monkeypatch)
+    await loop_mod.investigate({"question": "What is the Tier 2 retirement age?", "messages": []})
+    offered = {t["function"]["name"] for t in seen[0]["tools"]}
+    assert "check_coverage" not in offered and "search_statute" in offered
+
+
+async def test_coverage_is_offered_when_the_member_describes_themselves(monkeypatch):
+    seen: list = []
+    _script(monkeypatch, [_turn(content="Here.")], calls_seen=seen)
+    _tools(monkeypatch)
+    await loop_mod.investigate({"question": "I am a park employee, how is my pension calculated?",
+                                "messages": []})
+    assert "check_coverage" in {t["function"]["name"] for t in seen[0]["tools"]}
+
+
+async def test_an_unoffered_tool_is_not_announced_as_spent(monkeypatch):
+    seen: list = []
+    _script(monkeypatch, [_turn(("search_statute", {"queries": ["x"]})), _turn(content="Here.")],
+            calls_seen=seen)
+    _tools(monkeypatch)
+    await loop_mod.investigate({"question": "What is the Tier 2 retirement age?", "messages": []})
+    notes = [m["content"] for m in seen[-1]["messages"] if m.get("role") == "system"]
+    assert not any("check_coverage calls left" in n for n in notes)
+
+
+def _sec(section: str, body: str) -> str:
+    return f"### 40 ILCS 5/{section} — title\n{body}"
+
+
+def test_a_repeated_section_keeps_its_last_copy_and_points_to_it():
+    from pension_chat.agent.loop import _dedupe_sections
+    messages = [
+        {"role": "tool", "tool_call_id": "a",
+         "content": _sec("8-138", "long text") + "\n\n" + _sec("1-160", "more")},
+        {"role": "system", "content": "The provision this rests on:\n\n" + _sec("8-138", "long text")},
+    ]
+    out = _dedupe_sections(messages)
+    assert "long text" not in out[0]["content"] and "Section 8-138" in out[0]["content"]
+    assert "below" in out[0]["content"] and "more" in out[0]["content"]
+    assert out[0]["tool_call_id"] == "a"
+    assert out[1]["content"] == messages[1]["content"]       # the decision-point copy stays
+    assert "long text" in messages[0]["content"]              # the input is not mutated
+
+
+def test_a_truncated_copy_never_replaces_the_full_text():
+    # A search result cut short by the context budget, then the whole section read.
+    from pension_chat.agent.loop import _dedupe_sections
+    messages = [
+        {"role": "system", "content": _sec("8-138", "(a) one (b) two (c) three")},
+        {"role": "tool", "tool_call_id": "b", "content": _sec("8-138", "(a) one")},
+    ]
+    out = _dedupe_sections(messages)
+    assert "(c) three" in out[0]["content"]
+    assert "(a) one" not in out[1]["content"] and "above" in out[1]["content"]
+
+
+def test_different_text_under_the_same_heading_is_kept_twice():
+    from pension_chat.agent.loop import _dedupe_sections
+    messages = [{"role": "system", "content": _sec("8-138", "(a) one")},
+                {"role": "system", "content": _sec("8-138", "(g-1) other")}]
+    assert _dedupe_sections(messages) == messages
